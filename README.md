@@ -21,7 +21,13 @@ This repository is intentionally small because training is run on Kaggle. The
 Kaggle notebook is the executable source of truth; docs capture the assignment
 structure, experiment decisions, and current model results.
 
-Expected Kaggle image path used by the notebook:
+Expected Kaggle dataset path used by the notebook:
+
+```text
+/kaggle/input/datasets/kmader/food41
+```
+
+The notebook reads images from:
 
 ```text
 /kaggle/input/datasets/kmader/food41/images

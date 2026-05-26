@@ -19,7 +19,13 @@ on:
 
 Dataset: Food-101.
 
-Expected Kaggle image path:
+Expected Kaggle dataset path:
+
+```text
+/kaggle/input/datasets/kmader/food41
+```
+
+The notebook reads images from:
 
 ```text
 /kaggle/input/datasets/kmader/food41/images

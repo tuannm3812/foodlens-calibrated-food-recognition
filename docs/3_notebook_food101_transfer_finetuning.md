@@ -24,7 +24,7 @@ random images.
 | --- | --- |
 | 1. Project Summary | assignment context, dataset challenge, and experiment stages |
 | 2. Runtime, Imports, And Configuration | centralized imports, `CFG`, seed setup, and device selection |
-| 3. Data Ingestion And Audit | Kaggle path resolution, manifest creation, class balance, and image-shape sampling |
+| 3. Data Ingestion And Audit | fixed Kaggle dataset path, manifest creation, class balance, and image-shape sampling |
 | 4. Preprocessing, Splits, And Dataloaders | transforms, stratified split, custom `FoodDataset`, and dataloaders |
 | 5. Model Construction | reusable builders for GoogLeNet, ResNet50, and MobileNetV3 classifier heads |
 | 6. Training And Evaluation Utilities | shared training, validation, checkpointing, and plotting functions |
