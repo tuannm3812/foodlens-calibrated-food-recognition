@@ -23,7 +23,7 @@ random images.
 | Section | Role |
 | --- | --- |
 | 1. Project Summary | assignment context, dataset challenge, and experiment stages |
-| 2. Runtime, Imports, And Configuration | centralized imports, `CFG`, seed setup, and device selection |
+| 2. Runtime, Imports, And Configuration | centralized imports, uppercase `CFG` constants, seed setup, and device selection |
 | 3. Data Ingestion And Audit | fixed Kaggle dataset path, manifest creation, class balance, and image-shape sampling |
 | 4. Preprocessing, Splits, And Dataloaders | transforms, stratified split, custom `FoodDataset`, and dataloaders |
 | 5. Model Construction | reusable builders for GoogLeNet, ResNet50, and MobileNetV3 classifier heads |
@@ -42,7 +42,7 @@ Key configuration values from the notebook:
 | Batch size | 32 |
 | Image size | 224 x 224 |
 | Initial learning rate | 1e-3 |
-| Mode | `train` or `inference` |
+| Mode | `CFG.MODE = "train"` or `CFG.MODE = "inference"` |
 | Part A epochs | 5 |
 | Fine-tuning epochs | 5 |
 | Fine-tuning learning rate | 1e-5 |

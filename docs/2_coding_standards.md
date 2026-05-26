@@ -43,6 +43,9 @@ Follow PEP 8 for Python code:
 - Prefer f-strings, list comprehensions, and small helper functions when they
   improve readability.
 - Add type hints for reusable functions when the type is clear.
+- Use `UPPER_SNAKE_CASE` for constants, fixed paths, and configuration fields
+  inside `CFG`. Use `snake_case` for ordinary variables, function arguments,
+  DataFrames, model instances, dataloaders, and metric outputs.
 - Group imports in this order:
   1. Standard library
   2. Third-party libraries
