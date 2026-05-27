@@ -148,3 +148,23 @@ speculative:
 
 This order keeps the scope defensible: it separates real generalization gains
 from changes that only improve validation accuracy by chance.
+
+## 8. ResNet50 Refinement Signal
+
+Notebook 2 has produced a strong first training-recipe result. Starting from
+the baseline fine-tuned ResNet50 checkpoint, the refined recipe reached
+**77.90% validation top-1 accuracy** after 15 epochs.
+
+Compared with the baseline validation top-1 of **72.86%**, this is a **+5.04
+percentage point** improvement. The training trace also shows that validation
+accuracy was still improving at epoch 15, so the early-stopping patience did
+not yet end the run.
+
+Interpretation:
+
+- Stronger augmentation, AdamW, label smoothing, and scheduler-based fine-tuning
+  are worth keeping.
+- The next decision depends on held-out test evaluation for
+  `resnet50_ft_v2_best.pth`.
+- If test top-1 improves by a similar margin, notebook 2 should become the new
+  ResNet50 champion and the reference point for notebook 3.

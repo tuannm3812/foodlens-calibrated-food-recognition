@@ -33,7 +33,7 @@ still need targeted attention.
 
 ## 3. Model Improvement Plan
 
-The next notebook should keep ResNet50 and change only the training recipe:
+Notebook 2 now keeps ResNet50 and changes only the training recipe:
 
 | Experiment | Change | Reason |
 | --- | --- | --- |
@@ -70,3 +70,13 @@ The next implementation task should be:
 
 This keeps the baseline notebook stable and makes any improvement easier to
 attribute to the training recipe rather than evaluation changes.
+
+Latest training signal: notebook 2 reached **77.90% validation top-1**, a
+**+5.04 percentage point** gain over the notebook 1 baseline. The immediate
+next step is to run notebook 2's final evaluation section against
+`resnet50_ft_v2_best.pth` and record held-out test top-1/top-5.
+
+If evaluating in a fresh Kaggle session, upload `resnet50_ft_v2_best.pth` as a
+Kaggle Model artifact and point `CFG.REFINED_ARTIFACT_DIR` at that mounted
+model directory. If evaluating in the same session that trained notebook 2, the
+checkpoint under `/kaggle/working/results/resnet50_refinements` is enough.
