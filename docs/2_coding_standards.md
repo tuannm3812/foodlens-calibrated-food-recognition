@@ -95,9 +95,10 @@ Prefer readable, self-contained notebook code over imports from local project
 modules. Kaggle should be able to run the notebook after attaching the required
 dataset.
 
-When notebook code changes, clear outputs before committing and rerun the
-notebook on Kaggle to regenerate trusted outputs. Keep committed notebooks
-lightweight; Kaggle is the execution record.
+When notebook code changes, clear outputs before committing. When only Markdown,
+documentation, or result commentary changes, existing notebook outputs may be
+kept if they are intentionally preserved as evidence. Kaggle remains the trusted
+execution record for regenerated outputs.
 
 ## 5. Deep Learning Standards
 

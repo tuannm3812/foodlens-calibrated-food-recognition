@@ -95,7 +95,7 @@ dataset, attach that dataset to the notebook, and set:
 
 ```python
 CFG.MODE = "inference"
-CFG.ARTIFACT_DIR = Path("/kaggle/input/food101-baseline-artifacts")
+CFG.ARTIFACT_DIR = Path("/kaggle/input/models/tuannm3823/food101-baseline-artifacts/pytorch/default/1/food101-baseline-artifacts")
 ```
 
 ## 6. Current Solution

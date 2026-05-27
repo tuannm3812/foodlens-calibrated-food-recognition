@@ -50,7 +50,7 @@ Key configuration values from the notebook:
 | Part A epochs | 5 |
 | Fine-tuning epochs | 5 |
 | Fine-tuning learning rate | 1e-5 |
-| Artifact directory | `/kaggle/input/food101-baseline-artifacts` |
+| Artifact directory | `/kaggle/input/models/tuannm3823/food101-baseline-artifacts/pytorch/default/1/food101-baseline-artifacts` |
 
 ## 5. Generated Outputs
 
