@@ -149,22 +149,44 @@ speculative:
 This order keeps the scope defensible: it separates real generalization gains
 from changes that only improve validation accuracy by chance.
 
-## 8. ResNet50 Refinement Signal
+## 8. ResNet50 Refinement Results
 
-Notebook 2 has produced a strong first training-recipe result. Starting from
-the baseline fine-tuned ResNet50 checkpoint, the refined recipe reached
-**77.90% validation top-1 accuracy** after 15 epochs.
+Notebook 2 is now the strongest evaluated ResNet50 run. Starting from the
+baseline fine-tuned checkpoint, the refined recipe used stronger augmentation,
+AdamW, label smoothing, learning-rate scheduling, and longer fine-tuning.
 
-Compared with the baseline validation top-1 of **72.86%**, this is a **+5.04
-percentage point** improvement. The training trace also shows that validation
-accuracy was still improving at epoch 15, so the early-stopping patience did
-not yet end the run.
+Final evaluation for `resnet50_ft_v2_best.pth`:
 
-Interpretation:
+| Split | Baseline top-1 | Refined top-1 | Change | Refined top-5 |
+| --- | ---: | ---: | ---: | ---: |
+| Validation | 72.86% | 77.90% | +5.04 pp | 92.36% |
+| Test | 73.64% | 78.28% | +4.63 pp | 92.65% |
 
-- Stronger augmentation, AdamW, label smoothing, and scheduler-based fine-tuning
-  are worth keeping.
-- The next decision depends on held-out test evaluation for
-  `resnet50_ft_v2_best.pth`.
-- If test top-1 improves by a similar margin, notebook 2 should become the new
-  ResNet50 champion and the reference point for notebook 3.
+Efficiency remains effectively unchanged because the architecture is still
+ResNet50:
+
+| Metric | Baseline | Refined |
+| --- | ---: | ---: |
+| Parameters | 24,714,405 | 24,714,405 |
+| Model size | 94.48 MB | 94.48 MB |
+| T4 latency | 5.82 ms/image | 5.35 ms/image |
+
+The result is a real generalization improvement, not only a validation gain.
+The refined model improves held-out test top-1 by **4.63 percentage points**
+while preserving the same deployment footprint.
+
+Remaining error patterns are concentrated in visually similar food families:
+
+- `steak`, `filet_mignon`, and `pork_chop` remain difficult because they share
+  grilled textures and overlapping plating styles.
+- `tuna_tartare`, `beef_tartare`, and `ceviche` are confused because they are
+  often presented as small raw-food portions with similar colors.
+- `bread_pudding`, `apple_pie`, and `french_toast` overlap through browned
+  pastry-like textures.
+- `chocolate_cake`, `chocolate_mousse`, and related desserts remain a
+  high-error cluster.
+
+The high-confidence error examples also show a calibration issue: several
+incorrect predictions have confidence above 0.98. The next model should
+therefore be judged on accuracy, top-5 accuracy, confusion behavior, and
+confidence quality rather than top-1 accuracy alone.

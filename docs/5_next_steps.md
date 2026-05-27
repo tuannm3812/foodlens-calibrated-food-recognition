@@ -8,11 +8,13 @@ The current workflow has a clear baseline and a credible champion:
 | --- | ---: |
 | Frozen ResNet50 transfer learning | 59.49% validation top-1 |
 | Fine-tuned ResNet50 `layer3 + layer4` | 72.86% validation top-1 |
-| Fine-tuned ResNet50 `layer3 + layer4` | 73.64% test top-1 |
-| Fine-tuned ResNet50 `layer3 + layer4` | 91.18% test top-5 |
+| Baseline fine-tuned ResNet50 `layer3 + layer4` | 73.64% test top-1 |
+| Refined ResNet50 FT-V2 | 78.28% test top-1 |
+| Refined ResNet50 FT-V2 | 92.65% test top-5 |
 
-This is a strong baseline for the personal Food-101 project. The current
-notebook should remain the baseline and evaluation notebook.
+Notebook 1 should remain the baseline and evaluation reference. Notebook 2 is
+now the current ResNet50 champion because it improves held-out test top-1 by
+4.63 percentage points without increasing model size or parameter count.
 
 ## 2. Baseline Notebook Refinements
 
@@ -33,13 +35,14 @@ still need targeted attention.
 
 ## 3. Model Improvement Plan
 
-Notebook 2 now keeps ResNet50 and changes only the training recipe:
+Notebook 2 has validated that the training recipe matters. It keeps ResNet50
+fixed and improves the recipe:
 
 | Experiment | Change | Reason |
 | --- | --- | --- |
-| ResNet50 FT-V2 | longer fine-tuning with early stopping | tests whether the current run is undertrained |
-| ResNet50 FT-V3 | learning-rate scheduler | stabilizes deeper fine-tuning |
-| ResNet50 FT-V4 | stronger augmentation | targets presentation and lighting variation |
+| ResNet50 FT-V2 | longer fine-tuning, AdamW, scheduler, augmentation, label smoothing | new champion |
+| ResNet50 FT-V3 | calibration and threshold analysis | reduces overconfident wrong predictions |
+| ResNet50 FT-V4 | targeted augmentation for hard class clusters | tests error-driven improvement |
 
 Recommended additions:
 
@@ -64,19 +67,17 @@ After the evaluation layer is reliable, scale the project in three directions:
 
 The next implementation task should be:
 
-> Run `02_resnet50_training_refinements.ipynb` using the uploaded baseline
-> checkpoint artifact, then compare its final validation/test metrics against
-> notebook 1.
+> Run `03_modern_backbone_comparison.ipynb` and compare EfficientNet-B0 and
+> ConvNeXt-Tiny against the refined ResNet50 FT-V2 champion.
 
-This keeps the baseline notebook stable and makes any improvement easier to
-attribute to the training recipe rather than evaluation changes.
+This keeps the baseline notebook stable, locks in the improved ResNet50 result,
+and makes the next scope expansion architecture-driven rather than another
+round of recipe tuning.
 
-Latest training signal: notebook 2 reached **77.90% validation top-1**, a
-**+5.04 percentage point** gain over the notebook 1 baseline. The immediate
-next step is to run notebook 2's final evaluation section against
-`resnet50_ft_v2_best.pth` and record held-out test top-1/top-5.
+Notebook 3 should use **78.28% test top-1** and **92.65% test top-5** as the
+reference score to beat. A new architecture should be promoted only if it
+improves accuracy meaningfully, improves inference efficiency, or reduces the
+same hard-class confusion patterns.
 
-If evaluating in a fresh Kaggle session, upload `resnet50_ft_v2_best.pth` as a
-Kaggle Model artifact and point `CFG.REFINED_ARTIFACT_DIR` at that mounted
-model directory. If evaluating in the same session that trained notebook 2, the
-checkpoint under `/kaggle/working/results/resnet50_refinements` is enough.
+Keep `resnet50_ft_v2_best.pth` as the current champion artifact and use its
+Kaggle Model path as the reference input for future comparison notebooks.
