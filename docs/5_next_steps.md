@@ -51,33 +51,44 @@ Recommended additions:
 - `RandomResizedCrop`, `ColorJitter`, and mild affine transforms.
 - Optional label smoothing for noisy Food-101 labels.
 
-## 4. Scope Expansion
+## 4. Architecture Comparison Outcome
 
-After the evaluation layer is reliable, scale the project in three directions:
+Notebook 3 has now tested EfficientNet-B0 and ConvNeXt-Tiny as frozen-head
+modern-backbone challengers. ResNet50 FT-V2 remains the champion:
 
-1. **Architecture comparison:** add EfficientNet-B0 or ConvNeXt-Tiny as a
-   modern baseline and compare accuracy, parameter count, and inference time.
-2. **Deployment readiness:** export the selected model, add deterministic
-   single-image inference, and document expected Kaggle artifact paths.
-3. **Error-driven improvement:** inspect confusion pairs for classes such as
+- ConvNeXt-Tiny reached **70.92% test top-1** and **90.24% test top-5**, but it
+  is larger, slower, and 7.36 percentage points below ResNet50 FT-V2.
+- EfficientNet-B0 reached **52.13% test top-1** and **77.02% test top-5**. Its
+  small size is useful for deployment exploration, but accuracy is currently
+  too low to promote.
+- The current evidence does not justify replacing ResNet50 FT-V2.
+
+## 5. Scope Expansion
+
+Scale the project in three directions:
+
+1. **Error-driven improvement:** inspect confusion pairs for classes such as
    `steak`, `pork_chop`, `filet_mignon`, `ravioli`, and `chocolate_mousse`,
    then tune augmentation or sampling based on observed failure modes.
+2. **Confidence calibration:** add temperature scaling or calibration metrics
+   so high-confidence errors are easier to interpret in an application.
+3. **Deployment readiness:** export the selected model, add deterministic
+   single-image inference, and document expected Kaggle artifact paths.
 
-## 5. Recommended Next Task
+## 6. Recommended Next Task
 
 The next implementation task should be:
 
-> Run `03_modern_backbone_comparison.ipynb` and compare EfficientNet-B0 and
-> ConvNeXt-Tiny against the refined ResNet50 FT-V2 champion.
+> Build the next notebook around ResNet50 FT-V2 error analysis and calibration
+> rather than another broad architecture search.
 
-This keeps the baseline notebook stable, locks in the improved ResNet50 result,
-and makes the next scope expansion architecture-driven rather than another
-round of recipe tuning.
+This keeps the current champion stable and focuses effort on the real failure
+modes seen across notebooks 1 and 2: visually similar classes and
+overconfident wrong predictions.
 
-Notebook 3 should use **78.28% test top-1** and **92.65% test top-5** as the
-reference score to beat. A new architecture should be promoted only if it
-improves accuracy meaningfully, improves inference efficiency, or reduces the
-same hard-class confusion patterns.
+A new architecture should be promoted only if it improves accuracy
+meaningfully, improves inference efficiency, or reduces the same hard-class
+confusion patterns.
 
 Keep `resnet50_ft_v2_best.pth` as the current champion artifact and use its
 Kaggle Model path as the reference input for future comparison notebooks.

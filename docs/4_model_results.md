@@ -26,8 +26,8 @@ depths.
 | Exp 1 | `layer4` | 1e-5 | 69.23% |
 | Exp 2 | `layer3` + `layer4` | 1e-5 | 72.86% |
 
-The current champion is **Exp 2: ResNet50 with `layer3` and `layer4`
-fine-tuned**, reaching **72.86% validation top-1 accuracy**.
+The strongest baseline fine-tuning run is **Exp 2: ResNet50 with `layer3` and
+`layer4` fine-tuned**, reaching **72.86% validation top-1 accuracy**.
 
 Final evaluation:
 
@@ -133,18 +133,17 @@ Latest efficiency result:
 
 ## 7. Model Improvement Direction
 
-The current champion is a strong personal-project baseline because it exceeds
-70% validation accuracy. The next model improvement should be measured, not
-speculative:
+The baseline notebook is a stable personal-project baseline because it exceeds
+70% validation accuracy and has held-out test reporting. Later notebooks build
+on it in controlled steps:
 
 1. Use notebook 1 as the fixed baseline and artifact-backed evaluation
    workflow.
 2. Run the second controlled ResNet50 refinement notebook with longer
    fine-tuning,
    learning-rate scheduling, and early stopping.
-3. After that, compare a stronger modern backbone such as EfficientNet-B0
-   or ConvNeXt-Tiny against ResNet50 under the same split and reporting
-   protocol.
+3. Compare stronger modern backbones such as EfficientNet-B0 and ConvNeXt-Tiny
+   against ResNet50 under the same split and reporting protocol.
 
 This order keeps the scope defensible: it separates real generalization gains
 from changes that only improve validation accuracy by chance.
@@ -190,3 +189,28 @@ The high-confidence error examples also show a calibration issue: several
 incorrect predictions have confidence above 0.98. The next model should
 therefore be judged on accuracy, top-5 accuracy, confusion behavior, and
 confidence quality rather than top-1 accuracy alone.
+
+## 9. Modern Backbone Comparison Results
+
+Notebook 3 compared frozen-head EfficientNet-B0 and ConvNeXt-Tiny against the
+refined ResNet50 FT-V2 champion. Neither challenger beat the current champion.
+
+| Model | Stage | Test top-1 | Test top-5 | Parameters | Model size | T4 latency |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| ResNet50 FT-V2 | reference | 78.28% | 92.65% | 24,714,405 | 94.48 MB | 5.35 ms/image |
+| ConvNeXt-Tiny | frozen head | 70.92% | 90.24% | 28,371,141 | 108.23 MB | 7.17 ms/image |
+| EfficientNet-B0 | frozen head | 52.13% | 77.02% | 4,820,705 | 18.55 MB | 7.44 ms/image |
+
+ConvNeXt-Tiny is the best modern-backbone challenger, but it is still **7.36
+percentage points below** ResNet50 FT-V2 on test top-1 accuracy. It is also
+larger and slower in the current setup, so it should not replace the ResNet50
+champion.
+
+EfficientNet-B0 is much smaller, but its frozen-head accuracy is too low for
+the current product-quality target. It remains interesting only if deployment
+size becomes more important than accuracy.
+
+The architecture comparison confirms that the strongest improvement so far
+came from the ResNet50 training recipe, not from switching backbones. The next
+technical step should focus on error-driven refinement and calibration before
+adding more architectures.

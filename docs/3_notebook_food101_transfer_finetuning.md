@@ -34,7 +34,7 @@ Follow-up notebooks:
 | Notebook | Role |
 | --- | --- |
 | [`../notebooks/02_resnet50_training_refinements.ipynb`](../notebooks/02_resnet50_training_refinements.ipynb) | tests longer ResNet50 fine-tuning, early stopping, scheduling, stronger augmentation, and label smoothing |
-| [`../notebooks/03_modern_backbone_comparison.ipynb`](../notebooks/03_modern_backbone_comparison.ipynb) | compares EfficientNet-B0 and ConvNeXt-Tiny against the ResNet50 baseline |
+| [`../notebooks/03_modern_backbone_comparison.ipynb`](../notebooks/03_modern_backbone_comparison.ipynb) | compares EfficientNet-B0 and ConvNeXt-Tiny against the ResNet50 FT-V2 champion |
 
 ## 4. Configuration
 
@@ -88,8 +88,10 @@ Evaluation artifacts include:
 
 These files are Kaggle outputs and should not be committed to git.
 
-## 6. Current Limitations
+## 6. Current Position
 
-The current notebook now has a stronger evaluation layer. Future iterations
-should focus on training improvements and architecture comparison in a second
-notebook so the baseline remains stable.
+The baseline notebook now has a stable evaluation layer and should remain the
+reference workflow. Notebook 2 produced the current ResNet50 FT-V2 champion,
+and Notebook 3 confirmed that the tested modern backbones do not yet replace
+it. Future iterations should focus on calibration, hard-class analysis, and
+deployment-ready inference around the current champion.
