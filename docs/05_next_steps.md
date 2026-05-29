@@ -70,13 +70,36 @@ Purpose:
 
 Implemented sections:
 
-1. Load `test_predictions_calibrated.csv` from Notebook 4.
+1. Load `test_predictions_calibrated.csv` from Notebook 4 output.
 2. Compute top-1 confidence, top-2 margin, and hard-class flags.
 3. Search candidate thresholds for auto-accept, suggest, and confirm bands.
 4. Report coverage and accuracy for each band.
 5. Export a decision-policy table.
 6. Add an inference wrapper that returns both predictions and recommended
    action.
+
+Required Notebook 5 input:
+
+```text
+/kaggle/input/notebooks/tuannm3823/resnet50-ft-v2-error-analysis-calibration/results/resnet50_error_calibration
+```
+
+That attached Notebook output should contain the calibrated CSV files from
+Notebook 4, especially:
+
+- `test_predictions_calibrated.csv`
+- `hard_classes_calibrated.csv`
+- `top_confusion_pairs_calibrated.csv`
+
+Notebook 4 also creates a single artifact bundle:
+
+```text
+/kaggle/working/results/resnet50_error_calibration_artifacts.zip
+```
+
+If you prefer a Kaggle Dataset upload, upload that zip once. Notebook 5 can
+extract `resnet50_error_calibration_artifacts.zip` automatically and read the
+same CSV files from it.
 
 Expected outputs:
 

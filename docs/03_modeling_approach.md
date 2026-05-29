@@ -149,6 +149,7 @@ Logic flow:
 6. Export hard classes, confusion pairs, high-confidence errors, and
    calibrated prediction tables.
 7. Provide deterministic single-image inference for deployment-style checks.
+8. Bundle calibration artifacts into one zip file for downstream notebooks.
 
 Decision expected:
 
@@ -173,6 +174,8 @@ Question:
 Logic flow:
 
 1. Load calibrated prediction outputs from Notebook 4.
+   Inputs can come from the linked Notebook output directory or from the
+   `resnet50_error_calibration_artifacts.zip` bundle.
 2. Engineer decision features such as top-1 confidence, top-1/top-2 margin,
    hard-class flags, and frequent confusion-pair flags.
 3. Search interpretable thresholds for auto-accept, suggest, confirm, and
