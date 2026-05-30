@@ -120,8 +120,9 @@ much smaller, but its accuracy was not competitive for the current target.
   because the model can be very confident on semantically plausible but wrong
   classes.
 - The decision layer supports a more usable product experience: easy dishes can
-  be accepted automatically, while known hard classes such as `steak`,
-  `tuna_tartare`, and `chocolate_mousse` are routed to ranked suggestions.
+  be accepted automatically, ambiguous correct cases can become ranked
+  suggestions, hard classes can request confirmation, and known confusion pairs
+  can be flagged for review.
 - **ResNet50 FT-V2 is the best current trade-off**: the tested modern
   alternatives did not improve accuracy or efficiency enough to justify
   replacing it.
@@ -137,11 +138,28 @@ much smaller, but its accuracy was not competitive for the current target.
 | `05_confidence_decision_layer.ipynb` | Converts calibrated predictions into product actions: auto-accept, show suggestions, request confirmation, or review. |
 | `06_food_recognition_demo_inference.ipynb` | Demonstrates the final single-image workflow with top-k predictions, calibrated confidence, decision action, and CSV demo exports. |
 
+## 9. Product Direction: FoodLens
+
+The next product direction is **FoodLens**, an image-first food-recognition
+assistant. FoodLens should use the final model workflow to identify dishes from
+uploaded images, show ranked predictions, and choose the right product action:
+**auto-accept**, **suggest**, **confirm**, or **review**.
+
+The recommended MVP is an **image upload app** backed by a lightweight inference
+API. Video recognition should come later through frame sampling once the image
+workflow is reliable.
+
+The first static frontend concept is available at
+[`app/frontend/index.html`](app/frontend/index.html). It uses mocked predictions
+for now and will connect to a real inference API after the model artifacts are
+placed outside git.
+
 Detailed approach, result notes, and next steps are indexed in
 [docs/README.md](docs/README.md) and maintained in
 [docs/03_modeling_approach.md](docs/03_modeling_approach.md),
 [docs/04_model_results.md](docs/04_model_results.md), and
-[docs/05_next_steps.md](docs/05_next_steps.md).
+[docs/05_next_steps.md](docs/05_next_steps.md). The FoodLens product concept
+is documented in [docs/06_foodlens_app_concept.md](docs/06_foodlens_app_concept.md).
 
 Banner image source:
 [`meatdistrictco.com.au`](https://www.meatdistrictco.com.au/wp-content/uploads/2024/08/0O2A0384-1700x660.jpg)

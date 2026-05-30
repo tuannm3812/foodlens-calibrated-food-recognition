@@ -324,21 +324,33 @@ Latest demo output:
 | Image class | Predicted class | Confidence | Margin | Decision |
 | --- | --- | ---: | ---: | --- |
 | `miso_soup` | `miso_soup` | 0.9917 | 0.9909 | auto-accept |
-| `ice_cream` | `ice_cream` | 0.9138 | 0.8775 | auto-accept |
-| `steak` | `steak` | 0.7838 | 0.6295 | suggest |
-| `tuna_tartare` | `tuna_tartare` | 0.7749 | 0.7160 | suggest |
-| `chocolate_mousse` | `chocolate_mousse` | 0.8342 | 0.7400 | suggest |
-| `greek_salad` | `greek_salad` | 0.9107 | 0.8658 | auto-accept |
+| `ice_cream` | `ice_cream` | 0.5476 | 0.1221 | suggest |
+| `grilled_salmon` | `grilled_salmon` | 0.6251 | 0.5521 | confirm |
+| `steak` | `filet_mignon` | 0.5765 | 0.1863 | review |
 
 Interpretation:
 
-- All six demo images were predicted correctly.
-- Distinctive classes such as `miso_soup`, `ice_cream`, and `greek_salad`
-  were routed to **auto-accept**.
-- Known hard classes such as `steak`, `tuna_tartare`, and
-  `chocolate_mousse` were routed to **suggest**, even when the top-1 prediction
-  was correct. This is the desired behavior because these classes have higher
-  historical confusion risk.
+- The latest demo intentionally covers all four action bands:
+  **auto-accept**, **suggest**, **confirm**, and **review**.
+- `miso_soup` is a clear high-confidence prediction and is correctly routed to
+  **auto-accept**.
+- `ice_cream` is correct but close to `frozen_yogurt`, so the system routes it
+  to **suggest** instead of over-automating an ambiguous dessert case.
+- `grilled_salmon` is correct but marked as a hard-case prediction, so the
+  system asks the user to **confirm**.
+- `steak -> filet_mignon` is an incorrect but semantically close meat-dish
+  confusion. The **review** band catches this known risk pattern.
 - Notebook 6 now exports `demo_predictions.csv` and
   `demo_decision_summary.csv` so the final demo can be reviewed outside the
   notebook.
+
+Final project conclusion:
+
+- The champion model remains **ResNet50 FT-V2**.
+- The best product use case is **assisted food tagging with ranked
+  suggestions**, not fully automatic labeling for every image.
+- The main limitation is **visual ambiguity between similar dishes**, especially
+  meat dishes, tartare-style dishes, and dessert families.
+- The final workflow is now more mature than a raw classifier because it
+  combines **top-k prediction**, **calibrated confidence**, and a
+  **decision action** for each image.

@@ -26,11 +26,12 @@ Use numbered, stable notebook names that match the workflow:
 3. `03_modern_backbone_comparison.ipynb`
 4. `04_resnet50_error_calibration_inference.ipynb`
 5. `05_confidence_decision_layer.ipynb`
+6. `06_food_recognition_demo_inference.ipynb`
 
 Notebook 1 is the stable baseline and evaluation workflow. Later notebooks
 should isolate experiment families, such as ResNet50 recipe changes, modern
-backbone comparisons, calibration analysis, or product decision layers, so
-results remain attributable.
+backbone comparisons, calibration analysis, product decision layers, or final
+demo inference, so results remain attributable.
 
 Use numbered documentation filenames so the reading order is obvious:
 

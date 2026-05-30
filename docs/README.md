@@ -10,6 +10,7 @@ steps. The root `README.md` stays focused on the high-level project story.
 | [`03_modeling_approach.md`](03_modeling_approach.md) | notebook-by-notebook reasoning flow and modeling decisions |
 | [`04_model_results.md`](04_model_results.md) | baseline, refinement, backbone, calibration, and inference results |
 | [`05_next_steps.md`](05_next_steps.md) | recommended next work, demo validation, and decision-layer plan |
+| [`06_foodlens_app_concept.md`](06_foodlens_app_concept.md) | FoodLens product concept, MVP scope, app architecture, and roadmap |
 
 Current notebook sequence:
 

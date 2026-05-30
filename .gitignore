@@ -29,6 +29,8 @@ kaggle/working/
 *.onnx
 *.h5
 *.safetensors
+app/artifacts/*
+!app/artifacts/.gitkeep
 
 # Large dataset archives
 *.tar

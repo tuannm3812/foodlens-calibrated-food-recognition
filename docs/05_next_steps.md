@@ -129,29 +129,36 @@ Notebook 6 now implements the final demo workflow and exports:
 - `demo_predictions.csv`
 - `demo_decision_summary.csv`
 
-The latest demo correctly predicts six sample images and routes distinctive
-classes to **auto-accept** while routing known hard classes such as `steak`,
-`tuna_tartare`, and `chocolate_mousse` to **suggest**.
+The latest demo covers all four decision bands:
+
+| Decision band | Demo example | Meaning |
+| --- | --- | --- |
+| Auto-accept | `miso_soup -> miso_soup` | high-confidence, low-risk prediction |
+| Suggest | `ice_cream -> ice_cream` | correct but visually close to another class |
+| Confirm | `grilled_salmon -> grilled_salmon` | correct hard-case prediction requiring user check |
+| Review | `steak -> filet_mignon` | known meat-dish confusion requiring inspection |
 
 Next action:
 
-> Rerun Notebook 6 after the export refinement, then use the exported demo CSVs
-> to update final reporting or build a lightweight presentation/demo page.
+> Package the final project story: champion model, calibration, decision layer,
+> and four-band demo behavior.
 
 ## 6. Secondary Improvements
 
 After the decision layer is in place, the next improvements should be scoped
 and evidence-driven:
 
-1. **Demo stress testing:** include examples that trigger all four decision
-   bands: auto-accept, suggest, confirm, and review.
-2. **Hard-class review:** build class-group reports for meat dishes, tartare
+1. **Final reporting:** turn the model, calibration, decision-layer, and demo
+   results into a concise project summary or presentation.
+2. **Demo stress testing:** expand the sample set beyond one example per
+   decision band and include non-Food-101 images.
+3. **Hard-class review:** build class-group reports for meat dishes, tartare
    dishes, pastry desserts, and chocolate desserts.
-3. **Inference packaging:** create a small reusable inference function or demo
+4. **Inference packaging:** create a small reusable inference function or demo
    notebook for one-image prediction.
-4. **Artifact documentation:** document the final champion checkpoint,
+5. **Artifact documentation:** document the final champion checkpoint,
    calibrated temperature, and expected input preprocessing.
-5. **Compact model revisit:** revisit EfficientNet-B0 or another small model
+6. **Compact model revisit:** revisit EfficientNet-B0 or another small model
    only if deployment size becomes more important than accuracy.
 
 ## 7. Stop Conditions

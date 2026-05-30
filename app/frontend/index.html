@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>FoodLens</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <h1>FoodLens</h1>
+            <p>Assisted food recognition</p>
+          </div>
+        </div>
+        <div class="status-strip" aria-label="Model status">
+          <span>ResNet50 FT-V2</span>
+          <span>Calibrated</span>
+          <span>Decision layer</span>
+        </div>
+      </header>
+
+      <section class="workspace" aria-label="FoodLens prediction workspace">
+        <div class="input-panel">
+          <div class="mode-tabs" role="tablist" aria-label="Input mode">
+            <button class="mode-tab active" type="button" data-mode="image">Image</button>
+            <button class="mode-tab" type="button" data-mode="video">Video</button>
+          </div>
+
+          <div class="upload-zone" id="imageZone">
+            <input id="imageInput" type="file" accept="image/*">
+            <label for="imageInput">
+              <span class="upload-title">Select food image</span>
+              <span class="upload-meta">JPG, PNG, or camera capture</span>
+            </label>
+          </div>
+
+          <div class="upload-zone hidden" id="videoZone">
+            <input id="videoInput" type="file" accept="video/*">
+            <label for="videoInput">
+              <span class="upload-title">Select short food video</span>
+              <span class="upload-meta">Frame sampling prototype</span>
+            </label>
+          </div>
+
+          <div class="preview-frame">
+            <img id="imagePreview" alt="Selected food preview">
+            <video id="videoPreview" controls muted playsinline></video>
+            <div class="preview-empty" id="previewEmpty">
+              <strong>Food image preview</strong>
+              <span>Use sample or upload your own</span>
+            </div>
+          </div>
+
+          <div class="input-actions">
+            <button class="primary-action" type="button" id="sampleButton">Use sample</button>
+            <button class="secondary-action" type="button" id="clearButton">Clear</button>
+          </div>
+        </div>
+
+        <div class="result-panel">
+          <div class="result-header">
+            <div>
+              <span class="eyebrow">Decision</span>
+              <h2 id="decisionTitle">Ready</h2>
+            </div>
+            <span class="decision-badge badge-neutral" id="decisionBadge">Waiting</span>
+          </div>
+
+          <div class="prediction-hero">
+            <span class="label-caption">Top prediction</span>
+            <strong id="topPrediction">No image selected</strong>
+            <div class="confidence-row">
+              <span id="confidenceValue">0.00%</span>
+              <div class="confidence-track" aria-hidden="true">
+                <span id="confidenceFill"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="action-copy" id="actionCopy">
+            FoodLens will show calibrated top-k predictions after an input is selected.
+          </div>
+
+          <div class="ranked-list" aria-label="Ranked predictions">
+            <div class="ranked-heading">
+              <span>Ranked suggestions</span>
+              <span>Confidence</span>
+            </div>
+            <div id="predictionList"></div>
+          </div>
+
+          <div class="decision-grid" aria-label="Decision policy">
+            <div class="decision-tile active" data-band="auto_accept">
+              <span>Auto-accept</span>
+              <strong>96.47%</strong>
+            </div>
+            <div class="decision-tile" data-band="suggest">
+              <span>Suggest</span>
+              <strong>Top-5</strong>
+            </div>
+            <div class="decision-tile" data-band="confirm">
+              <span>Confirm</span>
+              <strong>User check</strong>
+            </div>
+            <div class="decision-tile" data-band="review">
+              <span>Review</span>
+              <strong>Risk case</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
