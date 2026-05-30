@@ -27,11 +27,14 @@ Use numbered, stable notebook names that match the workflow:
 4. `04_resnet50_error_calibration_inference.ipynb`
 5. `05_confidence_decision_layer.ipynb`
 6. `06_food_recognition_demo_inference.ipynb`
+7. `07_multi_food_detection_exploration.ipynb`
+8. `08_detection_to_foodlens_pipeline.ipynb`
 
 Notebook 1 is the stable baseline and evaluation workflow. Later notebooks
 should isolate experiment families, such as ResNet50 recipe changes, modern
 backbone comparisons, calibration analysis, product decision layers, or final
-demo inference, so results remain attributable.
+demo inference. Detection notebooks should separate detector exploration from
+classifier-per-crop integration so results remain attributable.
 
 Use numbered documentation filenames so the reading order is obvious:
 
@@ -40,6 +43,8 @@ Use numbered documentation filenames so the reading order is obvious:
 3. `03_modeling_approach.md`
 4. `04_model_results.md`
 5. `05_next_steps.md`
+6. `06_foodlens_app_concept.md`
+7. `07_multi_food_detection_plan.md`
 
 ## 3. Code Style
 
