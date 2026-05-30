@@ -11,6 +11,7 @@ The project now has a clear champion and a trustworthy evaluation layer.
 | Refined ResNet50 FT-V2 | 78.28% test top-1 |
 | Refined ResNet50 FT-V2 | 92.65% test top-5 |
 | Calibrated ResNet50 FT-V2 | 0.0265 test ECE |
+| Decision layer | 58.02% auto-accept coverage at 96.47% top-1 |
 
 The current model direction is settled: **keep ResNet50 FT-V2 as the
 champion**. Modern backbone replacement is not justified by the current
@@ -18,8 +19,8 @@ evidence, and temperature scaling has made confidence scores more reliable.
 
 ## 2. What The Latest Output Means
 
-Notebook 4 changed the project from pure model evaluation to product-oriented
-decision design.
+Notebooks 4 to 6 changed the project from pure model evaluation to
+product-oriented decision design.
 
 Key output:
 
@@ -27,16 +28,18 @@ Key output:
 - **Calibration improved:** test ECE moved from 0.0432 to 0.0265.
 - **Hard classes persisted:** `chocolate_mousse`, `steak`, `pork_chop`,
   `bread_pudding`, and `tuna_tartare` remain difficult.
-- **Single-image inference works:** the notebook now has a deterministic
-  top-k prediction helper.
+- **Decision routing works:** the system can auto-accept easy cases and route
+  hard classes to suggestions or confirmation.
+- **Single-image inference works:** the final demo returns top-k predictions,
+  calibrated confidence, a decision band, and a recommended action.
 
 Interpretation:
 
 - The model is strong enough for **ranked suggestions**.
 - The model should not expose raw confidence without the calibrated
   temperature.
-- The next useful improvement is a **decision layer**, not another architecture
-  search.
+- The next useful improvement is **demo hardening and product validation**, not
+  another architecture search.
 
 ## 3. Implemented Next Task
 
@@ -108,37 +111,47 @@ Expected outputs:
 - `decision_examples_auto_accept.csv`
 - `decision_examples_suggest.csv`
 - `decision_examples_confirm.csv`
+- `decision_examples_review.csv`
 
 ## 5. Next After Notebook 5
 
-After running Notebook 5, record the selected decision thresholds and band
-metrics in `04_model_results.md`. The most important product metrics will be:
+Notebook 5 has produced the selected decision thresholds and band metrics:
 
-- auto-accept coverage and top-1 accuracy;
-- suggestion coverage and top-5 containment;
-- confirmation rate;
-- review rate for known hard-class confusions.
+| Decision band | Coverage | Key signal |
+| --- | ---: | --- |
+| Auto-accept | 58.02% | 96.47% top-1 accuracy |
+| Suggest | 20.78% | 100.00% top-5 containment |
+| Confirm | 18.99% | low top-1 accuracy, user input needed |
+| Review | 2.21% | known hard-confusion cases |
 
-The next implementation should be a small inference wrapper or demo notebook
-that returns:
+Notebook 6 now implements the final demo workflow and exports:
 
-1. top-k predictions;
-2. calibrated confidence;
-3. decision band;
-4. recommended user-facing action.
+- `demo_predictions.csv`
+- `demo_decision_summary.csv`
+
+The latest demo correctly predicts six sample images and routes distinctive
+classes to **auto-accept** while routing known hard classes such as `steak`,
+`tuna_tartare`, and `chocolate_mousse` to **suggest**.
+
+Next action:
+
+> Rerun Notebook 6 after the export refinement, then use the exported demo CSVs
+> to update final reporting or build a lightweight presentation/demo page.
 
 ## 6. Secondary Improvements
 
 After the decision layer is in place, the next improvements should be scoped
 and evidence-driven:
 
-1. **Hard-class review:** build class-group reports for meat dishes, tartare
+1. **Demo stress testing:** include examples that trigger all four decision
+   bands: auto-accept, suggest, confirm, and review.
+2. **Hard-class review:** build class-group reports for meat dishes, tartare
    dishes, pastry desserts, and chocolate desserts.
-2. **Inference packaging:** create a small reusable inference function or demo
+3. **Inference packaging:** create a small reusable inference function or demo
    notebook for one-image prediction.
-3. **Artifact documentation:** document the final champion checkpoint,
+4. **Artifact documentation:** document the final champion checkpoint,
    calibrated temperature, and expected input preprocessing.
-4. **Compact model revisit:** revisit EfficientNet-B0 or another small model
+5. **Compact model revisit:** revisit EfficientNet-B0 or another small model
    only if deployment size becomes more important than accuracy.
 
 ## 7. Stop Conditions

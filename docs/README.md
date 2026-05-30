@@ -9,7 +9,7 @@ steps. The root `README.md` stays focused on the high-level project story.
 | [`02_coding_standards.md`](02_coding_standards.md) | repository, notebook, code, documentation, and git standards |
 | [`03_modeling_approach.md`](03_modeling_approach.md) | notebook-by-notebook reasoning flow and modeling decisions |
 | [`04_model_results.md`](04_model_results.md) | baseline, refinement, backbone, calibration, and inference results |
-| [`05_next_steps.md`](05_next_steps.md) | recommended next work and decision-layer plan |
+| [`05_next_steps.md`](05_next_steps.md) | recommended next work, demo validation, and decision-layer plan |
 
 Current notebook sequence:
 
@@ -18,3 +18,4 @@ Current notebook sequence:
 3. `03_modern_backbone_comparison.ipynb`
 4. `04_resnet50_error_calibration_inference.ipynb`
 5. `05_confidence_decision_layer.ipynb`
+6. `06_food_recognition_demo_inference.ipynb`

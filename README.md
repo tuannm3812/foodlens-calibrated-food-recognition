@@ -7,9 +7,9 @@
 ![Computer Vision](https://img.shields.io/badge/Domain-Computer%20Vision-455A64?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-Champion%20Model-2E7D32?style=flat-square)
 
-**Notebook-first Food-101 image classification** project focused on building a
-reliable baseline, improving it with controlled experiments, and translating
-model performance into practical food-recognition implications.
+**Food-101 image classification** project focused on building a reliable
+baseline, improving it with controlled experiments, and translating model
+performance into practical food-recognition decisions.
 
 ## 1. Project Overview
 
@@ -58,6 +58,10 @@ augmentation, and label smoothing.
 | Validation top-5 accuracy | 92.36% |
 | Test top-1 accuracy | 78.28% |
 | Test top-5 accuracy | 92.65% |
+| Test calibration ECE | 0.0265 |
+| Auto-accept coverage | 58.02% |
+| Auto-accept top-1 accuracy | 96.47% |
+| Suggestion-band top-5 containment | 100.00% |
 | Parameters | 24.7M |
 | Model size | 94.48 MB |
 | T4 latency | 5.35 ms/image |
@@ -70,6 +74,7 @@ augmentation, and label smoothing.
 | Baseline fine-tuned ResNet50 `layer3 + layer4` | 73.64% test top-1 |
 | Refined ResNet50 FT-V2 | 78.28% test top-1 |
 | Refined ResNet50 FT-V2 | 92.65% test top-5 |
+| Calibrated decision layer | 58.02% auto-accept coverage at 96.47% top-1 |
 
 The largest gain came from improving the **ResNet50 training recipe**. The
 FT-V2 model improved held-out test top-1 by **4.63 percentage points** over the
@@ -94,10 +99,13 @@ much smaller, but its accuracy was not competitive for the current target.
   backbone.
 - **Top-5 accuracy above 92%** shows the model is much stronger as a ranked
   suggestion engine than as a single hard-label system.
+- **Temperature scaling** improves confidence quality without changing the
+  model ranking, reducing test ECE from 0.0432 to **0.0265**.
+- **Decision thresholds** convert calibrated confidence into practical actions:
+  auto-accept easy predictions, show suggestions for ambiguous classes, and
+  reserve confirmation or review for risky cases.
 - **Hard classes** cluster around visually similar foods: steak-like dishes,
   tartare or ceviche dishes, pastry-like desserts, and chocolate desserts.
-- **High-confidence wrong predictions** show that calibration should be part
-  of the next evaluation layer.
 
 ## 7. Business Implications
 
@@ -111,6 +119,9 @@ much smaller, but its accuracy was not competitive for the current target.
 - **Confidence scores should not be exposed directly without calibration**,
   because the model can be very confident on semantically plausible but wrong
   classes.
+- The decision layer supports a more usable product experience: easy dishes can
+  be accepted automatically, while known hard classes such as `steak`,
+  `tuna_tartare`, and `chocolate_mousse` are routed to ranked suggestions.
 - **ResNet50 FT-V2 is the best current trade-off**: the tested modern
   alternatives did not improve accuracy or efficiency enough to justify
   replacing it.
@@ -124,6 +135,7 @@ much smaller, but its accuracy was not competitive for the current target.
 | `03_modern_backbone_comparison.ipynb` | Compares EfficientNet-B0 and ConvNeXt-Tiny against ResNet50 FT-V2 using the same split, metrics, and artifact exports. |
 | `04_resnet50_error_calibration_inference.ipynb` | Analyzes the champion with calibration metrics, hard-class reports, high-confidence errors, and deterministic single-image inference. |
 | `05_confidence_decision_layer.ipynb` | Converts calibrated predictions into product actions: auto-accept, show suggestions, request confirmation, or review. |
+| `06_food_recognition_demo_inference.ipynb` | Demonstrates the final single-image workflow with top-k predictions, calibrated confidence, decision action, and CSV demo exports. |
 
 Detailed approach, result notes, and next steps are indexed in
 [docs/README.md](docs/README.md) and maintained in

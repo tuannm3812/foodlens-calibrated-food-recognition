@@ -273,3 +273,72 @@ Interpretation:
 - Accuracy is already stable; the main remaining risk is class ambiguity.
 - Next work should convert calibrated confidence into decision thresholds such
   as auto-accept, show top-k suggestions, or ask for user confirmation.
+
+## 11. Confidence Decision Layer Results
+
+Notebook 5 converts calibrated predictions into practical product actions. The
+selected policy is intentionally simple and auditable:
+
+| Threshold | Value |
+| --- | ---: |
+| Auto-accept confidence | 0.70 |
+| Suggest confidence | 0.35 |
+| Top-1/top-2 margin | 0.40 |
+
+Decision-band results on the held-out test predictions:
+
+| Decision band | Coverage | Top-1 accuracy | Top-5 contains actual | Interpretation |
+| --- | ---: | ---: | ---: | --- |
+| Auto-accept | 58.02% | 96.47% | 98.84% | safe enough for direct labeling |
+| Suggest | 20.78% | 79.94% | 100.00% | strong candidate for ranked user choice |
+| Confirm | 18.99% | 29.98% | 66.16% | user confirmation is required |
+| Review | 2.21% | 0.00% | 88.79% | known confusion cases need inspection |
+
+Technical insight:
+
+- The model can automatically accept more than half of test predictions while
+  keeping auto-accept top-1 accuracy above **96%**.
+- The suggestion band is especially valuable because the correct answer is in
+  the top five for **100%** of those cases.
+- The confirm and review bands correctly isolate risky examples; they should
+  not be treated as model failure alone, but as evidence that product behavior
+  should change by confidence and ambiguity.
+
+Business insight:
+
+- The project is now closer to a usable assisted-labeling workflow than a raw
+  classifier. A product can accept easy dishes, show choices for ambiguous
+  dishes, and avoid overconfident automation on known hard classes.
+
+## 12. Final Demo Inference Results
+
+Notebook 6 validates the end-to-end user-facing workflow. It loads:
+
+- the **ResNet50 FT-V2** checkpoint;
+- calibrated temperature **0.958111**;
+- decision policy **0.70 / 0.35 / 0.40**;
+- **15 hard classes** and **30 repeated confusion pairs**.
+
+Latest demo output:
+
+| Image class | Predicted class | Confidence | Margin | Decision |
+| --- | --- | ---: | ---: | --- |
+| `miso_soup` | `miso_soup` | 0.9917 | 0.9909 | auto-accept |
+| `ice_cream` | `ice_cream` | 0.9138 | 0.8775 | auto-accept |
+| `steak` | `steak` | 0.7838 | 0.6295 | suggest |
+| `tuna_tartare` | `tuna_tartare` | 0.7749 | 0.7160 | suggest |
+| `chocolate_mousse` | `chocolate_mousse` | 0.8342 | 0.7400 | suggest |
+| `greek_salad` | `greek_salad` | 0.9107 | 0.8658 | auto-accept |
+
+Interpretation:
+
+- All six demo images were predicted correctly.
+- Distinctive classes such as `miso_soup`, `ice_cream`, and `greek_salad`
+  were routed to **auto-accept**.
+- Known hard classes such as `steak`, `tuna_tartare`, and
+  `chocolate_mousse` were routed to **suggest**, even when the top-1 prediction
+  was correct. This is the desired behavior because these classes have higher
+  historical confusion risk.
+- Notebook 6 now exports `demo_predictions.csv` and
+  `demo_decision_summary.csv` so the final demo can be reviewed outside the
+  notebook.

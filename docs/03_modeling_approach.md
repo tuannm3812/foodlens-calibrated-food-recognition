@@ -182,6 +182,7 @@ Logic flow:
    review bands.
 4. Report coverage and accuracy for each decision band.
 5. Export a decision policy and representative examples.
+6. Provide decision-band examples for the final demo notebook.
 
 Decision expected:
 
@@ -194,7 +195,36 @@ Decision expected:
 
 Notebook 5 turns calibrated model output into **product behavior**.
 
-## 8. Cross-Notebook Evaluation Contract
+## 8. Notebook 6: Demonstrate Final Inference
+
+Notebook:
+[`../notebooks/06_food_recognition_demo_inference.ipynb`](../notebooks/06_food_recognition_demo_inference.ipynb)
+
+Question:
+
+> What does the final food-recognition experience look like for one image?
+
+Logic flow:
+
+1. Load the ResNet50 FT-V2 checkpoint.
+2. Load calibrated temperature and decision thresholds.
+3. Load hard-class and confusion-pair context when available.
+4. Predict calibrated top-k classes for one image.
+5. Return a decision band and recommended user-facing action.
+6. Export demo prediction and decision-summary CSV files.
+
+Decision expected:
+
+| Output | Meaning |
+| --- | --- |
+| Top-k predictions | ranked class suggestions with calibrated confidence |
+| Decision band | auto-accept, suggest, confirm, or review |
+| Recommended action | user-facing behavior for the prediction |
+| Demo CSVs | auditable output for documentation or presentation |
+
+Notebook 6 is the demo layer for the project.
+
+## 9. Cross-Notebook Evaluation Contract
 
 All notebooks should preserve the same **comparison contract**:
 
@@ -208,12 +238,13 @@ All notebooks should preserve the same **comparison contract**:
 | Documentation | markdown conclusions tied to the executed result |
 | Calibration | confidence quality for the champion model |
 | Decision layer | action bands, coverage, and accuracy by band |
+| Demo inference | top-k predictions and user-facing action for sample images |
 
 This keeps model changes interpretable. A new experiment should explain **what
 changed**, **why it changed**, and whether the result is strong enough to alter
 the project direction.
 
-## 9. Current Reasoning Conclusion
+## 10. Current Reasoning Conclusion
 
 The current champion is **ResNet50 FT-V2**. The project has moved from general
 model search to **targeted improvement and decision design**:
@@ -222,5 +253,6 @@ model search to **targeted improvement and decision design**:
 2. Study repeated **hard-class confusion pairs**.
 3. Improve **deterministic single-image inference**.
 4. Define **product decision bands** from calibrated predictions.
-5. Revisit compact models only if **deployment constraints** become more
+5. Demonstrate the final **user-facing prediction workflow**.
+6. Revisit compact models only if **deployment constraints** become more
    important than accuracy.
