@@ -42,3 +42,6 @@ app/artifacts/*
 .DS_Store
 .vscode/
 .idea/
+
+# Local agent workspaces
+.superpowers/
