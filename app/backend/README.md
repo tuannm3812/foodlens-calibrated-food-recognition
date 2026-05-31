@@ -47,6 +47,9 @@ classification when `ultralytics` is installed and marks responses with
 response marked with `detector_status: fallback_demo` when the detector runtime
 is unavailable.
 
+The frontend implements video review by sampling key frames client-side and
+calling `POST /predict/multi-food/image` for each extracted frame.
+
 ## Real Inference Integration
 
 To move from mock inference to real inference, place artifacts outside git under

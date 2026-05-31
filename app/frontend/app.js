@@ -157,7 +157,7 @@ let latestMultiFoodResult;
 
 const FILE_HINTS = {
   image: "Images: JPG, PNG, WebP, HEIC. One clear dish works best.",
-  video: "Videos: MP4, MOV, WebM. FoodLens samples key frames and aggregates predictions.",
+  video: "Videos: MP4, MOV, WebM. FoodLens samples key frames and reviews detected crops.",
 };
 
 const PREVIEW_HELP = {
@@ -630,39 +630,37 @@ async function frameToBlob(video) {
   });
 }
 
-function aggregateFrameResults(frameResults) {
-  const classScores = new Map();
-  let artifactStatus = "ready";
-  let temperature = 0.958111;
-  let modelName = "ResNet50 FT-V2";
-
-  frameResults.forEach((result) => {
-    artifactStatus = result.artifactStatus || artifactStatus;
-    temperature = result.temperature || temperature;
-    modelName = result.modelName || modelName;
-    result.predictions.forEach(([className, score]) => {
-      classScores.set(className, (classScores.get(className) || 0) + score / frameResults.length);
-    });
-  });
-
-  const predictions = [...classScores.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-  const topConfidence = predictions[0]?.[1] || 0;
-  const decision = topConfidence >= 0.7 ? "suggest" : "confirm";
+function buildVideoMultiFoodResult(frameResults) {
+  const predictions = frameResults.flatMap((frameResult, frameIndex) =>
+    (frameResult.result.predictions || []).map((prediction) => ({
+      ...prediction,
+      source_id: `video frame ${frameIndex + 1} at ${frameResult.timeLabel}`,
+    })),
+  );
+  const firstResult = frameResults[0]?.result || {};
+  const liveFrameCount = frameResults.filter(
+    (frameResult) => frameResult.result.detector_status === "live_yolo",
+  ).length;
 
   return {
-    decision,
-    title: decision === "suggest" ? "Show suggestions" : "Confirm dish",
-    action: `Video analysis sampled ${frameResults.length} key frames. Confirm the label if the clip contains multiple foods or scene changes.`,
-    modelName,
-    temperature,
-    artifactStatus,
+    model: firstResult.model || "resnet50_ft_v2",
+    temperature: firstResult.temperature || 0.958111,
+    top_k: firstResult.top_k || 5,
+    decision_thresholds: firstResult.decision_thresholds || {
+      auto_accept: 0.85,
+      suggest: 0.5,
+    },
+    detector_status:
+      liveFrameCount > 0
+        ? `live_yolo · ${liveFrameCount}/${frameResults.length} frames`
+        : "fallback_demo",
+    crop_count: predictions.length,
     predictions,
+    artifact_status: firstResult.artifact_status || "ready",
   };
 }
 
-async function predictVideoFrames(source) {
+async function predictVideoMultiFoodFrames(source) {
   const video = document.createElement("video");
   video.src = source;
   video.muted = true;
@@ -671,7 +669,7 @@ async function predictVideoFrames(source) {
 
   await waitForEvent(video, "loadedmetadata");
   const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 1;
-  const frameCount = Math.min(5, Math.max(1, Math.ceil(duration / 2)));
+  const frameCount = Math.min(3, Math.max(1, Math.ceil(duration / 2)));
   const frameTimes = Array.from({ length: frameCount }, (_, index) => {
     if (frameCount === 1) {
       return Math.min(0.1, duration * 0.5);
@@ -680,16 +678,21 @@ async function predictVideoFrames(source) {
   });
 
   const frameResults = [];
-  for (const frameTime of frameTimes) {
-    await seekVideo(video, Math.max(0, frameTime));
+  for (const [index, frameTime] of frameTimes.entries()) {
+    const safeFrameTime = Math.max(0, frameTime);
+    actionCopy.textContent = `Analyzing video frame ${index + 1} of ${frameTimes.length}.`;
+    await seekVideo(video, safeFrameTime);
     const frameBlob = await frameToBlob(video);
-    const frameFile = new File([frameBlob], "foodlens_video_frame.jpg", {
+    const frameFile = new File([frameBlob], `foodlens_video_frame_${index + 1}.jpg`, {
       type: "image/jpeg",
     });
-    frameResults.push(await predictWithBackend(frameFile, "image"));
+    frameResults.push({
+      timeLabel: `${safeFrameTime.toFixed(1)}s`,
+      result: await predictMultiFoodWithBackend(frameFile),
+    });
   }
 
-  return aggregateFrameResults(frameResults);
+  return buildVideoMultiFoodResult(frameResults);
 }
 
 function resetResult() {
@@ -738,7 +741,7 @@ async function handleFile(file, type) {
   setPreview(type, source);
   actionCopy.textContent =
     type === "video"
-      ? "Sampling video frames and running FoodLens classification."
+      ? "Sampling video frames and running FoodLens crop review."
       : "Running FoodLens classification.";
   decisionBadge.textContent = "Analyzing";
   decisionBadge.className = "decision-badge badge-neutral";
@@ -748,8 +751,8 @@ async function handleFile(file, type) {
       const apiResult = await predictMultiFoodWithBackend(file);
       renderMultiFoodResults(apiResult);
     } else {
-      const apiResult = await predictVideoFrames(source);
-      renderPredictions(apiResult);
+      const apiResult = await predictVideoMultiFoodFrames(source);
+      renderMultiFoodResults(apiResult);
     }
   } catch (error) {
     console.warn("Using mock predictions because backend is unavailable.", error);

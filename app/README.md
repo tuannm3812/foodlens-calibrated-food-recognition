@@ -1,8 +1,8 @@
 # FoodLens App
 
 FoodLens is the product direction for this project: a polished food-recognition
-assistant that turns image or video inputs into calibrated predictions and
-user-facing actions.
+assistant that turns image or video inputs into calibrated crop-level
+predictions and user-facing actions.
 
 ## Current Prototype
 
@@ -15,7 +15,7 @@ app/frontend/index.html
 It includes:
 
 - image upload preview;
-- video upload concept mode;
+- video key-frame sampling;
 - single-image and multi-region result views;
 - calibrated-confidence style display;
 - the four decision bands: auto-accept, suggest, confirm, and review.
@@ -65,6 +65,10 @@ artifact references. When `ultralytics` and the model artifacts are available,
 it runs YOLO proposals followed by the FoodLens crop classifier and returns
 `detector_status: live_yolo`. Otherwise, it falls back to a deterministic
 prototype response with `detector_status: fallback_demo`.
+
+For video uploads, the frontend samples up to three key frames and sends each
+frame through the same multi-food image endpoint. This keeps the app responsive
+while still exposing frame-level crop review.
 
 ## Artifact Requirements
 
