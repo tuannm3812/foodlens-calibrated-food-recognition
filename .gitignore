@@ -45,3 +45,4 @@ app/artifacts/*
 
 # Local agent workspaces
 .superpowers/
+.worktrees/
