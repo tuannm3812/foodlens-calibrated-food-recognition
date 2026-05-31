@@ -1,5 +1,6 @@
 """Inference helpers for the FoodLens API."""
 
+import base64
 from io import BytesIO
 import json
 import os
@@ -507,6 +508,14 @@ def build_full_image_region(image: Any) -> dict[str, Any]:
     }
 
 
+def build_crop_data_url(crop: Any) -> str:
+    """Encode a crop preview as a browser-ready JPEG data URL."""
+    buffer = BytesIO()
+    crop.save(buffer, format="JPEG", quality=82)
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}"
+
+
 def build_multi_food_response(
     image: Any,
     detection_rows: list[dict[str, Any]],
@@ -558,6 +567,7 @@ def build_multi_food_response(
                     crop_path=f"runtime/{crop_name}",
                     crop_artifact_path=f"app://runtime/crops/{crop_name}",
                     figure_path="runtime/uploaded_image_detections.jpg",
+                    crop_data_url=build_crop_data_url(crop),
                 ),
             )
         )

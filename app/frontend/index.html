@@ -35,6 +35,7 @@
           <div class="image-stage">
             <img id="imagePreview" alt="Selected food preview">
             <video id="videoPreview" controls muted playsinline></video>
+            <div class="detection-overlay" id="detectionOverlay" aria-hidden="true"></div>
             <div class="preview-empty" id="previewEmpty">
               <span class="empty-icon">⌁</span>
               <strong>No Subject Detected</strong>
@@ -102,7 +103,7 @@
               <strong id="temperatureValue">0.958111</strong>
             </div>
             <div>
-              <span>Artifacts</span>
+              <span>Detector</span>
               <strong id="artifactStatus">Ready</strong>
             </div>
           </div>

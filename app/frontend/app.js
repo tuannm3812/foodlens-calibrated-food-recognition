@@ -115,6 +115,7 @@ const imageInput = document.querySelector("#imageInput");
 const videoInput = document.querySelector("#videoInput");
 const imagePreview = document.querySelector("#imagePreview");
 const videoPreview = document.querySelector("#videoPreview");
+const detectionOverlay = document.querySelector("#detectionOverlay");
 const previewEmpty = document.querySelector("#previewEmpty");
 const previewHelp = document.querySelector("#previewHelp");
 const imageZone = document.querySelector("#imageZone");
@@ -152,6 +153,7 @@ const scanMeta = document.querySelector("#scanMeta");
 let activeMode = "image";
 let noticeTimer;
 let currentObjectUrl;
+let latestMultiFoodResult;
 
 const FILE_HINTS = {
   image: "Images: JPG, PNG, WebP, HEIC. One clear dish works best.",
@@ -341,6 +343,7 @@ function setPreview(type, source) {
   previewEmpty.style.display = "none";
   imagePreview.style.display = type === "image" ? "block" : "none";
   videoPreview.style.display = type === "video" ? "block" : "none";
+  detectionOverlay.innerHTML = "";
 
   if (type === "image") {
     imagePreview.src = source;
@@ -360,6 +363,7 @@ function clearPreview() {
   videoPreview.removeAttribute("src");
   imagePreview.style.display = "none";
   videoPreview.style.display = "none";
+  detectionOverlay.innerHTML = "";
   previewEmpty.style.display = "grid";
 }
 
@@ -426,19 +430,84 @@ function summarizeMultiFoodResult(appResult) {
   };
 }
 
+function imageDisplayMetrics() {
+  const stageRect = imagePreview.parentElement.getBoundingClientRect();
+  const naturalWidth = imagePreview.naturalWidth;
+  const naturalHeight = imagePreview.naturalHeight;
+
+  if (!naturalWidth || !naturalHeight || !stageRect.width || !stageRect.height) {
+    return undefined;
+  }
+
+  const imageRatio = naturalWidth / naturalHeight;
+  const stageRatio = stageRect.width / stageRect.height;
+  const displayWidth = imageRatio > stageRatio ? stageRect.width : stageRect.height * imageRatio;
+  const displayHeight = imageRatio > stageRatio ? stageRect.width / imageRatio : stageRect.height;
+
+  return {
+    left: (stageRect.width - displayWidth) / 2,
+    top: (stageRect.height - displayHeight) / 2,
+    width: displayWidth,
+    height: displayHeight,
+    naturalWidth,
+    naturalHeight,
+  };
+}
+
+function renderDetectionOverlay(appResult) {
+  const predictions = (appResult.predictions || [])
+    .slice()
+    .sort((a, b) => b.foodlens.top_confidence - a.foodlens.top_confidence);
+  const metrics = imageDisplayMetrics();
+  detectionOverlay.innerHTML = "";
+
+  if (!metrics || predictions.length === 0 || imagePreview.style.display === "none") {
+    return;
+  }
+
+  detectionOverlay.style.left = `${metrics.left}px`;
+  detectionOverlay.style.top = `${metrics.top}px`;
+  detectionOverlay.style.width = `${metrics.width}px`;
+  detectionOverlay.style.height = `${metrics.height}px`;
+
+  predictions.slice(0, 8).forEach((prediction, index) => {
+    if (!prediction.bbox) {
+      return;
+    }
+
+    const bbox = prediction.bbox;
+    const sourceWidth = bbox.source_width || metrics.naturalWidth;
+    const sourceHeight = bbox.source_height || metrics.naturalHeight;
+    const box = document.createElement("div");
+    const label = formatLabel(prediction.foodlens.top_label);
+    const confidence = formatConfidence(prediction.foodlens.top_confidence);
+
+    box.className = "detection-box";
+    box.style.left = `${(bbox.x1 / sourceWidth) * 100}%`;
+    box.style.top = `${(bbox.y1 / sourceHeight) * 100}%`;
+    box.style.width = `${((bbox.x2 - bbox.x1) / sourceWidth) * 100}%`;
+    box.style.height = `${((bbox.y2 - bbox.y1) / sourceHeight) * 100}%`;
+    box.innerHTML = `<span>${String(index + 1).padStart(2, "0")} · ${label} ${confidence}</span>`;
+    detectionOverlay.append(box);
+  });
+}
+
 function renderMultiFoodResults(appResult) {
+  latestMultiFoodResult = appResult;
   const predictions = (appResult.predictions || [])
     .slice()
     .sort((a, b) => b.foodlens.top_confidence - a.foodlens.top_confidence);
 
   multiFoodPanel.classList.toggle("hidden", predictions.length === 0);
   multiFoodCount.textContent = `${predictions.length} crops`;
+  renderDetectionOverlay(appResult);
   multiFoodGrid.innerHTML = predictions
     .map((prediction, index) => {
       const decision = prediction.foodlens.decision_band;
       const label = formatLabel(prediction.foodlens.top_label);
       const confidence = formatConfidence(prediction.foodlens.top_confidence);
       const detectorLabel = formatLabel(prediction.detector.label);
+      const cropPreview = prediction.artifacts?.crop_data_url;
       const topAlternatives = prediction.foodlens.top_k_predictions
         .slice(1, 3)
         .map(([className, score]) => `${formatLabel(className)} ${formatConfidence(score)}`)
@@ -446,7 +515,8 @@ function renderMultiFoodResults(appResult) {
 
       return `
         <article class="multi-food-card">
-          <div class="crop-thumb">
+          <div class="crop-thumb ${cropPreview ? "has-image" : ""}">
+            ${cropPreview ? `<img src="${cropPreview}" alt="${label} crop preview">` : ""}
             <span>${String(index + 1).padStart(2, "0")}</span>
             <strong>${label}</strong>
           </div>
@@ -622,6 +692,7 @@ async function predictVideoFrames(source) {
 }
 
 function resetResult() {
+  latestMultiFoodResult = undefined;
   decisionTitle.textContent = "Ready";
   decisionAction.className = "confirm-button";
   decisionBadge.textContent = "Waiting";
@@ -639,6 +710,7 @@ function resetResult() {
   multiFoodPanel.classList.add("hidden");
   multiFoodGrid.innerHTML = "";
   multiFoodCount.textContent = "0 crops";
+  detectionOverlay.innerHTML = "";
   decisionTiles.forEach((tile) => tile.classList.remove("active"));
 }
 
@@ -701,6 +773,18 @@ navLinks.forEach((link) => {
 
 imageInput.addEventListener("change", (event) => {
   handleFile(event.target.files[0], "image");
+});
+
+imagePreview.addEventListener("load", () => {
+  if (latestMultiFoodResult) {
+    renderDetectionOverlay(latestMultiFoodResult);
+  }
+});
+
+window.addEventListener("resize", () => {
+  if (latestMultiFoodResult) {
+    renderDetectionOverlay(latestMultiFoodResult);
+  }
 });
 
 videoInput.addEventListener("change", (event) => {

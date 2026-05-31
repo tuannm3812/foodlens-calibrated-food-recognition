@@ -1,5 +1,7 @@
 """API schemas for the FoodLens inference service."""
 
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -66,6 +68,7 @@ class RegionArtifacts(BaseModel):
     crop_path: str
     crop_artifact_path: str
     figure_path: str
+    crop_data_url: Optional[str] = None
 
 
 class MultiFoodPrediction(BaseModel):
