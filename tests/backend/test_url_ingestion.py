@@ -81,7 +81,7 @@ def test_download_image_url_rejects_non_image_content(
         lambda url: url,
     )
     monkeypatch.setattr(
-        "app.backend.media_download.urlopen",
+        "app.backend.media_download._open_url",
         lambda request, timeout: Response(),
     )
 
@@ -119,7 +119,7 @@ def test_download_image_url_reads_bounded_image(
         lambda url: url,
     )
     monkeypatch.setattr(
-        "app.backend.media_download.urlopen",
+        "app.backend.media_download._open_url",
         lambda request, timeout: Response(),
     )
 

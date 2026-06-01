@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
-from urllib.request import Request, urlopen
-from typing import Optional
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .url_security import UrlValidationError, validate_public_http_url
 
@@ -18,6 +18,16 @@ REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 
 class DownloadError(ValueError):
     """Raised when remote media cannot be downloaded safely."""
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        return None
+
+
+def _open_url(request: Request, timeout: int) -> object:
+    opener = build_opener(_NoRedirectHandler)
+    return opener.open(request, timeout=timeout)
 
 
 def _read_bounded(response: object, max_bytes: int) -> bytes:
@@ -60,7 +70,7 @@ def download_image_url(url: str) -> bytes:
             method="GET",
         )
         try:
-            with urlopen(request, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
+            with _open_url(request, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
                 content_type = _content_type(response)
                 if content_type and not content_type.startswith("image/"):
                     raise DownloadError("The URL did not return an image.")
