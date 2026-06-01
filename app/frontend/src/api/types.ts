@@ -48,14 +48,18 @@ export type BackendMultiFoodResponse = {
 
 export type UiRegionPrediction = BackendRegionPrediction & {
   displayIndex: number;
+  regionStatusLabel: string;
 };
 
 export type AnalyzerResult = {
   modelName: string;
   temperature: number;
   detectorStatus: string;
+  detectorStatusLabel: string;
   artifactStatus: string;
+  artifactStatusLabel: string;
   fallbackReason?: string;
+  fallbackReasonLabel?: string;
   source: ResultSource;
   strongestLabel: string;
   strongestConfidence: number;
@@ -63,4 +67,33 @@ export type AnalyzerResult = {
   actionCopy: string;
   topPredictions: Array<[string, number]>;
   regions: UiRegionPrediction[];
+};
+
+export type BackendRuntimeStatus = {
+  classifier: {
+    status: string;
+    artifact_status: string;
+    artifact_dir: string;
+    artifacts: Record<string, unknown>;
+  };
+  detector: {
+    status: string;
+    dependency: string;
+    dependency_available: boolean;
+    weights_path: string;
+    weights_found: boolean;
+    weights_source: string;
+  };
+  multi_food: {
+    mode: string;
+    detector_status: string;
+  };
+};
+
+export type RuntimeStatusSummary = {
+  ready: boolean;
+  title: string;
+  classifierLabel: string;
+  detectorLabel: string;
+  modeLabel: string;
 };

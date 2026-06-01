@@ -1,14 +1,54 @@
+import { useEffect, useMemo, useState } from "react";
+
+import { fetchRuntimeStatus } from "../api/foodlensClient";
+import type { RuntimeStatusSummary } from "../api/types";
 import { CropReviewGrid } from "./CropReviewGrid";
 import { DecisionPolicyStrip } from "./DecisionPolicyStrip";
 import { DecisionSummary } from "./DecisionSummary";
 import { PreviewStage } from "./PreviewStage";
 import { ProductHeader } from "./ProductHeader";
+import { RuntimeStatusPanel } from "./RuntimeStatusPanel";
 import { StatusNotice } from "./StatusNotice";
 import { UploadControls } from "./UploadControls";
 import { useAnalyzer } from "../state/useAnalyzer";
 
 export function AnalyzerWorkbench() {
   const analyzer = useAnalyzer();
+  const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatusSummary | null>(null);
+  const [selectedRegionKey, setSelectedRegionKey] = useState<string | null>(null);
+  const firstRegionKey = useMemo(() => {
+    const firstRegion = analyzer.result?.regions[0];
+    if (!firstRegion) {
+      return null;
+    }
+
+    return `${firstRegion.source_id}-${firstRegion.detection_index}`;
+  }, [analyzer.result]);
+  const activeRegionKey = selectedRegionKey ?? firstRegionKey;
+
+  useEffect(() => {
+    let mounted = true;
+
+    fetchRuntimeStatus()
+      .then((status) => {
+        if (mounted) {
+          setRuntimeStatus(status);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setRuntimeStatus(null);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setSelectedRegionKey(null);
+  }, [analyzer.result]);
 
   return (
     <div className="app-shell">
@@ -35,6 +75,7 @@ export function AnalyzerWorkbench() {
               mode={analyzer.mode}
               previewUrl={analyzer.previewUrl}
               result={analyzer.result}
+              selectedRegionKey={activeRegionKey}
             />
             <UploadControls
               mode={analyzer.mode}
@@ -54,7 +95,12 @@ export function AnalyzerWorkbench() {
         </section>
 
         <DecisionPolicyStrip />
-        <CropReviewGrid result={analyzer.result} />
+        <RuntimeStatusPanel status={runtimeStatus} />
+        <CropReviewGrid
+          result={analyzer.result}
+          selectedRegionKey={activeRegionKey}
+          onSelectRegion={setSelectedRegionKey}
+        />
       </main>
     </div>
   );

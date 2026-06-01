@@ -658,6 +658,8 @@ def build_multi_food_response(
     image: Any,
     detection_rows: list[dict[str, Any]],
     runtime: dict[str, Any],
+    detector_status: str = "live_yolo",
+    fallback_reason: Optional[str] = None,
 ) -> MultiFoodPredictionResponse:
     """Classify detected regions and return the app-ready multi-food response."""
     predictions: list[MultiFoodPrediction] = []
@@ -718,11 +720,11 @@ def build_multi_food_response(
             "auto_accept": MULTI_FOOD_POLICY["auto_confidence"],
             "suggest": MULTI_FOOD_POLICY["suggest_confidence"],
         },
-        detector_status="live_yolo",
+        detector_status=detector_status,
         crop_count=len(predictions),
         predictions=predictions,
         artifact_status="ready",
-        fallback_reason=None,
+        fallback_reason=fallback_reason,
     )
 
 
@@ -737,7 +739,7 @@ def predict_multi_food_image_bytes(image_bytes: bytes) -> MultiFoodPredictionRes
         try:
             image = open_rgb_image(image_bytes)
         except Exception:
-            return build_multi_food_mock(fallback_reason="missing_artifacts")
+            return build_multi_food_mock(fallback_reason="invalid_image")
 
         try:
             detections = detect_candidate_regions(image)
@@ -752,16 +754,38 @@ def predict_multi_food_image_bytes(image_bytes: bytes) -> MultiFoodPredictionRes
 
     try:
         runtime = load_runtime()
-        image = runtime["image_class"].open(BytesIO(image_bytes)).convert("RGB")
-        try:
-            detections = detect_candidate_regions(image)
-        except RuntimeError:
-            return build_multi_food_mock(fallback_reason="detector_runtime_unavailable")
-        if not detections:
-            detections = [build_full_image_region(image)]
-        return build_multi_food_response(image, detections, runtime)
     except Exception:
-        return build_multi_food_mock(fallback_reason="inference_error")
+        return build_multi_food_mock(fallback_reason="classifier_load_error")
+
+    try:
+        image = runtime["image_class"].open(BytesIO(image_bytes)).convert("RGB")
+    except Exception:
+        return build_multi_food_mock(fallback_reason="invalid_image")
+
+    try:
+        detections = detect_candidate_regions(image)
+    except RuntimeError:
+        return build_multi_food_mock(fallback_reason="detector_runtime_unavailable")
+    except Exception:
+        return build_multi_food_mock(fallback_reason="detector_inference_error")
+
+    detector_status = "live_yolo"
+    fallback_reason = None
+    if not detections:
+        detections = [build_full_image_region(image)]
+        detector_status = "live_yolo_whole_image_fallback"
+        fallback_reason = "no_detector_regions"
+
+    try:
+        return build_multi_food_response(
+            image,
+            detections,
+            runtime,
+            detector_status=detector_status,
+            fallback_reason=fallback_reason,
+        )
+    except Exception:
+        return build_multi_food_mock(fallback_reason="classifier_inference_error")
 
 
 def build_prediction_response(
@@ -794,7 +818,15 @@ def predict_image_bytes(image_bytes: bytes) -> PredictionResponse:
 
     try:
         runtime = load_runtime()
+    except Exception:
+        return predict_mock(mode="image", fallback_reason="classifier_load_error")
+
+    try:
         image = runtime["image_class"].open(BytesIO(image_bytes)).convert("RGB")
+    except Exception:
+        return predict_mock(mode="image", fallback_reason="invalid_image")
+
+    try:
         return build_prediction_response(image, runtime)
     except Exception:
-        return predict_mock(mode="image", fallback_reason="inference_error")
+        return predict_mock(mode="image", fallback_reason="classifier_inference_error")

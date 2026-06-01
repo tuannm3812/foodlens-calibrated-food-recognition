@@ -1,16 +1,23 @@
 import { act, render, renderHook, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AnalyzerWorkbench } from "./AnalyzerWorkbench";
 import { PreviewStage } from "./PreviewStage";
 import { UploadControls } from "./UploadControls";
 import type { AnalyzerResult } from "../api/types";
-import { predictMultiFoodImage } from "../api/foodlensClient";
+import { fetchRuntimeStatus, predictMultiFoodImage } from "../api/foodlensClient";
 import { useAnalyzer } from "../state/useAnalyzer";
 
 vi.mock("../api/foodlensClient", () => ({
   combineFrameResults: (results: AnalyzerResult[]) => results[0] ?? createResult("fallback", 0.1),
+  fetchRuntimeStatus: vi.fn(async () => ({
+    ready: true,
+    title: "System ready",
+    classifierLabel: "Classifier ready",
+    detectorLabel: "Detector ready",
+    modeLabel: "Live detector + classifier",
+  })),
   predictMultiFoodImage: vi.fn(),
   toLocalDemoResult: () => createResult("ravioli", 0.972, "local_demo"),
 }));
@@ -24,8 +31,11 @@ function createResult(
     modelName: "test-model · Multi-food",
     temperature: 1,
     detectorStatus: source,
+    detectorStatusLabel: source === "live" ? "Live detector + classifier" : "Local demo",
     artifactStatus: "mock",
+    artifactStatusLabel: "Classifier fallback",
     fallbackReason: source === "local_demo" ? "frontend_local_demo" : undefined,
+    fallbackReasonLabel: source === "local_demo" ? "Local demo response" : undefined,
     source,
     strongestLabel: label,
     strongestConfidence: confidence,
@@ -62,6 +72,7 @@ function createResult(
           crop_artifact_path: `${label}.jpg`,
           figure_path: `${label}-figure.jpg`,
         },
+        regionStatusLabel: "Detector crop",
       },
     ],
   };
@@ -80,10 +91,15 @@ function deferred<T>() {
 
 describe("AnalyzerWorkbench", () => {
   beforeEach(() => {
+    vi.mocked(fetchRuntimeStatus).mockClear();
     vi.mocked(predictMultiFoodImage).mockReset();
   });
 
-  it("renders the Precision Lab product shell", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("renders the Precision Lab product shell", async () => {
     render(<AnalyzerWorkbench />);
     const decisionPolicy = screen.getByLabelText("Decision policy");
 
@@ -105,6 +121,7 @@ describe("AnalyzerWorkbench", () => {
     expect(within(decisionPolicy).getByText("Review")).toBeInTheDocument();
     expect(screen.getByText("No input selected")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sample" })).toBeInTheDocument();
+    expect(await screen.findByText("System ready")).toBeInTheDocument();
   });
 
   it("renders local demo fallback after selecting sample", async () => {
@@ -114,7 +131,7 @@ describe("AnalyzerWorkbench", () => {
     await user.click(screen.getByRole("button", { name: "Sample" }));
 
     expect(screen.getByText("ravioli")).toBeInTheDocument();
-    expect(screen.getByText("Local demo")).toBeInTheDocument();
+    expect(screen.getAllByText("Local demo").length).toBeGreaterThan(0);
     expect(screen.getByText("Detected regions")).toBeInTheDocument();
   });
 
@@ -125,7 +142,7 @@ describe("AnalyzerWorkbench", () => {
     await user.click(screen.getByRole("button", { name: "Sample" }));
 
     expect(screen.getByLabelText("Decision summary")).toHaveClass("decision-card");
-    expect(screen.getByText("Local demo")).toBeInTheDocument();
+    expect(screen.getAllByText("Local demo").length).toBeGreaterThan(0);
     expect(screen.getByText("ravioli")).toBeInTheDocument();
     expect(screen.getByText("97.2%")).toBeInTheDocument();
     expect(screen.getByText("Detected regions")).toBeInTheDocument();
@@ -133,6 +150,50 @@ describe("AnalyzerWorkbench", () => {
     expect(screen.getByText("Confidence")).toBeInTheDocument();
     expect(screen.getByText("Model")).toBeInTheDocument();
     expect(screen.getByText("Detector")).toBeInTheDocument();
+  });
+
+  it("selects crop cards and highlights the matching preview box", async () => {
+    const user = userEvent.setup();
+    const result = createResult("ravioli", 0.91);
+    result.regions = [
+      result.regions[0],
+      {
+        ...result.regions[0],
+        source_id: "source-ramen",
+        displayIndex: 2,
+        detection_index: 1,
+        foodlens: {
+          ...result.regions[0].foodlens,
+          top_label: "ramen",
+          top_confidence: 0.61,
+        },
+        detector: {
+          ...result.regions[0].detector,
+          label: "bowl",
+          proposal_role: "serving_container",
+        },
+        regionStatusLabel: "Detector crop",
+      },
+    ];
+    vi.mocked(predictMultiFoodImage).mockResolvedValue(result);
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn(() => "blob:food-preview"),
+      revokeObjectURL: vi.fn(),
+    });
+    const file = new File(["image"], "food.jpg", { type: "image/jpeg" });
+
+    render(<AnalyzerWorkbench />);
+    await user.upload(screen.getByLabelText("Upload"), file);
+    await screen.findByText("ravioli");
+
+    await user.click(screen.getByRole("button", { name: /Region 2: ramen/i }));
+
+    expect(screen.getByText("Selected crop")).toBeInTheDocument();
+    expect(screen.getByText("Classifier: ramen")).toBeInTheDocument();
+    expect(screen.getByText("Detector: bowl")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Detected region 2" })).toHaveClass(
+      "bbox-overlay--selected",
+    );
   });
 
   it("keeps stale image analysis from overwriting the current request", async () => {

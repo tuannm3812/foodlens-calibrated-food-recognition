@@ -107,7 +107,42 @@ def test_single_image_missing_artifacts_returns_mock_with_fallback_reason(
     assert body["decision"]["band"] == "suggest"
 
 
-def test_multi_food_missing_artifacts_returns_demo_contract(
+def test_multi_food_detector_unavailable_returns_demo_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(inference, "ARTIFACT_DIR", tmp_path)
+    monkeypatch.setenv("FOODLENS_ARTIFACT_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        inference,
+        "detect_candidate_regions",
+        lambda image: (_ for _ in ()).throw(RuntimeError("detector unavailable")),
+    )
+
+    response = client.post(
+        "/predict/multi-food/image",
+        files={"file": ("sample.jpg", make_jpeg_bytes(), "image/jpeg")},
+    )
+
+    body = response.json()
+    first_prediction = body["predictions"][0]
+    assert response.status_code == 200
+    assert body["artifact_status"] == "mock"
+    assert body["detector_status"] == "fallback_demo"
+    assert body["fallback_reason"] == "detector_runtime_unavailable"
+    assert body["crop_count"] == len(body["predictions"])
+    assert first_prediction["bbox"]["source_width"] > 0
+    assert first_prediction["detector"]["proposal_role"] in {
+        "serving_container",
+        "direct_food",
+        "fallback_region",
+        "context_object",
+    }
+    assert first_prediction["foodlens"]["top_k_predictions"][0][0]
+    assert "crop_path" in first_prediction["artifacts"]
+
+
+def test_multi_food_invalid_image_reports_invalid_image_fallback_reason(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -120,21 +155,9 @@ def test_multi_food_missing_artifacts_returns_demo_contract(
     )
 
     body = response.json()
-    first_prediction = body["predictions"][0]
     assert response.status_code == 200
-    assert body["artifact_status"] == "mock"
     assert body["detector_status"] == "fallback_demo"
-    assert body["fallback_reason"] == "missing_artifacts"
-    assert body["crop_count"] == len(body["predictions"])
-    assert first_prediction["bbox"]["source_width"] > 0
-    assert first_prediction["detector"]["proposal_role"] in {
-        "serving_container",
-        "direct_food",
-        "fallback_region",
-        "context_object",
-    }
-    assert first_prediction["foodlens"]["top_k_predictions"][0][0]
-    assert "crop_path" in first_prediction["artifacts"]
+    assert body["fallback_reason"] == "invalid_image"
 
 
 def test_multi_food_missing_classifier_artifacts_uses_detector_crops_with_fallback_labels(
@@ -192,6 +215,76 @@ def test_multi_food_missing_classifier_artifacts_uses_detector_crops_with_fallba
     assert first_prediction["artifacts"]["crop_data_url"].startswith(
         "data:image/jpeg;base64,"
     )
+
+
+def test_multi_food_live_without_detector_regions_reports_whole_image_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(inference, "artifact_status", lambda: "ready")
+    monkeypatch.setattr(inference, "detect_candidate_regions", lambda image: [])
+    monkeypatch.setattr(
+        inference,
+        "load_runtime",
+        lambda: {
+            "temperature": 1.0,
+            "policy": inference.DEFAULT_POLICY,
+            "hard_classes": set(),
+            "confusion_pairs": set(),
+            "image_class": Image,
+        },
+    )
+    monkeypatch.setattr(
+        inference,
+        "classify_pil_image",
+        lambda image, runtime: [
+            inference.Prediction(rank=1, class_name="ramen", confidence=0.73),
+            inference.Prediction(rank=2, class_name="pho", confidence=0.12),
+        ],
+    )
+
+    response = client.post(
+        "/predict/multi-food/image",
+        files={"file": ("sample.jpg", make_jpeg_bytes(), "image/jpeg")},
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["artifact_status"] == "ready"
+    assert body["detector_status"] == "live_yolo_whole_image_fallback"
+    assert body["fallback_reason"] == "no_detector_regions"
+    assert body["predictions"][0]["detector"]["label"] == "whole_image"
+
+
+def test_single_image_ready_runtime_invalid_image_reports_invalid_image(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BrokenImage:
+        @staticmethod
+        def open(_image_bytes: BytesIO) -> None:
+            raise ValueError("invalid image")
+
+    monkeypatch.setattr(inference, "artifact_status", lambda: "ready")
+    monkeypatch.setattr(
+        inference,
+        "load_runtime",
+        lambda: {
+            "image_class": BrokenImage,
+            "temperature": 1.0,
+            "policy": inference.DEFAULT_POLICY,
+            "hard_classes": set(),
+            "confusion_pairs": set(),
+        },
+    )
+
+    response = client.post(
+        "/predict/image",
+        files={"file": ("sample.jpg", b"not-a-real-image", "image/jpeg")},
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["artifact_status"] == "ready"
+    assert body["fallback_reason"] == "invalid_image"
 
 
 def test_detector_weights_path_finds_nearest_parent_weight_file(

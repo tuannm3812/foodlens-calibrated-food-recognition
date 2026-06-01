@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { LOCAL_DEMO_RESPONSE } from "./demoData";
 import {
   combineFrameResults,
+  fetchRuntimeStatus,
   normalizeMultiFoodResponse,
   predictMultiFoodImage,
   toLocalDemoResult,
@@ -26,6 +27,48 @@ describe("normalizeMultiFoodResponse", () => {
     expect(result.strongestConfidence).toBe(0.972);
     expect(result.decisionBand).toBe("auto_accept");
     expect(result.regions[0].displayIndex).toBe(1);
+  });
+
+  it("adds human-readable live detector and fallback labels", () => {
+    const liveResult = normalizeMultiFoodResponse({
+      ...LOCAL_DEMO_RESPONSE,
+      detector_status: "live_yolo",
+      artifact_status: "ready",
+      fallback_reason: null,
+    });
+    const detectorFallbackResult = normalizeMultiFoodResponse({
+      ...LOCAL_DEMO_RESPONSE,
+      detector_status: "live_yolo_classifier_fallback",
+      fallback_reason: "missing_classifier_artifacts",
+    });
+
+    expect(liveResult.detectorStatusLabel).toBe("Live detector + classifier");
+    expect(liveResult.artifactStatusLabel).toBe("Classifier ready");
+    expect(liveResult.fallbackReasonLabel).toBeUndefined();
+    expect(detectorFallbackResult.detectorStatusLabel).toBe("Live detector, classifier fallback");
+    expect(detectorFallbackResult.fallbackReasonLabel).toBe("Classifier artifacts missing");
+  });
+
+  it("labels whole-image fallback regions clearly", () => {
+    const result = normalizeMultiFoodResponse({
+      ...LOCAL_DEMO_RESPONSE,
+      detector_status: "live_yolo_whole_image_fallback",
+      fallback_reason: "no_detector_regions",
+      predictions: [
+        {
+          ...LOCAL_DEMO_RESPONSE.predictions[0],
+          detector: {
+            ...LOCAL_DEMO_RESPONSE.predictions[0].detector,
+            label: "whole_image",
+            proposal_role: "fallback_region",
+          },
+        },
+      ],
+    });
+
+    expect(result.detectorStatusLabel).toBe("Whole image fallback");
+    expect(result.fallbackReasonLabel).toBe("No detector regions");
+    expect(result.regions[0].regionStatusLabel).toBe("Whole image fallback");
   });
 
   it("returns a local demo result when the frontend fallback is used", () => {
@@ -212,5 +255,44 @@ describe("predictMultiFoodImage", () => {
     await expect(predictMultiFoodImage(file)).rejects.toThrow(
       "FoodLens API returned an invalid multi-food response.",
     );
+  });
+});
+
+describe("fetchRuntimeStatus", () => {
+  it("summarizes ready classifier and detector runtime status", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          classifier: {
+            status: "ready",
+            artifact_status: "ready",
+            artifact_dir: "/repo/app/artifacts",
+            artifacts: {},
+          },
+          detector: {
+            status: "ready",
+            dependency: "ultralytics",
+            dependency_available: true,
+            weights_path: "/repo/yolo11n.pt",
+            weights_found: true,
+            weights_source: "auto_discovered",
+          },
+          multi_food: {
+            mode: "live_yolo_classifier",
+            detector_status: "live_yolo",
+          },
+        }),
+      })),
+    );
+
+    const result = await fetchRuntimeStatus();
+
+    expect(result.ready).toBe(true);
+    expect(result.title).toBe("System ready");
+    expect(result.classifierLabel).toBe("Classifier ready");
+    expect(result.detectorLabel).toBe("Detector ready");
+    expect(result.modeLabel).toBe("Live detector + classifier");
   });
 });

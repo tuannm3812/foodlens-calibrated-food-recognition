@@ -1,9 +1,11 @@
 import { LOCAL_DEMO_RESPONSE } from "./demoData";
 import type {
   AnalyzerResult,
+  BackendRuntimeStatus,
   BackendMultiFoodResponse,
   DecisionBand,
   ResultSource,
+  RuntimeStatusSummary,
   UiRegionPrediction,
 } from "./types";
 
@@ -22,6 +24,28 @@ const DECISION_BANDS: DecisionBand[] = [
   "confirm",
   "review",
 ];
+
+const DETECTOR_STATUS_LABELS: Record<string, string> = {
+  live_yolo: "Live detector + classifier",
+  live_yolo_classifier_fallback: "Live detector, classifier fallback",
+  live_yolo_whole_image_fallback: "Whole image fallback",
+  fallback_demo: "Backend demo fallback",
+  local_demo: "Local demo",
+};
+
+const FALLBACK_REASON_LABELS: Record<string, string> = {
+  classifier_load_error: "Classifier load error",
+  classifier_inference_error: "Classifier inference error",
+  detector_inference_error: "Detector inference error",
+  detector_runtime_unavailable: "Detector runtime unavailable",
+  frontend_local_demo: "Local demo response",
+  inference_error: "Inference error",
+  invalid_image: "Invalid image",
+  missing_artifacts: "Classifier artifacts missing",
+  missing_classifier_artifacts: "Classifier artifacts missing",
+  no_detector_regions: "No detector regions",
+  video_mock: "Video mock response",
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -62,6 +86,46 @@ function isTopKPrediction(value: unknown): value is [string, number] {
 
 function isDecisionThresholds(value: unknown): value is Record<string, number> {
   return isRecord(value) && Object.values(value).every(isNumber);
+}
+
+function labelFromToken(token: string): string {
+  return token
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function detectorStatusLabel(detectorStatus: string): string {
+  return DETECTOR_STATUS_LABELS[detectorStatus] ?? labelFromToken(detectorStatus);
+}
+
+function fallbackReasonLabel(fallbackReason?: string | null): string | undefined {
+  if (!fallbackReason) {
+    return undefined;
+  }
+
+  return FALLBACK_REASON_LABELS[fallbackReason] ?? labelFromToken(fallbackReason);
+}
+
+function artifactStatusLabel(artifactStatus: string): string {
+  if (artifactStatus === "ready") {
+    return "Classifier ready";
+  }
+
+  if (artifactStatus === "mock") {
+    return "Classifier fallback";
+  }
+
+  return labelFromToken(artifactStatus);
+}
+
+function regionStatusLabel(region: BackendMultiFoodResponse["predictions"][number]): string {
+  if (region.detector.label === "whole_image" || region.detector.proposal_role === "fallback_region") {
+    return "Whole image fallback";
+  }
+
+  return "Detector crop";
 }
 
 function isBackendRegionPrediction(value: unknown): boolean {
@@ -119,6 +183,34 @@ function isBackendMultiFoodResponse(
   );
 }
 
+function isBackendRuntimeStatus(value: unknown): value is BackendRuntimeStatus {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const classifier = value.classifier;
+  const detector = value.detector;
+  const multiFood = value.multi_food;
+
+  return (
+    isRecord(classifier) &&
+    isString(classifier.status) &&
+    isString(classifier.artifact_status) &&
+    isString(classifier.artifact_dir) &&
+    isRecord(classifier.artifacts) &&
+    isRecord(detector) &&
+    isString(detector.status) &&
+    isString(detector.dependency) &&
+    typeof detector.dependency_available === "boolean" &&
+    isString(detector.weights_path) &&
+    typeof detector.weights_found === "boolean" &&
+    isString(detector.weights_source) &&
+    isRecord(multiFood) &&
+    isString(multiFood.mode) &&
+    isString(multiFood.detector_status)
+  );
+}
+
 function resultSource(response: BackendMultiFoodResponse): ResultSource {
   if (response.detector_status === "local_demo") {
     return "local_demo";
@@ -151,6 +243,7 @@ export function normalizeMultiFoodResponse(
     .map((prediction, index) => ({
       ...prediction,
       displayIndex: index + 1,
+      regionStatusLabel: regionStatusLabel(prediction),
     }));
   const strongest = regions[0];
   const decisionBand = strongest
@@ -163,8 +256,11 @@ export function normalizeMultiFoodResponse(
     modelName: `${response.model} · Multi-food`,
     temperature: response.temperature,
     detectorStatus: response.detector_status,
+    detectorStatusLabel: detectorStatusLabel(response.detector_status),
     artifactStatus: response.artifact_status,
+    artifactStatusLabel: artifactStatusLabel(response.artifact_status),
     fallbackReason: response.fallback_reason ?? undefined,
+    fallbackReasonLabel: fallbackReasonLabel(response.fallback_reason),
     source: resultSource(response),
     strongestLabel: strongest?.foodlens.top_label ?? "no_detection",
     strongestConfidence: strongest?.foodlens.top_confidence ?? 0,
@@ -180,7 +276,9 @@ export function toLocalDemoResult(): AnalyzerResult {
     ...normalizeMultiFoodResponse(LOCAL_DEMO_RESPONSE),
     source: "local_demo",
     detectorStatus: "local_demo",
+    detectorStatusLabel: "Local demo",
     fallbackReason: "frontend_local_demo",
+    fallbackReasonLabel: "Local demo response",
     actionCopy:
       "Showing local demo data because the API is unavailable or returned an invalid response.",
   };
@@ -235,4 +333,28 @@ export async function predictMultiFoodImage(file: File): Promise<AnalyzerResult>
   }
 
   return normalizeMultiFoodResponse(body);
+}
+
+export async function fetchRuntimeStatus(): Promise<RuntimeStatusSummary> {
+  const response = await fetch(`${API_BASE_URL}/runtime/status`);
+  if (!response.ok) {
+    throw new Error(`FoodLens runtime status returned ${response.status}`);
+  }
+
+  const body = (await response.json()) as unknown;
+  if (!isBackendRuntimeStatus(body)) {
+    throw new Error("FoodLens API returned an invalid runtime status.");
+  }
+
+  const classifierReady = body.classifier.status === "ready";
+  const detectorReady = body.detector.status === "ready";
+  const ready = classifierReady && detectorReady;
+
+  return {
+    ready,
+    title: ready ? "System ready" : "System degraded",
+    classifierLabel: classifierReady ? "Classifier ready" : "Classifier missing",
+    detectorLabel: detectorReady ? "Detector ready" : "Detector missing",
+    modeLabel: detectorStatusLabel(body.multi_food.detector_status),
+  };
 }

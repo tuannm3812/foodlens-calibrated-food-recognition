@@ -6,6 +6,7 @@ type PreviewStageProps = {
   mode: AnalyzerMode;
   previewUrl: string | null;
   result: AnalyzerResult | null;
+  selectedRegionKey?: string | null;
 };
 
 function regionStyle(region: UiRegionPrediction): CSSProperties {
@@ -41,7 +42,16 @@ function layerStyle(regions: UiRegionPrediction[]): CSSProperties | undefined {
   };
 }
 
-export function PreviewStage({ mode, previewUrl, result }: PreviewStageProps) {
+function regionKey(region: UiRegionPrediction): string {
+  return `${region.source_id}-${region.detection_index}`;
+}
+
+export function PreviewStage({
+  mode,
+  previewUrl,
+  result,
+  selectedRegionKey,
+}: PreviewStageProps) {
   const regions = previewUrl && mode === "image"
     ? (result?.regions ?? []).filter((region) => region.bbox).slice(0, 8)
     : [];
@@ -67,8 +77,13 @@ export function PreviewStage({ mode, previewUrl, result }: PreviewStageProps) {
                   {regions.map((region) => (
                     <span
                       key={`${region.source_id}-${region.detection_index}`}
-                      className="bbox-overlay"
+                      className={`bbox-overlay${
+                        regionKey(region) === selectedRegionKey
+                          ? " bbox-overlay--selected"
+                          : ""
+                      }`}
                       style={regionStyle(region)}
+                      role="img"
                       aria-label={`Detected region ${region.displayIndex}`}
                     >
                       {region.displayIndex}

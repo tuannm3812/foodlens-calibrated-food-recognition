@@ -69,12 +69,18 @@ export function DecisionSummary({ result }: DecisionSummaryProps) {
         </div>
         <div>
           <dt>Detector</dt>
-          <dd>{result.detectorStatus}</dd>
+          <dd>{result.detectorStatusLabel}</dd>
         </div>
         <div>
           <dt>Artifacts</dt>
-          <dd>{result.artifactStatus}</dd>
+          <dd>{result.artifactStatusLabel}</dd>
         </div>
+        {result.fallbackReasonLabel ? (
+          <div>
+            <dt>Fallback</dt>
+            <dd>{result.fallbackReasonLabel}</dd>
+          </div>
+        ) : null}
       </dl>
     </section>
   );
