@@ -31,8 +31,13 @@ function layerStyle(regions: UiRegionPrediction[]): CSSProperties | undefined {
     return undefined;
   }
 
+  const sourceAspectRatio = sourceBox.source_width / sourceBox.source_height;
+  const frameAspectRatio = 16 / 10;
+
   return {
     aspectRatio: `${sourceBox.source_width} / ${sourceBox.source_height}`,
+    width: sourceAspectRatio >= frameAspectRatio ? "100%" : "auto",
+    height: sourceAspectRatio >= frameAspectRatio ? "auto" : "100%",
   };
 }
 

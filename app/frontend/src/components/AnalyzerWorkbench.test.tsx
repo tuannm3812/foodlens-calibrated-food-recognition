@@ -197,6 +197,28 @@ describe("UploadControls", () => {
 });
 
 describe("PreviewStage", () => {
+  it("fits tall image overlay planes by height", () => {
+    const result = createResult("portrait_source", 0.91);
+    result.regions[0].bbox = {
+      x1: 20,
+      y1: 40,
+      x2: 80,
+      y2: 160,
+      source_width: 100,
+      source_height: 200,
+    };
+    const { container } = render(
+      <PreviewStage mode="image" previewUrl="blob:image-preview" result={result} />,
+    );
+
+    const layer = container.querySelector(".preview-image-layer") as HTMLElement;
+    expect(layer).toHaveStyle({
+      aspectRatio: "100 / 200",
+      width: "auto",
+      height: "100%",
+    });
+  });
+
   it("renders video previews with a video element", () => {
     render(
       <PreviewStage mode="video" previewUrl="blob:video-preview" result={null} />,
