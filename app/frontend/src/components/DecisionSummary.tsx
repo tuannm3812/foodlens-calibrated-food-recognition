@@ -3,6 +3,7 @@ import { PredictionRanking } from "./PredictionRanking";
 
 type DecisionSummaryProps = {
   result: AnalyzerResult | null;
+  resultSourceLabel?: string | null;
 };
 
 const DECISION_LABELS: Record<DecisionBand, string> = {
@@ -16,7 +17,10 @@ function formatConfidence(value: number): string {
   return `${Math.round(value * 1000) / 10}%`;
 }
 
-export function DecisionSummary({ result }: DecisionSummaryProps) {
+export function DecisionSummary({
+  result,
+  resultSourceLabel,
+}: DecisionSummaryProps) {
   if (!result) {
     return (
       <section className="decision-card decision-card--empty" aria-label="Decision summary">
@@ -31,6 +35,8 @@ export function DecisionSummary({ result }: DecisionSummaryProps) {
   }
 
   const confidence = formatConfidence(result.strongestConfidence);
+  const regionCount = result.regions.length;
+  const regionLabel = `${regionCount} ${regionCount === 1 ? "region" : "regions"} detected`;
 
   return (
     <section className="decision-card" aria-label="Decision summary">
@@ -50,6 +56,11 @@ export function DecisionSummary({ result }: DecisionSummaryProps) {
       <div className="decision-card__prediction">
         <h2>{result.strongestLabel}</h2>
         <p>{result.actionCopy}</p>
+      </div>
+
+      <div className="decision-context" aria-label="Result context">
+        <span>{regionLabel}</span>
+        {resultSourceLabel ? <span>Source: {resultSourceLabel}</span> : null}
       </div>
 
       <div className="confidence-track" aria-hidden="true">

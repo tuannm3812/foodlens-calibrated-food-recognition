@@ -318,7 +318,7 @@ describe("AnalyzerWorkbench", () => {
     expect(screen.getByText("Selected crop")).toBeInTheDocument();
     expect(screen.getByText("Classifier: ramen")).toBeInTheDocument();
     expect(screen.getByText("Detector: bowl")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Detected region 2" })).toHaveClass(
+    expect(screen.getByRole("img", { name: "Region 2: ramen" })).toHaveClass(
       "bbox-overlay--selected",
     );
   });
@@ -406,6 +406,7 @@ describe("AnalyzerWorkbench", () => {
     expect(result.current.status).toBe("ready");
     expect(result.current.message).toBe("Image URL analysis complete");
     expect(result.current.previewUrl).toBe("https://example.com/pizza.jpg");
+    expect(result.current.resultSourceLabel).toBe("Image URL");
     expect(result.current.result?.strongestLabel).toBe("pizza");
   });
 
@@ -427,6 +428,7 @@ describe("AnalyzerWorkbench", () => {
     expect(result.current.status).toBe("ready");
     expect(result.current.message).toBe("Video URL review complete");
     expect(result.current.previewUrl).toBeNull();
+    expect(result.current.resultSourceLabel).toBe("YouTube URL");
     expect(result.current.result?.strongestLabel).toBe("hamburger");
   });
 
@@ -446,6 +448,8 @@ describe("AnalyzerWorkbench", () => {
     );
     expect(await screen.findByText("Image URL analysis complete")).toBeInTheDocument();
     expect(screen.getByText("pizza")).toBeInTheDocument();
+    expect(screen.getByText("1 region detected")).toBeInTheDocument();
+    expect(screen.getByText("Source: Image URL")).toBeInTheDocument();
   });
 
   it("submits a YouTube URL from video mode controls", async () => {
@@ -597,6 +601,9 @@ describe("PreviewStage", () => {
       width: "auto",
       height: "100%",
     });
+    expect(screen.getByLabelText("Region 1: portrait source")).toHaveTextContent(
+      "1 portrait source",
+    );
   });
 
   it("renders video previews with a video element", () => {

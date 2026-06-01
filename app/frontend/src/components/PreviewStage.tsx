@@ -46,6 +46,10 @@ function regionKey(region: UiRegionPrediction): string {
   return `${region.source_id}-${region.detection_index}`;
 }
 
+function formatLabel(label: string): string {
+  return label.replace(/_/g, " ");
+}
+
 export function PreviewStage({
   mode,
   previewUrl,
@@ -74,21 +78,25 @@ export function PreviewStage({
               <>
                 <img className="preview-stage__image" src={previewUrl} alt="Selected food input" />
                 <div className="preview-overlay-layer" aria-hidden={regions.length === 0}>
-                  {regions.map((region) => (
-                    <span
-                      key={`${region.source_id}-${region.detection_index}`}
-                      className={`bbox-overlay${
-                        regionKey(region) === selectedRegionKey
-                          ? " bbox-overlay--selected"
-                          : ""
-                      }`}
-                      style={regionStyle(region)}
-                      role="img"
-                      aria-label={`Detected region ${region.displayIndex}`}
-                    >
-                      {region.displayIndex}
-                    </span>
-                  ))}
+                  {regions.map((region) => {
+                    const label = formatLabel(region.foodlens.top_label);
+
+                    return (
+                      <span
+                        key={`${region.source_id}-${region.detection_index}`}
+                        className={`bbox-overlay${
+                          regionKey(region) === selectedRegionKey
+                            ? " bbox-overlay--selected"
+                            : ""
+                        }`}
+                        style={regionStyle(region)}
+                        role="img"
+                        aria-label={`Region ${region.displayIndex}: ${label}`}
+                      >
+                        {region.displayIndex} {label}
+                      </span>
+                    );
+                  })}
                 </div>
               </>
             )}

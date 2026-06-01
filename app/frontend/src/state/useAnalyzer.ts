@@ -21,6 +21,7 @@ type AnalyzerState = {
   previewUrl: string | null;
   status: AnalyzerStatus;
   result: AnalyzerResult | null;
+  resultSourceLabel: string | null;
   message: string;
   setMode: (mode: AnalyzerMode) => void;
   clear: () => void;
@@ -137,6 +138,7 @@ export function useAnalyzer(): AnalyzerState {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<AnalyzerStatus>("idle");
   const [result, setResult] = useState<AnalyzerResult | null>(null);
+  const [resultSourceLabel, setResultSourceLabel] = useState<string | null>(null);
   const [message, setMessage] = useState("Ready for input");
   const objectUrlRef = useRef<string | null>(null);
   const requestSequenceRef = useRef(0);
@@ -171,6 +173,7 @@ export function useAnalyzer(): AnalyzerState {
     replacePreview(null);
     setStatus("idle");
     setResult(null);
+    setResultSourceLabel(null);
     setMessage("Ready for input");
   }, [replacePreview]);
 
@@ -182,6 +185,7 @@ export function useAnalyzer(): AnalyzerState {
       replacePreview(nextPreviewUrl);
       setStatus("loading");
       setResult(null);
+      setResultSourceLabel("Uploaded image");
       setMessage("Analyzing image");
 
       try {
@@ -216,6 +220,7 @@ export function useAnalyzer(): AnalyzerState {
       replacePreview(nextPreviewUrl);
       setStatus("loading");
       setResult(null);
+      setResultSourceLabel("Uploaded video");
       setMessage("Sampling video frames");
 
       try {
@@ -285,6 +290,7 @@ export function useAnalyzer(): AnalyzerState {
       replaceExternalPreview(url);
       setStatus("loading");
       setResult(null);
+      setResultSourceLabel("Image URL");
       setMessage("Analyzing image URL");
 
       try {
@@ -301,6 +307,7 @@ export function useAnalyzer(): AnalyzerState {
         }
         if (isUserInputApiError(error)) {
           setResult(null);
+          setResultSourceLabel(null);
           setStatus("error");
           setMessage(error.message);
           return;
@@ -324,6 +331,7 @@ export function useAnalyzer(): AnalyzerState {
       replaceExternalPreview(null);
       setStatus("loading");
       setResult(null);
+      setResultSourceLabel("YouTube URL");
       setMessage("Downloading YouTube video");
 
       try {
@@ -340,6 +348,7 @@ export function useAnalyzer(): AnalyzerState {
         }
         if (isUserInputApiError(error)) {
           setResult(null);
+          setResultSourceLabel(null);
           setStatus("error");
           setMessage(error.message);
           return;
@@ -362,6 +371,7 @@ export function useAnalyzer(): AnalyzerState {
       replacePreview(null);
       setStatus("ready");
       setResult(toLocalDemoResult());
+      setResultSourceLabel("Sample");
       setMessage("Local demo data loaded");
       return;
     }
@@ -371,6 +381,7 @@ export function useAnalyzer(): AnalyzerState {
     replacePreview(null);
     setStatus("loading");
     setResult(null);
+    setResultSourceLabel("Sample video");
     setMessage("Loading sample video");
 
     try {
@@ -384,6 +395,7 @@ export function useAnalyzer(): AnalyzerState {
         return;
       }
       setResult(toLocalDemoResult());
+      setResultSourceLabel("Sample video");
       setStatus("ready");
       setMessage(
         error instanceof Error
@@ -400,6 +412,7 @@ export function useAnalyzer(): AnalyzerState {
     previewUrl,
     status,
     result,
+    resultSourceLabel,
     message,
     setMode,
     clear,

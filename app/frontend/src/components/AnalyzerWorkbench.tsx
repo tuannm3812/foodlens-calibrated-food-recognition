@@ -94,7 +94,10 @@ function AnalyzeView({
             onClear={analyzer.clear}
           />
         </div>
-        <DecisionSummary result={analyzer.result} />
+        <DecisionSummary
+          result={analyzer.result}
+          resultSourceLabel={analyzer.resultSourceLabel}
+        />
       </section>
 
       <DecisionPolicyStrip />

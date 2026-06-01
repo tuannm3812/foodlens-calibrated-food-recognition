@@ -351,19 +351,21 @@ h3 {
 
 .bbox-overlay {
   position: absolute;
-  display: grid;
-  min-width: 28px;
+  display: inline-flex;
+  min-width: 32px;
   min-height: 28px;
-  place-items: start;
-  padding: 4px;
+  align-items: flex-start;
+  padding: 5px 7px;
   border: 2px solid var(--lab-green);
   border-radius: 6px;
   color: #ffffff;
   font-family: var(--font-display);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   font-weight: 800;
+  line-height: 1.15;
   background: rgba(45, 90, 39, 0.18);
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  text-transform: capitalize;
 }
 
 .bbox-overlay--selected {
@@ -523,6 +525,26 @@ h3 {
 .muted-copy {
   color: var(--lab-muted);
   line-height: 1.55;
+}
+
+.decision-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.decision-context span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid var(--lab-border);
+  border-radius: 999px;
+  color: var(--lab-muted);
+  font-family: var(--font-display);
+  font-size: 0.76rem;
+  font-weight: 800;
+  background: var(--lab-surface-soft);
 }
 
 .decision-badge {
