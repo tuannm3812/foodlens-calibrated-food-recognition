@@ -71,6 +71,24 @@ describe("normalizeMultiFoodResponse", () => {
     expect(result.regions[0].regionStatusLabel).toBe("Whole image fallback");
   });
 
+  it("maps detector proposal roles to human-readable labels", () => {
+    const result = normalizeMultiFoodResponse({
+      ...LOCAL_DEMO_RESPONSE,
+      predictions: [
+        {
+          ...LOCAL_DEMO_RESPONSE.predictions[0],
+          detector: {
+            ...LOCAL_DEMO_RESPONSE.predictions[0].detector,
+            proposal_role: "fallback_region",
+          },
+        },
+      ],
+    });
+
+    expect(result.regions[0].detectorRoleLabel).toBe("Whole image review");
+    expect(result.regions[0].detectorRoleLabel).not.toBe("fallback_region");
+  });
+
   it("returns a local demo result when the frontend fallback is used", () => {
     const result = toLocalDemoResult();
 

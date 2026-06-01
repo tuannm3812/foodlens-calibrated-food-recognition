@@ -47,6 +47,12 @@ const FALLBACK_REASON_LABELS: Record<string, string> = {
   video_mock: "Video mock response",
 };
 
+const DETECTOR_ROLE_LABELS: Record<string, string> = {
+  direct_food: "Food region",
+  fallback_region: "Whole image review",
+  serving_container: "Serving area",
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -118,6 +124,18 @@ function artifactStatusLabel(artifactStatus: string): string {
   }
 
   return labelFromToken(artifactStatus);
+}
+
+function detectorLabel(label: string): string {
+  if (label === "whole_image") {
+    return "Whole image";
+  }
+
+  return label;
+}
+
+function detectorRoleLabel(proposalRole: string): string {
+  return DETECTOR_ROLE_LABELS[proposalRole] ?? labelFromToken(proposalRole);
 }
 
 function regionStatusLabel(region: BackendMultiFoodResponse["predictions"][number]): string {
@@ -243,6 +261,8 @@ export function normalizeMultiFoodResponse(
     .map((prediction, index) => ({
       ...prediction,
       displayIndex: index + 1,
+      detectorLabel: detectorLabel(prediction.detector.label),
+      detectorRoleLabel: detectorRoleLabel(prediction.detector.proposal_role),
       regionStatusLabel: regionStatusLabel(prediction),
     }));
   const strongest = regions[0];

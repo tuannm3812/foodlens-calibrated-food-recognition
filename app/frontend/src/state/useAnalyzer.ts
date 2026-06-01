@@ -10,6 +10,9 @@ import type { AnalyzerResult } from "../api/types";
 export type AnalyzerMode = "image" | "video";
 export type AnalyzerStatus = "idle" | "loading" | "ready" | "error";
 
+const DEMO_VIDEO_PATH = "/demo/burger-making-demo.mp4";
+const DEMO_VIDEO_NAME = "burger-making-demo.mp4";
+
 type AnalyzerState = {
   mode: AnalyzerMode;
   previewUrl: string | null;
@@ -18,7 +21,7 @@ type AnalyzerState = {
   message: string;
   setMode: (mode: AnalyzerMode) => void;
   clear: () => void;
-  loadSample: () => void;
+  loadSample: () => Promise<void> | void;
   analyzeImage: (file: File) => Promise<void>;
   analyzeVideo: (file: File) => Promise<void>;
 };
@@ -29,6 +32,18 @@ function createPreviewUrl(file: File): string | null {
   }
 
   return URL.createObjectURL(file);
+}
+
+async function fetchDemoVideoFile(): Promise<File> {
+  const response = await fetch(DEMO_VIDEO_PATH);
+  if (!response.ok) {
+    throw new Error(`Demo video returned ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  return new File([blob], DEMO_VIDEO_NAME, {
+    type: blob.type || "video/mp4",
+  });
 }
 
 function waitForEvent(target: EventTarget, eventName: string): Promise<Event> {
@@ -145,14 +160,6 @@ export function useAnalyzer(): AnalyzerState {
     setMessage("Ready for input");
   }, [replacePreview]);
 
-  const loadSample = useCallback(() => {
-    requestSequenceRef.current += 1;
-    replacePreview(null);
-    setStatus("ready");
-    setResult(toLocalDemoResult());
-    setMessage("Local demo data loaded");
-  }, [replacePreview]);
-
   const analyzeImage = useCallback(
     async (file: File) => {
       requestSequenceRef.current += 1;
@@ -256,6 +263,43 @@ export function useAnalyzer(): AnalyzerState {
     },
     [replacePreview],
   );
+
+  const loadSample = useCallback(async () => {
+    if (mode !== "video") {
+      requestSequenceRef.current += 1;
+      replacePreview(null);
+      setStatus("ready");
+      setResult(toLocalDemoResult());
+      setMessage("Local demo data loaded");
+      return;
+    }
+
+    requestSequenceRef.current += 1;
+    const requestSequence = requestSequenceRef.current;
+    replacePreview(null);
+    setStatus("loading");
+    setResult(null);
+    setMessage("Loading sample video");
+
+    try {
+      const sampleFile = await fetchDemoVideoFile();
+      if (requestSequence !== requestSequenceRef.current) {
+        return;
+      }
+      await analyzeVideo(sampleFile);
+    } catch (error) {
+      if (requestSequence !== requestSequenceRef.current) {
+        return;
+      }
+      setResult(toLocalDemoResult());
+      setStatus("ready");
+      setMessage(
+        error instanceof Error
+          ? `Using local demo fallback: ${error.message}`
+          : "Using local demo fallback",
+      );
+    }
+  }, [analyzeVideo, mode, replacePreview]);
 
   useEffect(() => revokePreview, [revokePreview]);
 

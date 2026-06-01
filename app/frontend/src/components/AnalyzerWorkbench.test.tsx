@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AnalyzerWorkbench } from "./AnalyzerWorkbench";
+import { CropReviewGrid } from "./CropReviewGrid";
 import { PreviewStage } from "./PreviewStage";
 import { UploadControls } from "./UploadControls";
 import type { AnalyzerResult } from "../api/types";
@@ -73,9 +74,80 @@ function createResult(
           figure_path: `${label}-figure.jpg`,
         },
         regionStatusLabel: "Detector crop",
+        detectorLabel: "plate",
+        detectorRoleLabel: "Food region",
       },
     ],
   };
+}
+
+function installVideoSamplingMocks() {
+  const originalCreateElement = document.createElement.bind(document);
+
+  vi.stubGlobal("URL", {
+    createObjectURL: vi.fn(() => "blob:sample-video"),
+    revokeObjectURL: vi.fn(),
+  });
+
+  vi.spyOn(document, "createElement").mockImplementation((tagName, options) => {
+    if (tagName === "video") {
+      const video = originalCreateElement("video", options) as HTMLVideoElement;
+      let currentTime = 0;
+      let src = "";
+
+      Object.defineProperties(video, {
+        duration: { configurable: true, value: 3 },
+        videoWidth: { configurable: true, value: 160 },
+        videoHeight: { configurable: true, value: 120 },
+        readyState: {
+          configurable: true,
+          value: HTMLMediaElement.HAVE_CURRENT_DATA,
+        },
+        load: {
+          configurable: true,
+          value: vi.fn(),
+        },
+        currentTime: {
+          configurable: true,
+          get: () => currentTime,
+          set: (nextTime: number) => {
+            currentTime = nextTime;
+            queueMicrotask(() => video.dispatchEvent(new Event("seeked")));
+          },
+        },
+        src: {
+          configurable: true,
+          get: () => src,
+          set: (nextSrc: string) => {
+            src = nextSrc;
+            queueMicrotask(() => video.dispatchEvent(new Event("loadedmetadata")));
+          },
+        },
+      });
+
+      return video;
+    }
+
+    if (tagName === "canvas") {
+      const canvas = originalCreateElement("canvas", options) as HTMLCanvasElement;
+      Object.defineProperties(canvas, {
+        getContext: {
+          configurable: true,
+          value: () => ({ drawImage: vi.fn() }),
+        },
+        toBlob: {
+          configurable: true,
+          value: (callback: BlobCallback) => {
+            callback(new Blob(["frame"], { type: "image/jpeg" }));
+          },
+        },
+      });
+
+      return canvas;
+    }
+
+    return originalCreateElement(tagName, options);
+  });
 }
 
 function deferred<T>() {
@@ -172,6 +244,8 @@ describe("AnalyzerWorkbench", () => {
           label: "bowl",
           proposal_role: "serving_container",
         },
+        detectorLabel: "bowl",
+        detectorRoleLabel: "Serving area",
         regionStatusLabel: "Detector crop",
       },
     ];
@@ -194,6 +268,45 @@ describe("AnalyzerWorkbench", () => {
     expect(screen.getByRole("img", { name: "Detected region 2" })).toHaveClass(
       "bbox-overlay--selected",
     );
+  });
+
+  it("loads the bundled burger video when sample is selected in video mode", async () => {
+    const user = userEvent.setup();
+    installVideoSamplingMocks();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(new Blob(["video"], { type: "video/mp4" }))),
+    );
+    vi.mocked(predictMultiFoodImage).mockResolvedValue(createResult("hamburger", 0.971));
+
+    render(<AnalyzerWorkbench />);
+    await user.click(screen.getByRole("button", { name: "Video" }));
+    await user.click(screen.getByRole("button", { name: "Sample" }));
+
+    expect(fetch).toHaveBeenCalledWith("/demo/burger-making-demo.mp4");
+    expect(await screen.findByText("Video review complete")).toBeInTheDocument();
+    expect(screen.getByText("hamburger")).toBeInTheDocument();
+    expect(screen.getByLabelText("Selected food video")).toBeInTheDocument();
+  });
+
+  it("does not render raw detector proposal role tokens", () => {
+    const result = createResult("burger", 0.91);
+    result.regions[0] = {
+      ...result.regions[0],
+      detector: {
+        ...result.regions[0].detector,
+        label: "whole_image",
+        proposal_role: "fallback_region",
+      },
+      regionStatusLabel: "Whole image fallback",
+      detectorLabel: "Whole image",
+      detectorRoleLabel: "Whole image review",
+    };
+
+    render(<CropReviewGrid result={result} />);
+
+    expect(screen.queryByText(/fallback_region/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Review type: Whole image review")).toBeInTheDocument();
   });
 
   it("keeps stale image analysis from overwriting the current request", async () => {

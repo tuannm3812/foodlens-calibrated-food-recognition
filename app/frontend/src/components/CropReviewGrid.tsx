@@ -73,7 +73,7 @@ export function CropReviewGrid({
                   <div className="crop-card__body">
                     <h3>{`Region ${region.displayIndex}: ${region.foodlens.top_label}`}</h3>
                     <p>{`${formatPercent(region.foodlens.top_confidence)} confidence`}</p>
-                    <p>{`${region.detector.label} · ${region.detector.proposal_role}`}</p>
+                    <p>{`${region.detectorLabel} · ${region.detectorRoleLabel}`}</p>
                     <p>{region.regionStatusLabel}</p>
                   </div>
                 </button>
@@ -87,8 +87,8 @@ export function CropReviewGrid({
           <span className="metric-label">Selected crop</span>
           <strong>{`Region ${selectedRegion.displayIndex}`}</strong>
           <p>{`Classifier: ${selectedRegion.foodlens.top_label}`}</p>
-          <p>{`Detector: ${selectedRegion.detector.label}`}</p>
-          <p>{`Role: ${selectedRegion.detector.proposal_role}`}</p>
+          <p>{`Detector: ${selectedRegion.detectorLabel}`}</p>
+          <p>{`Review type: ${selectedRegion.detectorRoleLabel}`}</p>
           <p>{bboxCopy(selectedRegion)}</p>
         </aside>
       ) : null}

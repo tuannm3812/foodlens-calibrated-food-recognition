@@ -48,6 +48,8 @@ export type BackendMultiFoodResponse = {
 
 export type UiRegionPrediction = BackendRegionPrediction & {
   displayIndex: number;
+  detectorLabel: string;
+  detectorRoleLabel: string;
   regionStatusLabel: string;
 };
 
