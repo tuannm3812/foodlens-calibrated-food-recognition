@@ -45,10 +45,17 @@ http://127.0.0.1:8000/health
 ## Endpoints
 
 ```text
+GET /runtime/status
 POST /predict/image
 POST /predict/multi-food/image
 POST /predict/video
 ```
+
+The runtime status endpoint reports classifier artifact readiness, optional
+calibration/policy artifacts, detector dependency availability, detector weight
+resolution, and the effective multi-food mode. Use it when diagnosing why an
+environment is returning live inference, detector-only classifier fallback, or
+demo fallback responses.
 
 The single-image endpoint uses real artifacts when available and fallback
 predictions when they are not. The video endpoint remains deterministic mock

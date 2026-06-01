@@ -26,6 +26,34 @@ def test_health_contract() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_runtime_status_reports_missing_classifier_artifacts_and_detector_readiness(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(inference, "ARTIFACT_DIR", tmp_path)
+    weights_path = tmp_path / "yolo11n.pt"
+    weights_path.write_bytes(b"placeholder")
+    monkeypatch.setenv("FOODLENS_DETECTOR_WEIGHTS", str(weights_path))
+    monkeypatch.setattr(
+        inference.importlib.util,
+        "find_spec",
+        lambda name: object() if name == "ultralytics" else None,
+    )
+
+    response = client.get("/runtime/status")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["classifier"]["status"] == "missing_artifacts"
+    assert body["classifier"]["artifact_status"] == "mock"
+    assert body["classifier"]["artifacts"]["checkpoint"]["exists"] is False
+    assert body["classifier"]["artifacts"]["class_names"]["exists"] is False
+    assert body["detector"]["dependency_available"] is True
+    assert body["detector"]["weights_found"] is True
+    assert body["detector"]["weights_path"] == str(weights_path)
+    assert body["multi_food"]["mode"] == "detector_only_classifier_fallback"
+
+
 def test_single_image_missing_artifacts_returns_mock_with_fallback_reason(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

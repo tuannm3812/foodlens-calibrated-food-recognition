@@ -1,6 +1,7 @@
 """Inference helpers for the FoodLens API."""
 
 import base64
+import importlib.util
 from io import BytesIO
 import json
 import os
@@ -174,6 +175,76 @@ def detector_weights_path() -> str:
             return str(candidate_path)
 
     return DETECTOR_WEIGHTS
+
+
+def artifact_file_status(path: Path) -> dict[str, Any]:
+    """Return status details for one artifact file."""
+    return {
+        "path": str(path),
+        "exists": path.exists(),
+        "size_bytes": path.stat().st_size if path.exists() else 0,
+    }
+
+
+def runtime_status() -> dict[str, Any]:
+    """Return runtime readiness details for backend diagnostics."""
+    checkpoint_path = ARTIFACT_DIR / "resnet50_ft_v2_best.pth"
+    class_names_path = ARTIFACT_DIR / "class_names.json"
+    calibration_path = ARTIFACT_DIR / "calibration.json"
+    decision_policy_path = ARTIFACT_DIR / "decision_policy.json"
+    hard_classes_path = ARTIFACT_DIR / "hard_classes.json"
+    confusion_pairs_path = ARTIFACT_DIR / "confusion_pairs.json"
+    classifier_ready = checkpoint_path.exists() and class_names_path.exists()
+    weights_path = detector_weights_path()
+    weights_found = Path(weights_path).exists()
+    detector_dependency_available = importlib.util.find_spec("ultralytics") is not None
+
+    if classifier_ready and detector_dependency_available:
+        multi_food_mode = "live_yolo_classifier"
+    elif detector_dependency_available:
+        multi_food_mode = "detector_only_classifier_fallback"
+    else:
+        multi_food_mode = "demo_fallback"
+
+    return {
+        "classifier": {
+            "status": "ready" if classifier_ready else "missing_artifacts",
+            "artifact_status": artifact_status(),
+            "artifact_dir": str(ARTIFACT_DIR),
+            "artifacts": {
+                "checkpoint": artifact_file_status(checkpoint_path),
+                "class_names": artifact_file_status(class_names_path),
+                "calibration": artifact_file_status(calibration_path),
+                "decision_policy": artifact_file_status(decision_policy_path),
+                "hard_classes": artifact_file_status(hard_classes_path),
+                "confusion_pairs": artifact_file_status(confusion_pairs_path),
+            },
+        },
+        "detector": {
+            "status": "ready" if detector_dependency_available else "missing_dependency",
+            "dependency": "ultralytics",
+            "dependency_available": detector_dependency_available,
+            "weights_path": weights_path,
+            "weights_found": weights_found,
+            "weights_source": (
+                "environment"
+                if os.getenv("FOODLENS_DETECTOR_WEIGHTS")
+                else "auto_discovered"
+                if weights_found
+                else "ultralytics_default"
+            ),
+        },
+        "multi_food": {
+            "mode": multi_food_mode,
+            "detector_status": (
+                "live_yolo"
+                if classifier_ready and detector_dependency_available
+                else "live_yolo_classifier_fallback"
+                if detector_dependency_available
+                else "fallback_demo"
+            ),
+        },
+    }
 
 
 def make_classifier_head(torch_nn: Any, in_features: int) -> Any:

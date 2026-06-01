@@ -7,6 +7,7 @@ from .inference import (
     predict_image_bytes,
     predict_mock,
     predict_multi_food_image_bytes,
+    runtime_status,
 )
 from .schemas import MultiFoodPredictionResponse, PredictionResponse
 
@@ -30,6 +31,12 @@ app.add_middleware(
 def health() -> dict[str, str]:
     """Return service health."""
     return {"status": "ok"}
+
+
+@app.get("/runtime/status")
+def get_runtime_status() -> dict[str, object]:
+    """Return backend runtime readiness for classifier and detector paths."""
+    return runtime_status()
 
 
 @app.post("/predict/image", response_model=PredictionResponse)
