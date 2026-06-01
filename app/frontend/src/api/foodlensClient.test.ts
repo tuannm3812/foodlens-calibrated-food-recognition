@@ -130,7 +130,7 @@ describe("combineFrameResults", () => {
     expect(result.regions).toEqual([]);
   });
 
-  it("derives action copy from the strongest frame decision band", () => {
+  it("keeps video summaries in confirm even when the strongest frame is auto accepted", () => {
     const first = normalizeMultiFoodResponse({
       ...LOCAL_DEMO_RESPONSE,
       predictions: [
@@ -160,9 +160,9 @@ describe("combineFrameResults", () => {
 
     const result = combineFrameResults([first, second]);
 
-    expect(result.decisionBand).toBe("auto_accept");
-    expect(result.actionCopy).toContain("Accept the strongest crop label");
-    expect(result.actionCopy).not.toContain("confirm before applying");
+    expect(result.decisionBand).toBe("confirm");
+    expect(result.actionCopy).toContain("confirm before applying");
+    expect(result.actionCopy).not.toContain("Accept the strongest crop label");
   });
 });
 

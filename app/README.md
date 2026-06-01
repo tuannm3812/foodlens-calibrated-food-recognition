@@ -80,9 +80,11 @@ POST /predict/multi-food/image
 POST /predict/video
 ```
 
-The backend uses the project ResNet50 FT-V2 artifacts when they are present. If
-artifacts or runtime dependencies are missing, it falls back to deterministic
-mock predictions so the frontend still works.
+The backend uses the project ResNet50 FT-V2 artifacts for image classification
+when they are present. If artifacts or runtime dependencies are missing, it
+falls back to deterministic mock predictions so the frontend still works. The
+video API endpoint is explicitly marked as `fallback_reason: video_mock` until
+live video inference is implemented.
 
 The multi-food endpoint follows the Notebook 8 response contract so the app can
 render detected regions, crop-level FoodLens predictions, decision bands, and
@@ -92,8 +94,9 @@ it runs YOLO proposals followed by the FoodLens crop classifier and returns
 prototype response with `detector_status: fallback_demo`.
 
 For video uploads, the frontend samples up to three key frames and sends each
-frame through the same multi-food image endpoint. This keeps the app responsive
-while still exposing frame-level crop review.
+frame through the same multi-food image endpoint. Video summaries always ask for
+confirmation because sampled frames are less reliable than direct image
+analysis.
 
 ## Artifact Requirements
 

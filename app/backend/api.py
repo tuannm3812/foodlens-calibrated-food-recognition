@@ -59,6 +59,6 @@ async def predict_multi_food_image(
 
 @app.post("/predict/video", response_model=PredictionResponse)
 async def predict_video(file: UploadFile = File(...)) -> PredictionResponse:
-    """Predict a food label from an uploaded video using mock frame aggregation."""
+    """Return deterministic video predictions until live video inference exists."""
     _ = await file.read()
-    return predict_mock(mode="video")
+    return predict_mock(mode="video", fallback_reason="video_mock")

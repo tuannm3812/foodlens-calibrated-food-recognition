@@ -197,7 +197,7 @@ export function combineFrameResults(results: AnalyzerResult[]): AnalyzerResult {
   const strongest = regions
     .slice()
     .sort((a, b) => b.foodlens.top_confidence - a.foodlens.top_confidence)[0];
-  const decisionBand = strongest?.foodlens.decision_band ?? first.decisionBand;
+  const decisionBand: DecisionBand = "confirm";
 
   return {
     ...first,

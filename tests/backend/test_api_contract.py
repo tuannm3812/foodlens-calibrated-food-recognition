@@ -65,7 +65,14 @@ def test_multi_food_missing_artifacts_returns_demo_contract(
     assert "crop_path" in first_prediction["artifacts"]
 
 
-def test_video_mock_does_not_report_missing_artifacts_fallback() -> None:
+def test_video_mock_reports_explicit_fallback_when_artifacts_are_ready(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(inference, "ARTIFACT_DIR", tmp_path)
+    (tmp_path / "resnet50_ft_v2_best.pth").write_bytes(b"placeholder")
+    (tmp_path / "class_names.json").write_text("[]")
+
     response = client.post(
         "/predict/video",
         files={"file": ("sample.mp4", b"not-a-real-video", "video/mp4")},
@@ -74,4 +81,5 @@ def test_video_mock_does_not_report_missing_artifacts_fallback() -> None:
     body = response.json()
     assert response.status_code == 200
     assert body["mode"] == "video"
-    assert body["fallback_reason"] is None
+    assert body["artifact_status"] == "ready"
+    assert body["fallback_reason"] == "video_mock"

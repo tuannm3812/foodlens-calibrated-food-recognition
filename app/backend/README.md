@@ -50,15 +50,17 @@ POST /predict/multi-food/image
 POST /predict/video
 ```
 
-The single-image and video endpoints use real artifacts when available and
-fallback predictions when they are not. The multi-food endpoint returns the
-Notebook 8 app contract with detected regions, crop-level predictions, decision
-bands, and artifact references. It uses live YOLO proposals plus crop
-classification when `ultralytics` is installed and marks responses with
-`detector_status: live_yolo`. It falls back to a deterministic prototype
-response marked with `detector_status: fallback_demo` when the detector runtime
-is unavailable. Fallback responses include `fallback_reason` so clients can
-distinguish deterministic demo data from live inference.
+The single-image endpoint uses real artifacts when available and fallback
+predictions when they are not. The video endpoint remains deterministic mock
+output and returns `fallback_reason: video_mock` until live video inference is
+implemented. The multi-food endpoint returns the Notebook 8 app contract with
+detected regions, crop-level predictions, decision bands, and artifact
+references. It uses live YOLO proposals plus crop classification when
+`ultralytics` is installed and marks responses with `detector_status:
+live_yolo`. It falls back to a deterministic prototype response marked with
+`detector_status: fallback_demo` when the detector runtime is unavailable.
+Fallback responses include `fallback_reason` so clients can distinguish
+deterministic demo data from live inference.
 
 The frontend implements video review by sampling key frames client-side and
 calling `POST /predict/multi-food/image` for each extracted frame.
