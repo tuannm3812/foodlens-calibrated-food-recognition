@@ -4,11 +4,11 @@ import { describe, expect, it } from "vitest";
 import App from "./App";
 
 describe("App", () => {
-  it("renders the Analyzer Workbench heading", () => {
+  it("renders the product shell heading", () => {
     render(<App />);
 
     expect(
-      screen.getByRole("heading", { name: "Analyzer Workbench" }),
+      screen.getByRole("heading", { name: "Analysis Result" }),
     ).toBeInTheDocument();
   });
 });

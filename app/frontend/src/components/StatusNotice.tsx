@@ -7,6 +7,13 @@ const SOURCE_LABELS: Record<ResultSource, string> = {
   local_demo: "Local demo",
 };
 
+const STATUS_LABELS: Record<AnalyzerStatus, string> = {
+  idle: "Ready",
+  loading: "Analyzing",
+  ready: "Result ready",
+  error: "Needs attention",
+};
+
 type StatusNoticeProps = {
   status: AnalyzerStatus;
   message: string;
@@ -14,11 +21,12 @@ type StatusNoticeProps = {
 };
 
 export function StatusNotice({ status, message, source }: StatusNoticeProps) {
-  const label = source ? SOURCE_LABELS[source] : "Workbench";
+  const sourceLabel = source ? SOURCE_LABELS[source] : "Workbench";
 
   return (
     <aside className={`status-notice status-notice--${status}`} aria-live="polite">
-      <span className="status-notice__label">{label}</span>
+      <span className="status-notice__label">{STATUS_LABELS[status]}</span>
+      <strong>{sourceLabel}</strong>
       <span className="status-notice__message">{message}</span>
     </aside>
   );

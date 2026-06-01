@@ -118,6 +118,23 @@ describe("AnalyzerWorkbench", () => {
     expect(screen.getByText("Detected regions")).toBeInTheDocument();
   });
 
+  it("keeps the result card hierarchy after loading the sample", async () => {
+    const user = userEvent.setup();
+    render(<AnalyzerWorkbench />);
+
+    await user.click(screen.getByRole("button", { name: "Sample" }));
+
+    expect(screen.getByLabelText("Decision summary")).toHaveClass("decision-card");
+    expect(screen.getByText("Local demo")).toBeInTheDocument();
+    expect(screen.getByText("ravioli")).toBeInTheDocument();
+    expect(screen.getByText("97.2%")).toBeInTheDocument();
+    expect(screen.getByText("Detected regions")).toBeInTheDocument();
+    expect(screen.getByText("Decision")).toBeInTheDocument();
+    expect(screen.getByText("Confidence")).toBeInTheDocument();
+    expect(screen.getByText("Model")).toBeInTheDocument();
+    expect(screen.getByText("Detector")).toBeInTheDocument();
+  });
+
   it("keeps stale image analysis from overwriting the current request", async () => {
     const first = deferred<AnalyzerResult>();
     const second = deferred<AnalyzerResult>();

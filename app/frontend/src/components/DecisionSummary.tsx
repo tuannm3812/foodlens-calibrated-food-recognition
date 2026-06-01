@@ -19,33 +19,45 @@ function formatConfidence(value: number): string {
 export function DecisionSummary({ result }: DecisionSummaryProps) {
   if (!result) {
     return (
-      <section className="decision-card" aria-label="Decision summary">
+      <section className="decision-card decision-card--empty" aria-label="Decision summary">
         <p className="eyebrow">Decision</p>
         <h2>No input selected</h2>
         <p className="muted-copy">
-          Upload a plated dish image or load the sample to review FoodLens crop
-          decisions.
+          Upload a plated dish image, select a short video, or load the sample to
+          review FoodLens crop decisions.
         </p>
       </section>
     );
   }
 
+  const confidence = formatConfidence(result.strongestConfidence);
+
   return (
     <section className="decision-card" aria-label="Decision summary">
-      <div className="decision-card__headline">
+      <div className="decision-card__topline">
         <div>
-          <p className="eyebrow">Decision</p>
-          <h2>{result.strongestLabel}</h2>
+          <span className="metric-label">Decision</span>
+          <span className={`decision-badge decision-badge--${result.decisionBand}`}>
+            {DECISION_LABELS[result.decisionBand]}
+          </span>
         </div>
-        <span className={`decision-badge decision-badge--${result.decisionBand}`}>
-          {DECISION_LABELS[result.decisionBand]}
-        </span>
+        <div className="confidence-metric">
+          <span className="metric-label">Confidence</span>
+          <strong>{confidence}</strong>
+        </div>
       </div>
-      <p className="confidence-line">
-        {formatConfidence(result.strongestConfidence)} confidence
-      </p>
-      <p className="action-copy">{result.actionCopy}</p>
+
+      <div className="decision-card__prediction">
+        <h2>{result.strongestLabel}</h2>
+        <p>{result.actionCopy}</p>
+      </div>
+
+      <div className="confidence-track" aria-hidden="true">
+        <span style={{ width: confidence }} />
+      </div>
+
       <PredictionRanking predictions={result.topPredictions} />
+
       <dl className="model-metadata">
         <div>
           <dt>Model</dt>
