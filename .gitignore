@@ -13,6 +13,7 @@ __pycache__/
 .venv/
 venv/
 env/
+node_modules/
 
 # Kaggle and local outputs
 data/
@@ -21,6 +22,7 @@ outputs/
 results/
 working/
 kaggle/working/
+dist/
 
 # Deep learning artifacts
 *.pth
