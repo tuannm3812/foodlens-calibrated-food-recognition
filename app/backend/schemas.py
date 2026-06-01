@@ -31,6 +31,7 @@ class PredictionResponse(BaseModel):
     top_predictions: list[Prediction]
     decision: Decision
     artifact_status: str
+    fallback_reason: Optional[str] = None
 
 
 class BoundingBox(BaseModel):
@@ -93,3 +94,4 @@ class MultiFoodPredictionResponse(BaseModel):
     crop_count: int
     predictions: list[MultiFoodPrediction]
     artifact_status: str
+    fallback_reason: Optional[str] = None

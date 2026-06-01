@@ -283,7 +283,10 @@ def classify_pil_image(image: Any, runtime: dict[str, Any]) -> list[Prediction]:
     ]
 
 
-def predict_mock(mode: str = "image") -> PredictionResponse:
+def predict_mock(
+    mode: str = "image",
+    fallback_reason: Optional[str] = None,
+) -> PredictionResponse:
     """Return a deterministic mock prediction response."""
     raw_predictions = MOCK_VIDEO_PREDICTIONS if mode == "video" else MOCK_IMAGE_PREDICTIONS
     predictions = build_predictions(raw_predictions)
@@ -294,10 +297,13 @@ def predict_mock(mode: str = "image") -> PredictionResponse:
         top_predictions=predictions,
         decision=build_decision(mode, predictions),
         artifact_status=artifact_status(),
+        fallback_reason=fallback_reason,
     )
 
 
-def build_multi_food_mock() -> MultiFoodPredictionResponse:
+def build_multi_food_mock(
+    fallback_reason: str = "missing_artifacts",
+) -> MultiFoodPredictionResponse:
     """Return a deterministic Notebook 8-style multi-food response."""
     predictions: list[MultiFoodPrediction] = []
     for region in MOCK_MULTI_FOOD_REGIONS:
@@ -348,6 +354,7 @@ def build_multi_food_mock() -> MultiFoodPredictionResponse:
         crop_count=len(predictions),
         predictions=predictions,
         artifact_status=artifact_status(),
+        fallback_reason=fallback_reason,
     )
 
 
@@ -504,6 +511,7 @@ def build_multi_food_response(
         crop_count=len(predictions),
         predictions=predictions,
         artifact_status="ready",
+        fallback_reason=None,
     )
 
 
@@ -515,17 +523,20 @@ def predict_multi_food_image_bytes(image_bytes: bytes) -> MultiFoodPredictionRes
     Notebook 8-style response when the detector runtime is unavailable.
     """
     if artifact_status() != "ready":
-        return build_multi_food_mock()
+        return build_multi_food_mock(fallback_reason="missing_artifacts")
 
     try:
         runtime = load_runtime()
         image = runtime["image_class"].open(BytesIO(image_bytes)).convert("RGB")
-        detections = detect_candidate_regions(image)
+        try:
+            detections = detect_candidate_regions(image)
+        except RuntimeError:
+            return build_multi_food_mock(fallback_reason="detector_runtime_unavailable")
         if not detections:
             detections = [build_full_image_region(image)]
         return build_multi_food_response(image, detections, runtime)
     except Exception:
-        return build_multi_food_mock()
+        return build_multi_food_mock(fallback_reason="inference_error")
 
 
 def build_prediction_response(
@@ -547,17 +558,18 @@ def build_prediction_response(
             confusion_pairs=runtime["confusion_pairs"],
         ),
         artifact_status="ready",
+        fallback_reason=None,
     )
 
 
 def predict_image_bytes(image_bytes: bytes) -> PredictionResponse:
     """Predict Food-101 classes using real artifacts when available."""
     if artifact_status() != "ready":
-        return predict_mock(mode="image")
+        return predict_mock(mode="image", fallback_reason="missing_artifacts")
 
     try:
         runtime = load_runtime()
         image = runtime["image_class"].open(BytesIO(image_bytes)).convert("RGB")
         return build_prediction_response(image, runtime)
     except Exception:
-        return predict_mock(mode="image")
+        return predict_mock(mode="image", fallback_reason="inference_error")
