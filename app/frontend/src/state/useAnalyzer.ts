@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   combineFrameResults,
+  isUserInputApiError,
   predictMultiFoodImage,
+  predictMultiFoodImageUrl,
+  predictMultiFoodYoutubeUrl,
   toLocalDemoResult,
 } from "../api/foodlensClient";
 import type { AnalyzerResult } from "../api/types";
@@ -24,6 +27,8 @@ type AnalyzerState = {
   loadSample: () => Promise<void> | void;
   analyzeImage: (file: File) => Promise<void>;
   analyzeVideo: (file: File) => Promise<void>;
+  analyzeImageUrl: (url: string) => Promise<void>;
+  analyzeYoutubeUrl: (url: string) => Promise<void>;
 };
 
 function createPreviewUrl(file: File): string | null {
@@ -152,6 +157,15 @@ export function useAnalyzer(): AnalyzerState {
     [revokePreview],
   );
 
+  const replaceExternalPreview = useCallback(
+    (nextPreviewUrl: string | null) => {
+      revokePreview();
+      objectUrlRef.current = null;
+      setPreviewUrl(nextPreviewUrl);
+    },
+    [revokePreview],
+  );
+
   const clear = useCallback(() => {
     requestSequenceRef.current += 1;
     replacePreview(null);
@@ -264,6 +278,84 @@ export function useAnalyzer(): AnalyzerState {
     [replacePreview],
   );
 
+  const analyzeImageUrl = useCallback(
+    async (url: string) => {
+      requestSequenceRef.current += 1;
+      const requestSequence = requestSequenceRef.current;
+      replaceExternalPreview(url);
+      setStatus("loading");
+      setResult(null);
+      setMessage("Analyzing image URL");
+
+      try {
+        const nextResult = await predictMultiFoodImageUrl(url);
+        if (requestSequence !== requestSequenceRef.current) {
+          return;
+        }
+        setResult(nextResult);
+        setStatus("ready");
+        setMessage("Image URL analysis complete");
+      } catch (error) {
+        if (requestSequence !== requestSequenceRef.current) {
+          return;
+        }
+        if (isUserInputApiError(error)) {
+          setResult(null);
+          setStatus("error");
+          setMessage(error.message);
+          return;
+        }
+        setResult(toLocalDemoResult());
+        setStatus("ready");
+        setMessage(
+          error instanceof Error
+            ? `Using local demo fallback: ${error.message}`
+            : "Using local demo fallback",
+        );
+      }
+    },
+    [replaceExternalPreview],
+  );
+
+  const analyzeYoutubeUrl = useCallback(
+    async (url: string) => {
+      requestSequenceRef.current += 1;
+      const requestSequence = requestSequenceRef.current;
+      replaceExternalPreview(null);
+      setStatus("loading");
+      setResult(null);
+      setMessage("Downloading YouTube video");
+
+      try {
+        const nextResult = await predictMultiFoodYoutubeUrl(url);
+        if (requestSequence !== requestSequenceRef.current) {
+          return;
+        }
+        setResult(nextResult);
+        setStatus("ready");
+        setMessage("Video URL review complete");
+      } catch (error) {
+        if (requestSequence !== requestSequenceRef.current) {
+          return;
+        }
+        if (isUserInputApiError(error)) {
+          setResult(null);
+          setStatus("error");
+          setMessage(error.message);
+          return;
+        }
+        setResult(toLocalDemoResult());
+        setStatus("ready");
+        setMessage(
+          error instanceof Error
+            ? `Using local demo fallback: ${error.message}`
+            : "Using local demo fallback",
+        );
+      }
+    },
+    [replaceExternalPreview],
+  );
+
   const loadSample = useCallback(async () => {
     if (mode !== "video") {
       requestSequenceRef.current += 1;
@@ -314,5 +406,7 @@ export function useAnalyzer(): AnalyzerState {
     loadSample,
     analyzeImage,
     analyzeVideo,
+    analyzeImageUrl,
+    analyzeYoutubeUrl,
   };
 }

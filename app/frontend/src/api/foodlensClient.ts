@@ -53,6 +53,16 @@ const DETECTOR_ROLE_LABELS: Record<string, string> = {
   serving_container: "Serving area",
 };
 
+export class FoodLensApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "FoodLensApiError";
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -104,6 +114,14 @@ function labelFromToken(token: string): string {
 
 function detectorStatusLabel(detectorStatus: string): string {
   return DETECTOR_STATUS_LABELS[detectorStatus] ?? labelFromToken(detectorStatus);
+}
+
+function modelNameLabel(model: string): string {
+  if (model.includes("Video review")) {
+    return model;
+  }
+
+  return `${model} · Multi-food`;
 }
 
 function fallbackReasonLabel(fallbackReason?: string | null): string | undefined {
@@ -273,7 +291,7 @@ export function normalizeMultiFoodResponse(
     : "confirm";
 
   return {
-    modelName: `${response.model} · Multi-food`,
+    modelName: modelNameLabel(response.model),
     temperature: response.temperature,
     detectorStatus: response.detector_status,
     detectorStatusLabel: detectorStatusLabel(response.detector_status),
@@ -353,6 +371,57 @@ export async function predictMultiFoodImage(file: File): Promise<AnalyzerResult>
   }
 
   return normalizeMultiFoodResponse(body);
+}
+
+async function parseErrorMessage(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as unknown;
+    if (isRecord(body) && isString(body.detail)) {
+      return body.detail;
+    }
+  } catch {
+    return `FoodLens API returned ${response.status}`;
+  }
+
+  return `FoodLens API returned ${response.status}`;
+}
+
+async function postUrlPrediction(
+  endpoint: string,
+  url: string,
+): Promise<AnalyzerResult> {
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+
+  if (!response.ok) {
+    throw new FoodLensApiError(await parseErrorMessage(response), response.status);
+  }
+
+  const body = (await response.json()) as unknown;
+  if (!isBackendMultiFoodResponse(body)) {
+    throw new Error("FoodLens API returned an invalid multi-food response.");
+  }
+
+  return normalizeMultiFoodResponse(body);
+}
+
+export function isUserInputApiError(error: unknown): error is FoodLensApiError {
+  return (
+    error instanceof FoodLensApiError &&
+    error.status >= 400 &&
+    error.status < 500
+  );
+}
+
+export function predictMultiFoodImageUrl(url: string): Promise<AnalyzerResult> {
+  return postUrlPrediction("/predict/multi-food/image-url", url);
+}
+
+export function predictMultiFoodYoutubeUrl(url: string): Promise<AnalyzerResult> {
+  return postUrlPrediction("/predict/multi-food/youtube-url", url);
 }
 
 export async function fetchRuntimeStatus(): Promise<RuntimeStatusSummary> {

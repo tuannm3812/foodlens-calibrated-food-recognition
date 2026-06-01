@@ -7,7 +7,12 @@ import { CropReviewGrid } from "./CropReviewGrid";
 import { PreviewStage } from "./PreviewStage";
 import { UploadControls } from "./UploadControls";
 import type { AnalyzerResult } from "../api/types";
-import { fetchRuntimeStatus, predictMultiFoodImage } from "../api/foodlensClient";
+import {
+  fetchRuntimeStatus,
+  predictMultiFoodImage,
+  predictMultiFoodImageUrl,
+  predictMultiFoodYoutubeUrl,
+} from "../api/foodlensClient";
 import { useAnalyzer } from "../state/useAnalyzer";
 
 vi.mock("../api/foodlensClient", () => ({
@@ -20,6 +25,8 @@ vi.mock("../api/foodlensClient", () => ({
     modeLabel: "Live detector + classifier",
   })),
   predictMultiFoodImage: vi.fn(),
+  predictMultiFoodImageUrl: vi.fn(),
+  predictMultiFoodYoutubeUrl: vi.fn(),
   toLocalDemoResult: () => createResult("ravioli", 0.972, "local_demo"),
 }));
 
@@ -165,6 +172,8 @@ describe("AnalyzerWorkbench", () => {
   beforeEach(() => {
     vi.mocked(fetchRuntimeStatus).mockClear();
     vi.mocked(predictMultiFoodImage).mockReset();
+    vi.mocked(predictMultiFoodImageUrl).mockReset();
+    vi.mocked(predictMultiFoodYoutubeUrl).mockReset();
   });
 
   afterEach(() => {
@@ -380,6 +389,44 @@ describe("AnalyzerWorkbench", () => {
       await first.promise;
     });
     expect(result.current.result?.strongestLabel).toBe("second_upload");
+  });
+
+  it("analyzes direct image URLs through analyzer state", async () => {
+    vi.mocked(predictMultiFoodImageUrl).mockResolvedValue(createResult("pizza", 0.94));
+    const { result } = renderHook(() => useAnalyzer());
+
+    await act(async () => {
+      await result.current.analyzeImageUrl("https://example.com/pizza.jpg");
+    });
+
+    expect(predictMultiFoodImageUrl).toHaveBeenCalledWith(
+      "https://example.com/pizza.jpg",
+    );
+    expect(result.current.status).toBe("ready");
+    expect(result.current.message).toBe("Image URL analysis complete");
+    expect(result.current.previewUrl).toBe("https://example.com/pizza.jpg");
+    expect(result.current.result?.strongestLabel).toBe("pizza");
+  });
+
+  it("analyzes YouTube URLs through analyzer state", async () => {
+    vi.mocked(predictMultiFoodYoutubeUrl).mockResolvedValue(
+      createResult("hamburger", 0.91),
+    );
+    const { result } = renderHook(() => useAnalyzer());
+
+    await act(async () => {
+      await result.current.analyzeYoutubeUrl(
+        "https://www.youtube.com/watch?v=abc123",
+      );
+    });
+
+    expect(predictMultiFoodYoutubeUrl).toHaveBeenCalledWith(
+      "https://www.youtube.com/watch?v=abc123",
+    );
+    expect(result.current.status).toBe("ready");
+    expect(result.current.message).toBe("Video URL review complete");
+    expect(result.current.previewUrl).toBeNull();
+    expect(result.current.result?.strongestLabel).toBe("hamburger");
   });
 });
 

@@ -3,9 +3,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { LOCAL_DEMO_RESPONSE } from "./demoData";
 import {
   combineFrameResults,
+  FoodLensApiError,
   fetchRuntimeStatus,
+  isUserInputApiError,
   normalizeMultiFoodResponse,
   predictMultiFoodImage,
+  predictMultiFoodImageUrl,
+  predictMultiFoodYoutubeUrl,
   toLocalDemoResult,
 } from "./foodlensClient";
 
@@ -145,6 +149,17 @@ describe("normalizeMultiFoodResponse", () => {
     expect(result.decisionBand).toBe("review");
     expect(result.actionCopy).toContain("extra review");
   });
+
+  it("keeps backend video review model labels intact", () => {
+    const result = normalizeMultiFoodResponse({
+      ...LOCAL_DEMO_RESPONSE,
+      model: "resnet50_ft_v2 · Video review",
+      detector_status: "fallback_demo · 2 frames",
+    });
+
+    expect(result.modelName).toBe("resnet50_ft_v2 · Video review");
+    expect(result.detectorStatus).toBe("fallback_demo · 2 frames");
+  });
 });
 
 describe("combineFrameResults", () => {
@@ -273,6 +288,75 @@ describe("predictMultiFoodImage", () => {
     await expect(predictMultiFoodImage(file)).rejects.toThrow(
       "FoodLens API returned an invalid multi-food response.",
     );
+  });
+});
+
+describe("URL prediction clients", () => {
+  it("posts direct image URLs to the image URL endpoint", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => LOCAL_DEMO_RESPONSE,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await predictMultiFoodImageUrl("https://example.com/plate.jpg");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:8000/predict/multi-food/image-url",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: "https://example.com/plate.jpg" }),
+      },
+    );
+    expect(result.strongestLabel).toBe("ravioli");
+  });
+
+  it("posts YouTube URLs to the YouTube URL endpoint", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ...LOCAL_DEMO_RESPONSE,
+        model: "resnet50_ft_v2 · Video review",
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await predictMultiFoodYoutubeUrl(
+      "https://www.youtube.com/watch?v=abc123",
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:8000/predict/multi-food/youtube-url",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: "https://www.youtube.com/watch?v=abc123" }),
+      },
+    );
+    expect(result.modelName).toBe("resnet50_ft_v2 · Video review");
+  });
+
+  it("classifies 4xx URL API errors as user input errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 400,
+        json: async () => ({ detail: "Enter a public media URL." }),
+      })),
+    );
+
+    await expect(predictMultiFoodImageUrl("http://127.0.0.1/plate.jpg")).rejects.toThrow(
+      "Enter a public media URL.",
+    );
+
+    try {
+      await predictMultiFoodImageUrl("http://127.0.0.1/plate.jpg");
+    } catch (error) {
+      expect(error).toBeInstanceOf(FoodLensApiError);
+      expect(isUserInputApiError(error)).toBe(true);
+    }
   });
 });
 
