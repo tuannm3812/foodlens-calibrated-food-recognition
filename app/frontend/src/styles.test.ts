@@ -20,3 +20,24 @@ describe("decision card visual density", () => {
     expect(cssRule(".model-metadata dd")).toContain("font-size: 0.78rem");
   });
 });
+
+describe("workbench layout alignment", () => {
+  it("uses the same column grid for the title/status row and analysis row", () => {
+    expect(cssRule(".app-shell")).toContain(
+      "--workbench-columns: minmax(0, 1.45fr) minmax(320px, 0.55fr)",
+    );
+    expect(cssRule(".workbench-title-row")).toContain(
+      "grid-template-columns: var(--workbench-columns)",
+    );
+    expect(cssRule(".workbench-layout")).toContain(
+      "grid-template-columns: var(--workbench-columns)",
+    );
+  });
+
+  it("aligns crop cards and selected crop details in a shared review body", () => {
+    expect(cssRule(".crop-review__body")).toContain(
+      "grid-template-columns: minmax(0, 1fr) minmax(260px, 340px)",
+    );
+    expect(cssRule(".crop-detail")).toContain("align-self: start");
+  });
+});

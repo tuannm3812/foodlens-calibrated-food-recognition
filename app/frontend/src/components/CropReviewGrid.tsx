@@ -44,54 +44,56 @@ export function CropReviewGrid({
       {regions.length === 0 ? (
         <p className="muted-copy">Detected crop cards will appear here.</p>
       ) : (
-        <div className="crop-grid">
-          {regions.map((region) => {
-            const key = regionKey(region);
-            const selected = key === selectedRegionKey;
+        <div className="crop-review__body">
+          <div className="crop-grid">
+            {regions.map((region) => {
+              const key = regionKey(region);
+              const selected = key === selectedRegionKey;
 
-            return (
-              <article
-                key={key}
-                className={`crop-card${selected ? " crop-card--selected" : ""}`}
-              >
-                <button
-                  type="button"
-                  className="crop-card__button"
-                  aria-pressed={selected}
-                  onClick={() => onSelectRegion?.(key)}
+              return (
+                <article
+                  key={key}
+                  className={`crop-card${selected ? " crop-card--selected" : ""}`}
                 >
-                  <div className="crop-card__media">
-                    {region.artifacts.crop_data_url ? (
-                      <img
-                        src={region.artifacts.crop_data_url}
-                        alt={`Crop ${region.displayIndex}`}
-                      />
-                    ) : (
-                      <span>Crop {region.displayIndex}</span>
-                    )}
-                  </div>
-                  <div className="crop-card__body">
-                    <h3>{`Region ${region.displayIndex}: ${region.foodlens.top_label}`}</h3>
-                    <p>{`${formatPercent(region.foodlens.top_confidence)} confidence`}</p>
-                    <p>{`${region.detectorLabel} · ${region.detectorRoleLabel}`}</p>
-                    <p>{region.regionStatusLabel}</p>
-                  </div>
-                </button>
-              </article>
-            );
-          })}
+                  <button
+                    type="button"
+                    className="crop-card__button"
+                    aria-pressed={selected}
+                    onClick={() => onSelectRegion?.(key)}
+                  >
+                    <div className="crop-card__media">
+                      {region.artifacts.crop_data_url ? (
+                        <img
+                          src={region.artifacts.crop_data_url}
+                          alt={`Crop ${region.displayIndex}`}
+                        />
+                      ) : (
+                        <span>Crop {region.displayIndex}</span>
+                      )}
+                    </div>
+                    <div className="crop-card__body">
+                      <h3>{`Region ${region.displayIndex}: ${region.foodlens.top_label}`}</h3>
+                      <p>{`${formatPercent(region.foodlens.top_confidence)} confidence`}</p>
+                      <p>{`${region.detectorLabel} · ${region.detectorRoleLabel}`}</p>
+                      <p>{region.regionStatusLabel}</p>
+                    </div>
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+          {selectedRegion ? (
+            <aside className="crop-detail" aria-label="Selected crop details">
+              <span className="metric-label">Selected crop</span>
+              <strong>{`Region ${selectedRegion.displayIndex}`}</strong>
+              <p>{`Classifier: ${selectedRegion.foodlens.top_label}`}</p>
+              <p>{`Detector: ${selectedRegion.detectorLabel}`}</p>
+              <p>{`Review type: ${selectedRegion.detectorRoleLabel}`}</p>
+              <p>{bboxCopy(selectedRegion)}</p>
+            </aside>
+          ) : null}
         </div>
       )}
-      {selectedRegion ? (
-        <aside className="crop-detail" aria-label="Selected crop details">
-          <span className="metric-label">Selected crop</span>
-          <strong>{`Region ${selectedRegion.displayIndex}`}</strong>
-          <p>{`Classifier: ${selectedRegion.foodlens.top_label}`}</p>
-          <p>{`Detector: ${selectedRegion.detectorLabel}`}</p>
-          <p>{`Review type: ${selectedRegion.detectorRoleLabel}`}</p>
-          <p>{bboxCopy(selectedRegion)}</p>
-        </aside>
-      ) : null}
     </section>
   );
 }

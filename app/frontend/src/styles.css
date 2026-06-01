@@ -116,6 +116,8 @@ h3 {
 }
 
 .app-shell {
+  --workbench-columns: minmax(0, 1.45fr) minmax(320px, 0.55fr);
+  --workbench-gap: 20px;
   width: min(100%, 1360px);
   margin: 0 auto;
   padding: 24px 24px 36px;
@@ -191,8 +193,8 @@ h3 {
 
 .workbench-title-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
-  gap: 24px;
+  grid-template-columns: var(--workbench-columns);
+  gap: var(--workbench-gap);
   align-items: end;
   padding: 2px 0;
 }
@@ -255,8 +257,8 @@ h3 {
 
 .workbench-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.55fr);
-  gap: 20px;
+  grid-template-columns: var(--workbench-columns);
+  gap: var(--workbench-gap);
   align-items: start;
 }
 
@@ -822,6 +824,13 @@ meter {
   background: var(--lab-surface);
 }
 
+.crop-review__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  gap: 16px;
+  align-items: start;
+}
+
 .section-heading {
   display: grid;
   gap: 2px;
@@ -892,6 +901,7 @@ meter {
 .crop-detail {
   display: grid;
   gap: 6px;
+  align-self: start;
   padding: 14px 16px;
   border: 1px solid var(--lab-border);
   border-radius: var(--lab-radius);
@@ -907,7 +917,8 @@ meter {
 @media (max-width: 900px) {
   .product-header,
   .workbench-title-row,
-  .workbench-layout {
+  .workbench-layout,
+  .crop-review__body {
     grid-template-columns: 1fr;
   }
 

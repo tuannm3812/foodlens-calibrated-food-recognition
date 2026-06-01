@@ -321,6 +321,9 @@ describe("AnalyzerWorkbench", () => {
     expect(screen.getByRole("img", { name: "Region 2: ramen" })).toHaveClass(
       "bbox-overlay--selected",
     );
+    expect(
+      screen.getByLabelText("Detected regions").querySelector(".crop-review__body"),
+    ).toBeInTheDocument();
   });
 
   it("loads the bundled burger video when sample is selected in video mode", async () => {
