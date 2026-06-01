@@ -95,3 +95,9 @@ class MultiFoodPredictionResponse(BaseModel):
     predictions: list[MultiFoodPrediction]
     artifact_status: str
     fallback_reason: Optional[str] = None
+
+
+class UrlPredictionRequest(BaseModel):
+    """URL-based prediction request."""
+
+    url: str = Field(min_length=1, max_length=2048)

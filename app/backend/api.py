@@ -1,6 +1,6 @@
 """FastAPI entrypoint for the FoodLens inference service."""
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from .inference import (
@@ -9,7 +9,18 @@ from .inference import (
     predict_multi_food_image_bytes,
     runtime_status,
 )
-from .schemas import MultiFoodPredictionResponse, PredictionResponse
+from .media_download import DownloadError, download_image_url
+from .schemas import (
+    MultiFoodPredictionResponse,
+    PredictionResponse,
+    UrlPredictionRequest,
+)
+from .url_security import UrlValidationError
+from .youtube_ingestion import (
+    MediaDependencyError,
+    MediaIngestionError,
+    predict_multi_food_youtube_url,
+)
 
 
 app = FastAPI(
@@ -62,6 +73,33 @@ async def predict_multi_food_image(
     """
     image_bytes = await file.read()
     return predict_multi_food_image_bytes(image_bytes)
+
+
+@app.post("/predict/multi-food/image-url", response_model=MultiFoodPredictionResponse)
+async def predict_multi_food_image_url(
+    request: UrlPredictionRequest,
+) -> MultiFoodPredictionResponse:
+    """Predict multiple food regions from a public direct image URL."""
+    try:
+        image_bytes = download_image_url(request.url)
+    except (DownloadError, UrlValidationError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return predict_multi_food_image_bytes(image_bytes)
+
+
+@app.post("/predict/multi-food/youtube-url", response_model=MultiFoodPredictionResponse)
+async def predict_multi_food_youtube(
+    request: UrlPredictionRequest,
+) -> MultiFoodPredictionResponse:
+    """Predict multiple food regions from a public YouTube URL."""
+    try:
+        return predict_multi_food_youtube_url(request.url)
+    except UrlValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except MediaDependencyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except MediaIngestionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/predict/video", response_model=PredictionResponse)
