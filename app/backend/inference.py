@@ -162,6 +162,20 @@ def read_confusion_pairs() -> set[tuple[str, str]]:
     return pairs
 
 
+def detector_weights_path() -> str:
+    """Resolve detector weights without forcing an Ultralytics download first."""
+    configured_weights = os.getenv("FOODLENS_DETECTOR_WEIGHTS")
+    if configured_weights:
+        return configured_weights
+
+    for parent in Path(__file__).resolve().parents:
+        candidate_path = parent / DETECTOR_WEIGHTS
+        if candidate_path.exists():
+            return str(candidate_path)
+
+    return DETECTOR_WEIGHTS
+
+
 def make_classifier_head(torch_nn: Any, in_features: int) -> Any:
     """Create the project-standard Food-101 classifier head."""
     return torch_nn.Sequential(
@@ -365,8 +379,7 @@ def detect_candidate_regions(image: Any) -> list[dict[str, Any]]:
     except ImportError as exc:
         raise RuntimeError("Multi-food detection requires ultralytics.") from exc
 
-    weights = os.getenv("FOODLENS_DETECTOR_WEIGHTS", DETECTOR_WEIGHTS)
-    detector = YOLO(weights)
+    detector = YOLO(detector_weights_path())
     result = detector.predict(
         source=image,
         conf=DETECTOR_CONFIDENCE_THRESHOLD,
@@ -441,6 +454,107 @@ def build_crop_data_url(crop: Any) -> str:
     crop.save(buffer, format="JPEG", quality=82)
     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
     return f"data:image/jpeg;base64,{encoded}"
+
+
+def open_rgb_image(image_bytes: bytes) -> Any:
+    """Open uploaded image bytes without requiring the classifier runtime."""
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError("Image decoding requires Pillow.") from exc
+
+    return Image.open(BytesIO(image_bytes)).convert("RGB")
+
+
+def build_classifier_fallback_predictions(row: dict[str, Any]) -> list[Prediction]:
+    """Build honest crop labels when detector works but classifier artifacts are absent."""
+    detector_label = str(row["detector_label"])
+    if detector_label in DIRECT_FOOD_LABELS:
+        top_label = detector_label
+    elif detector_label == "bowl":
+        top_label = "food_in_container"
+    else:
+        top_label = "detected_food_region"
+
+    fallback_confidence = min(
+        float(row["detector_confidence"]),
+        MULTI_FOOD_POLICY["suggest_confidence"] - 0.01,
+    )
+    return [
+        Prediction(rank=1, class_name=top_label, confidence=fallback_confidence),
+        Prediction(rank=2, class_name="classifier_unavailable", confidence=0.0),
+    ]
+
+
+def build_multi_food_classifier_fallback_response(
+    image: Any,
+    detection_rows: list[dict[str, Any]],
+) -> MultiFoodPredictionResponse:
+    """Return real detector crops with explicit classifier-fallback labels."""
+    predictions: list[MultiFoodPrediction] = []
+
+    for region_index, row in enumerate(detection_rows):
+        crop = image.crop((row["x1"], row["y1"], row["x2"], row["y2"]))
+        crop_predictions = build_classifier_fallback_predictions(row)
+        decision = build_decision(
+            "image",
+            crop_predictions,
+            policy=MULTI_FOOD_POLICY,
+            hard_classes=set(),
+            confusion_pairs=set(),
+        )
+        crop_name = f"uploaded_image_crop_{region_index:02d}.jpg"
+
+        predictions.append(
+            MultiFoodPrediction(
+                source_id="uploaded_image",
+                detection_index=int(row["detection_index"]),
+                bbox=BoundingBox(
+                    x1=int(row["x1"]),
+                    y1=int(row["y1"]),
+                    x2=int(row["x2"]),
+                    y2=int(row["y2"]),
+                    source_width=int(row["source_width"]),
+                    source_height=int(row["source_height"]),
+                ),
+                detector=DetectorRegion(
+                    label=str(row["detector_label"]),
+                    proposal_role=str(row["proposal_role"]),
+                    confidence=float(row["detector_confidence"]),
+                    crop_area_ratio=float(row["crop_area_ratio"]),
+                ),
+                foodlens=FoodLensRegionPrediction(
+                    top_label=crop_predictions[0].class_name,
+                    top_confidence=crop_predictions[0].confidence,
+                    decision_band=decision.band,
+                    top_k_predictions=[
+                        (prediction.class_name, prediction.confidence)
+                        for prediction in crop_predictions
+                    ],
+                ),
+                artifacts=RegionArtifacts(
+                    crop_path=f"runtime/{crop_name}",
+                    crop_artifact_path=f"app://runtime/crops/{crop_name}",
+                    figure_path="runtime/uploaded_image_detections.jpg",
+                    crop_data_url=build_crop_data_url(crop),
+                ),
+            )
+        )
+
+    return MultiFoodPredictionResponse(
+        model=MODEL_NAME,
+        temperature=read_temperature(),
+        top_k=5,
+        decision_thresholds={
+            "auto_accept": MULTI_FOOD_POLICY["auto_confidence"],
+            "suggest": MULTI_FOOD_POLICY["suggest_confidence"],
+        },
+        detector_status="live_yolo_classifier_fallback",
+        crop_count=len(predictions),
+        predictions=predictions,
+        artifact_status="mock",
+        fallback_reason="missing_classifier_artifacts",
+    )
 
 
 def build_multi_food_response(
@@ -523,7 +637,21 @@ def predict_multi_food_image_bytes(image_bytes: bytes) -> MultiFoodPredictionRes
     Notebook 8-style response when the detector runtime is unavailable.
     """
     if artifact_status() != "ready":
-        return build_multi_food_mock(fallback_reason="missing_artifacts")
+        try:
+            image = open_rgb_image(image_bytes)
+        except Exception:
+            return build_multi_food_mock(fallback_reason="missing_artifacts")
+
+        try:
+            detections = detect_candidate_regions(image)
+        except RuntimeError:
+            return build_multi_food_mock(fallback_reason="detector_runtime_unavailable")
+        except Exception:
+            return build_multi_food_mock(fallback_reason="detector_inference_error")
+
+        if not detections:
+            detections = [build_full_image_region(image)]
+        return build_multi_food_classifier_fallback_response(image, detections)
 
     try:
         runtime = load_runtime()

@@ -56,11 +56,15 @@ output and returns `fallback_reason: video_mock` until live video inference is
 implemented. The multi-food endpoint returns the Notebook 8 app contract with
 detected regions, crop-level predictions, decision bands, and artifact
 references. It uses live YOLO proposals plus crop classification when
-`ultralytics` is installed and marks responses with `detector_status:
-live_yolo`. It falls back to a deterministic prototype response marked with
-`detector_status: fallback_demo` when the detector runtime is unavailable.
-Fallback responses include `fallback_reason` so clients can distinguish
-deterministic demo data from live inference.
+`ultralytics` and classifier artifacts are available, marking responses with
+`detector_status: live_yolo`. When YOLO is available but classifier artifacts are
+missing, it still returns real uploaded-image crops and marks classifier labels
+with `detector_status: live_yolo_classifier_fallback` and `fallback_reason:
+missing_classifier_artifacts`. It falls back to a deterministic prototype
+response marked with `detector_status: fallback_demo` when image decoding or the
+detector runtime is unavailable. Fallback responses include `fallback_reason` so
+clients can distinguish deterministic demo data, detector-only crops, and live
+inference.
 
 The frontend implements video review by sampling key frames client-side and
 calling `POST /predict/multi-food/image` for each extracted frame.
@@ -81,3 +85,6 @@ Required artifacts:
 
 The multi-food path also uses detector weights through the `ultralytics` runtime.
 Set `FOODLENS_DETECTOR_WEIGHTS` to override the default `yolo11n.pt` detector.
+When the environment variable is not set, the backend searches parent
+directories for `yolo11n.pt` before allowing Ultralytics to use its default
+download behavior.
