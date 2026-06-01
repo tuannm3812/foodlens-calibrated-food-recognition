@@ -18,10 +18,10 @@ const VIEW_COPY: Record<
   { eyebrow: string; title: string; subtitle: string; overviewLabel: string }
 > = {
   analyze: {
-    eyebrow: "Analyze",
-    title: "Analysis Result",
+    eyebrow: "Workspace",
+    title: "Food Recognition",
     subtitle: "Live API · Image/video upload · Calibrated crop review",
-    overviewLabel: "Analysis overview",
+    overviewLabel: "Food recognition overview",
   },
   review: {
     eyebrow: "Review",

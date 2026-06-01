@@ -59,44 +59,46 @@ export function UploadControls({
 
   return (
     <section className="upload-controls" aria-label="Analyzer controls">
-      <div className="segmented-control" role="group" aria-label="Input mode">
-        <button
-          type="button"
-          className={mode === "image" ? "is-active" : ""}
-          disabled={disabled}
-          onClick={() => onModeChange("image")}
-        >
-          <Image size={16} aria-hidden="true" />
-          Image
-        </button>
-        <button
-          type="button"
-          className={mode === "video" ? "is-active" : ""}
-          disabled={disabled}
-          onClick={() => onModeChange("video")}
-        >
-          <Video size={16} aria-hidden="true" />
-          Video
-        </button>
-      </div>
-      <form className="url-control" aria-label="URL analysis" onSubmit={handleUrlSubmit}>
-        <label htmlFor="foodlens-url-input">{urlLabel}</label>
-        <div className="url-control__field">
-          <Link size={16} aria-hidden="true" />
-          <input
-            id="foodlens-url-input"
-            type="url"
-            value={urlValue}
-            placeholder={urlPlaceholder}
+      <div className="upload-controls__input-row">
+        <div className="segmented-control" role="group" aria-label="Input mode">
+          <button
+            type="button"
+            className={mode === "image" ? "is-active" : ""}
             disabled={disabled}
-            onChange={(event) => setUrlValue(event.target.value)}
-          />
-          <button type="submit" disabled={disabled || !urlValue.trim()}>
-            Analyze URL
+            onClick={() => onModeChange("image")}
+          >
+            <Image size={16} aria-hidden="true" />
+            Image
+          </button>
+          <button
+            type="button"
+            className={mode === "video" ? "is-active" : ""}
+            disabled={disabled}
+            onClick={() => onModeChange("video")}
+          >
+            <Video size={16} aria-hidden="true" />
+            Video
           </button>
         </div>
-      </form>
-      <div className="control-row">
+        <form className="url-control" aria-label="URL analysis" onSubmit={handleUrlSubmit}>
+          <label htmlFor="foodlens-url-input">{urlLabel}</label>
+          <div className="url-control__field">
+            <Link size={16} aria-hidden="true" />
+            <input
+              id="foodlens-url-input"
+              type="url"
+              value={urlValue}
+              placeholder={urlPlaceholder}
+              disabled={disabled}
+              onChange={(event) => setUrlValue(event.target.value)}
+            />
+            <button type="submit" disabled={disabled || !urlValue.trim()}>
+              Analyze URL
+            </button>
+          </div>
+        </form>
+      </div>
+      <div className="control-row upload-controls__action-row">
         <label className={disabled ? "upload-button is-disabled" : "upload-button"}>
           <Upload size={16} aria-hidden="true" />
           Upload

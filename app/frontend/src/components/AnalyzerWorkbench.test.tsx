@@ -193,7 +193,8 @@ describe("AnalyzerWorkbench", () => {
     );
     expect(screen.getByRole("button", { name: "Review" })).not.toBeDisabled();
     expect(screen.getByRole("button", { name: "Models" })).not.toBeDisabled();
-    expect(screen.getByRole("heading", { name: "Analysis Result" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Food Recognition" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Analysis Result" })).not.toBeInTheDocument();
     expect(screen.getByText("Live API · Image/video upload · Calibrated crop review")).toBeInTheDocument();
     expect(decisionPolicy).toBeInTheDocument();
     expect(within(decisionPolicy).getByText("Auto-accept")).toBeInTheDocument();
@@ -470,6 +471,28 @@ describe("AnalyzerWorkbench", () => {
 });
 
 describe("UploadControls", () => {
+  it("groups mode selection and URL entry in one input row", () => {
+    const { container } = render(
+      <UploadControls
+        mode="image"
+        status="idle"
+        onModeChange={vi.fn()}
+        onUploadImage={vi.fn()}
+        onVideoSelected={vi.fn()}
+        onUrlSubmit={vi.fn()}
+        onSample={vi.fn()}
+        onClear={vi.fn()}
+      />,
+    );
+
+    const inputRow = container.querySelector(".upload-controls__input-row");
+    const actionRow = container.querySelector(".upload-controls__action-row");
+
+    expect(inputRow).toContainElement(screen.getByRole("group", { name: "Input mode" }));
+    expect(inputRow).toContainElement(screen.getByRole("form", { name: "URL analysis" }));
+    expect(actionRow).toContainElement(screen.getByRole("button", { name: "Sample" }));
+  });
+
   it("routes selected video files to the video upload callback", async () => {
     const user = userEvent.setup();
     const onUploadImage = vi.fn();

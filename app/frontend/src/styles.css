@@ -118,7 +118,7 @@ h3 {
 .app-shell {
   width: min(100%, 1360px);
   margin: 0 auto;
-  padding: 24px;
+  padding: 24px 24px 36px;
 }
 
 .product-header {
@@ -185,12 +185,8 @@ h3 {
 
 .workbench-shell {
   display: grid;
-  gap: 20px;
-  padding: 24px;
-  border: 1px solid var(--lab-border);
-  border-radius: var(--lab-radius);
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 18px 46px rgba(24, 29, 25, 0.08);
+  gap: 18px;
+  padding: 0 0 24px;
 }
 
 .workbench-title-row {
@@ -198,6 +194,7 @@ h3 {
   grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
   gap: 24px;
   align-items: end;
+  padding: 2px 0;
 }
 
 .workbench-subtitle {
@@ -278,8 +275,8 @@ h3 {
   position: relative;
   display: grid;
   width: 100%;
-  aspect-ratio: 16 / 10;
-  min-height: 360px;
+  aspect-ratio: 16 / 9;
+  min-height: 330px;
   overflow: hidden;
   place-items: center;
   border: 1px solid var(--lab-border-strong);
@@ -376,15 +373,19 @@ h3 {
 }
 
 .upload-controls {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 12px;
-  align-items: center;
-  justify-content: space-between;
   padding: 12px;
   border: 1px solid var(--lab-border);
   border-radius: var(--lab-radius);
   background: var(--lab-surface);
+}
+
+.upload-controls__input-row {
+  display: grid;
+  grid-template-columns: auto minmax(280px, 1fr);
+  gap: 12px;
+  align-items: end;
 }
 
 .segmented-control,
@@ -420,9 +421,8 @@ h3 {
 
 .url-control {
   display: grid;
-  flex: 1 1 340px;
   gap: 6px;
-  min-width: min(100%, 280px);
+  min-width: 0;
 }
 
 .url-control label {
@@ -921,11 +921,11 @@ meter {
 
 @media (max-width: 640px) {
   .app-shell {
-    padding: 0;
+    padding: 16px;
   }
 
   .workbench-shell {
-    padding: 16px;
+    padding: 0 0 20px;
   }
 
   .decision-policy,
@@ -940,11 +940,16 @@ meter {
   }
 
   .upload-controls,
+  .upload-controls__input-row,
   .control-row,
   .url-control,
   .segmented-control {
     align-items: stretch;
     width: 100%;
+  }
+
+  .upload-controls__input-row {
+    grid-template-columns: 1fr;
   }
 
   .url-control__field {
