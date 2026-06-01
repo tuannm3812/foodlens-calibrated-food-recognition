@@ -6,10 +6,10 @@ predictions and user-facing actions.
 
 ## Current Prototype
 
-The first frontend prototype is a static web app:
+The main frontend is the React/Vite Analyzer Workbench:
 
 ```text
-app/frontend/index.html
+app/frontend
 ```
 
 It includes:
@@ -20,10 +20,28 @@ It includes:
 - calibrated-confidence style display;
 - the four decision bands: auto-accept, suggest, confirm, and review.
 
-Open `app/frontend/index.html` in a browser to review the concept.
+Run it locally:
+
+```bash
+cd app/frontend
+npm install
+npm run dev
+```
+
+The old static prototype is archived under `app/frontend-static`.
 
 The frontend calls the local FoodLens API when it is running and falls back to
-mock predictions when it is not.
+deterministic demo predictions when it is not. Backend fallback responses expose
+`fallback_reason` so the UI can explain why demo data is being shown.
+
+Frontend checks:
+
+```bash
+cd app/frontend
+npm test
+npm run typecheck
+npm run build
+```
 
 ## Backend Prototype
 
@@ -37,6 +55,7 @@ Run it locally:
 
 ```bash
 pip install -r app/backend/requirements.txt
+pip install -r app/backend/requirements-dev.txt
 uvicorn app.backend.api:app --reload --port 8000
 ```
 
@@ -44,6 +63,12 @@ For live multi-food detection, install the optional detector runtime as well:
 
 ```bash
 pip install -r app/backend/requirements-detector.txt
+```
+
+Backend tests:
+
+```bash
+python3 -m pytest tests/backend -v
 ```
 
 Endpoints:

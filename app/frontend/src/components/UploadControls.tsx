@@ -8,6 +8,7 @@ type UploadControlsProps = {
   status: AnalyzerStatus;
   onModeChange: (mode: AnalyzerMode) => void;
   onUploadImage: (file: File) => void;
+  onVideoSelected: (file: File) => void;
   onSample: () => void;
   onClear: () => void;
 };
@@ -17,15 +18,19 @@ export function UploadControls({
   status,
   onModeChange,
   onUploadImage,
+  onVideoSelected,
   onSample,
   onClear,
 }: UploadControlsProps) {
   const isLoading = status === "loading";
   const disabled = isLoading;
+  const uploadAccept = mode === "video" ? "video/*" : "image/*";
 
   function handleUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-    if (file) {
+    if (file && mode === "video") {
+      onVideoSelected(file);
+    } else if (file) {
       onUploadImage(file);
     }
     event.target.value = "";
@@ -54,13 +59,13 @@ export function UploadControls({
         </button>
       </div>
       <div className="control-row">
-        <label className={`upload-button ${mode === "video" || disabled ? "is-disabled" : ""}`}>
+        <label className={`upload-button ${disabled ? "is-disabled" : ""}`}>
           <Upload size={16} aria-hidden="true" />
           Upload
           <input
             type="file"
-            accept="image/*"
-            disabled={mode === "video" || disabled}
+            accept={uploadAccept}
+            disabled={disabled}
             onChange={handleUpload}
           />
         </label>
@@ -73,9 +78,6 @@ export function UploadControls({
           Clear
         </button>
       </div>
-      {mode === "video" ? (
-        <p className="control-note">Video upload arrives in Task 6.</p>
-      ) : null}
     </section>
   );
 }

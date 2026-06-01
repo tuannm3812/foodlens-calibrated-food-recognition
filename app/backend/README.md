@@ -11,6 +11,12 @@ Install runtime dependencies in your preferred environment:
 pip install -r app/backend/requirements.txt
 ```
 
+Install backend development dependencies before running tests:
+
+```bash
+pip install -r app/backend/requirements-dev.txt
+```
+
 Install the optional detector dependency when testing live multi-food image
 analysis:
 
@@ -22,6 +28,12 @@ Start the API:
 
 ```bash
 uvicorn app.backend.api:app --reload --port 8000
+```
+
+Run backend tests:
+
+```bash
+python3 -m pytest tests/backend -v
 ```
 
 Health check:
@@ -45,7 +57,8 @@ bands, and artifact references. It uses live YOLO proposals plus crop
 classification when `ultralytics` is installed and marks responses with
 `detector_status: live_yolo`. It falls back to a deterministic prototype
 response marked with `detector_status: fallback_demo` when the detector runtime
-is unavailable.
+is unavailable. Fallback responses include `fallback_reason` so clients can
+distinguish deterministic demo data from live inference.
 
 The frontend implements video review by sampling key frames client-side and
 calling `POST /predict/multi-food/image` for each extracted frame.

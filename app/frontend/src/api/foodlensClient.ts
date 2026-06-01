@@ -131,6 +131,17 @@ function resultSource(response: BackendMultiFoodResponse): ResultSource {
   return "live";
 }
 
+function actionCopyForDecisionBand(
+  decisionBand: DecisionBand,
+  hasStrongestRegion: boolean,
+): string {
+  if (!hasStrongestRegion) {
+    return "No usable crop was returned. Ask the user to try another image.";
+  }
+
+  return DECISION_ACTIONS[decisionBand];
+}
+
 export function normalizeMultiFoodResponse(
   response: BackendMultiFoodResponse,
 ): AnalyzerResult {
@@ -158,9 +169,7 @@ export function normalizeMultiFoodResponse(
     strongestLabel: strongest?.foodlens.top_label ?? "no_detection",
     strongestConfidence: strongest?.foodlens.top_confidence ?? 0,
     decisionBand,
-    actionCopy: strongest
-      ? DECISION_ACTIONS[decisionBand]
-      : "No usable crop was returned. Ask the user to try another image.",
+    actionCopy: actionCopyForDecisionBand(decisionBand, Boolean(strongest)),
     topPredictions: strongest?.foodlens.top_k_predictions ?? [["no_detection", 0]],
     regions,
   };
@@ -174,6 +183,36 @@ export function toLocalDemoResult(): AnalyzerResult {
     fallbackReason: "frontend_local_demo",
     actionCopy:
       "Showing local demo data because the API is unavailable or returned an invalid response.",
+  };
+}
+
+export function combineFrameResults(results: AnalyzerResult[]): AnalyzerResult {
+  const first = results[0] ?? toLocalDemoResult();
+  const regions = results.flatMap((result, frameIndex) =>
+    result.regions.map((region) => ({
+      ...region,
+      source_id: `video frame ${frameIndex + 1}`,
+    })),
+  );
+  const strongest = regions
+    .slice()
+    .sort((a, b) => b.foodlens.top_confidence - a.foodlens.top_confidence)[0];
+  const decisionBand = strongest?.foodlens.decision_band ?? first.decisionBand;
+
+  return {
+    ...first,
+    modelName: first.modelName.replace("Multi-food", "Video review"),
+    detectorStatus: `${first.detectorStatus} · ${results.length} frames`,
+    strongestLabel: strongest?.foodlens.top_label ?? first.strongestLabel,
+    strongestConfidence:
+      strongest?.foodlens.top_confidence ?? first.strongestConfidence,
+    decisionBand,
+    actionCopy: actionCopyForDecisionBand(decisionBand, Boolean(strongest)),
+    topPredictions: strongest?.foodlens.top_k_predictions ?? first.topPredictions,
+    regions: regions.map((region, index) => ({
+      ...region,
+      displayIndex: index + 1,
+    })),
   };
 }
 

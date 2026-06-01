@@ -3,11 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AnalyzerWorkbench } from "./AnalyzerWorkbench";
+import { PreviewStage } from "./PreviewStage";
+import { UploadControls } from "./UploadControls";
 import type { AnalyzerResult } from "../api/types";
 import { predictMultiFoodImage } from "../api/foodlensClient";
 import { useAnalyzer } from "../state/useAnalyzer";
 
 vi.mock("../api/foodlensClient", () => ({
+  combineFrameResults: (results: AnalyzerResult[]) => results[0] ?? createResult("fallback", 0.1),
   predictMultiFoodImage: vi.fn(),
   toLocalDemoResult: () => createResult("ravioli", 0.972, "local_demo"),
 }));
@@ -129,5 +132,48 @@ describe("AnalyzerWorkbench", () => {
       await first.promise;
     });
     expect(result.current.result?.strongestLabel).toBe("second_upload");
+  });
+});
+
+describe("UploadControls", () => {
+  it("routes selected video files to the video upload callback", async () => {
+    const user = userEvent.setup();
+    const onUploadImage = vi.fn();
+    const onVideoSelected = vi.fn();
+    const file = new File(["video"], "demo.mp4", { type: "video/mp4" });
+
+    render(
+      <UploadControls
+        mode="video"
+        status="idle"
+        onModeChange={vi.fn()}
+        onUploadImage={onUploadImage}
+        onVideoSelected={onVideoSelected}
+        onSample={vi.fn()}
+        onClear={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByLabelText("Upload") as HTMLInputElement;
+    expect(input).toHaveAttribute("accept", "video/*");
+    expect(input).not.toBeDisabled();
+
+    await user.upload(input, file);
+
+    expect(onVideoSelected).toHaveBeenCalledWith(file);
+    expect(onUploadImage).not.toHaveBeenCalled();
+  });
+});
+
+describe("PreviewStage", () => {
+  it("renders video previews with a video element", () => {
+    render(
+      <PreviewStage mode="video" previewUrl="blob:video-preview" result={null} />,
+    );
+
+    const video = screen.getByLabelText("Selected food video") as HTMLVideoElement;
+    expect(video.tagName).toBe("VIDEO");
+    expect(video).toHaveAttribute("src", "blob:video-preview");
+    expect(video).toHaveAttribute("controls");
   });
 });

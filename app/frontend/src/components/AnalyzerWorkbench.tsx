@@ -23,13 +23,20 @@ export function AnalyzerWorkbench() {
       </section>
       <section className="workbench-layout">
         <div className="workbench-primary">
-          <PreviewStage previewUrl={analyzer.previewUrl} result={analyzer.result} />
+          <PreviewStage
+            mode={analyzer.mode}
+            previewUrl={analyzer.previewUrl}
+            result={analyzer.result}
+          />
           <UploadControls
             mode={analyzer.mode}
             status={analyzer.status}
             onModeChange={analyzer.setMode}
             onUploadImage={(file) => {
               void analyzer.analyzeImage(file);
+            }}
+            onVideoSelected={(file) => {
+              void analyzer.analyzeVideo(file);
             }}
             onSample={analyzer.loadSample}
             onClear={analyzer.clear}
