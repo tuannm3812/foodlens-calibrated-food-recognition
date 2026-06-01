@@ -1,4 +1,4 @@
-import { act, render, renderHook, screen } from "@testing-library/react";
+import { act, render, renderHook, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -83,12 +83,26 @@ describe("AnalyzerWorkbench", () => {
     vi.mocked(predictMultiFoodImage).mockReset();
   });
 
-  it("renders the idle analyzer controls", () => {
+  it("renders the Precision Lab product shell", () => {
     render(<AnalyzerWorkbench />);
+    const decisionPolicy = screen.getByLabelText("Decision policy");
 
-    expect(
-      screen.getByRole("heading", { name: "Analyzer Workbench" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("banner")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "FoodLens home" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Product navigation" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Analyze" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("button", { name: "Review" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Models" })).toBeDisabled();
+    expect(screen.getByRole("heading", { name: "Analysis Result" })).toBeInTheDocument();
+    expect(screen.getByText("Live API · Image/video upload · Calibrated crop review")).toBeInTheDocument();
+    expect(decisionPolicy).toBeInTheDocument();
+    expect(within(decisionPolicy).getByText("Auto-accept")).toBeInTheDocument();
+    expect(within(decisionPolicy).getByText("Suggest")).toBeInTheDocument();
+    expect(within(decisionPolicy).getByText("Confirm")).toBeInTheDocument();
+    expect(within(decisionPolicy).getByText("Review")).toBeInTheDocument();
     expect(screen.getByText("No input selected")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sample" })).toBeInTheDocument();
   });
