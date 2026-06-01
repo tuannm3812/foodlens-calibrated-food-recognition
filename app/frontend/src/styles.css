@@ -582,8 +582,8 @@ meter {
 .model-metadata {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  padding-top: 14px;
+  gap: 6px;
+  padding-top: 10px;
   margin: 0;
   border-top: 1px solid var(--lab-border);
 }
@@ -614,9 +614,16 @@ meter {
 }
 
 .model-metadata dd {
-  margin: 4px 0 0;
+  margin: 2px 0 0;
   overflow-wrap: anywhere;
   color: var(--lab-ink);
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.model-metadata dt {
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
 }
 
 .decision-policy {
