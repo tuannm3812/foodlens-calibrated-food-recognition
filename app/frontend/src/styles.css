@@ -581,7 +581,7 @@ meter {
 
 .model-metadata {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 6px;
   padding-top: 10px;
   margin: 0;
@@ -691,6 +691,58 @@ meter {
 .runtime-status strong {
   display: block;
   color: var(--lab-ink);
+}
+
+.secondary-panel,
+.models-view {
+  display: grid;
+  gap: 16px;
+}
+
+.secondary-panel {
+  padding: 20px;
+  border: 1px solid var(--lab-border);
+  border-radius: var(--lab-radius);
+  background: var(--lab-surface);
+}
+
+.review-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.review-summary div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--lab-border);
+  border-radius: var(--lab-radius);
+  background: var(--lab-surface-soft);
+}
+
+.review-summary dt {
+  color: var(--lab-muted);
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.review-summary dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--lab-ink);
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.model-metadata--standalone {
+  padding-top: 0;
+  border-top: 0;
 }
 
 .crop-review {
@@ -804,6 +856,10 @@ meter {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .review-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .product-header__meta {
     justify-self: start;
   }
@@ -828,6 +884,7 @@ meter {
 
   .decision-policy,
   .crop-grid,
+  .review-summary,
   .runtime-status {
     grid-template-columns: 1fr;
   }

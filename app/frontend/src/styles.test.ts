@@ -15,6 +15,7 @@ describe("decision card visual density", () => {
   it("keeps model metadata compact under top predictions", () => {
     expect(cssRule(".model-metadata")).toContain("gap: 6px");
     expect(cssRule(".model-metadata")).toContain("padding-top: 10px");
+    expect(cssRule(".model-metadata")).toContain("grid-template-columns: 1fr");
     expect(cssRule(".model-metadata dt")).toContain("font-size: 0.62rem");
     expect(cssRule(".model-metadata dd")).toContain("font-size: 0.78rem");
   });

@@ -182,8 +182,8 @@ describe("AnalyzerWorkbench", () => {
       "aria-current",
       "page",
     );
-    expect(screen.getByRole("button", { name: "Review" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Models" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Review" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Models" })).not.toBeDisabled();
     expect(screen.getByRole("heading", { name: "Analysis Result" })).toBeInTheDocument();
     expect(screen.getByText("Live API · Image/video upload · Calibrated crop review")).toBeInTheDocument();
     expect(decisionPolicy).toBeInTheDocument();
@@ -194,6 +194,49 @@ describe("AnalyzerWorkbench", () => {
     expect(screen.getByText("No input selected")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sample" })).toBeInTheDocument();
     expect(await screen.findByText("System ready")).toBeInTheDocument();
+  });
+
+  it("switches to the review queue tab", async () => {
+    const user = userEvent.setup();
+    render(<AnalyzerWorkbench />);
+
+    await user.click(screen.getByRole("button", { name: "Review" }));
+
+    expect(screen.getByRole("button", { name: "Review" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("heading", { name: "Review Queue" })).toBeInTheDocument();
+    expect(screen.getByText("No result ready")).toBeInTheDocument();
+  });
+
+  it("shows the current result in the review queue", async () => {
+    const user = userEvent.setup();
+    render(<AnalyzerWorkbench />);
+
+    await user.click(screen.getByRole("button", { name: "Sample" }));
+    await user.click(screen.getByRole("button", { name: "Review" }));
+
+    expect(screen.getByRole("heading", { name: "Review Queue" })).toBeInTheDocument();
+    expect(screen.getByText("Current result")).toBeInTheDocument();
+    expect(screen.getByText("ravioli")).toBeInTheDocument();
+    expect(screen.getByText("Region 1")).toBeInTheDocument();
+  });
+
+  it("switches to the models tab with runtime metadata", async () => {
+    const user = userEvent.setup();
+    render(<AnalyzerWorkbench />);
+
+    await user.click(screen.getByRole("button", { name: "Models" }));
+
+    expect(screen.getByRole("button", { name: "Models" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("heading", { name: "Model Runtime" })).toBeInTheDocument();
+    expect(await screen.findByText("Classifier ready")).toBeInTheDocument();
+    expect(screen.getByText("Detector ready")).toBeInTheDocument();
+    expect(screen.getByText("Live detector + classifier")).toBeInTheDocument();
   });
 
   it("renders local demo fallback after selecting sample", async () => {
