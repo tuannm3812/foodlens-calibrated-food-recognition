@@ -150,16 +150,11 @@ assistant. FoodLens uses the final model workflow to identify dishes from
 uploaded images, show ranked predictions, and choose the right product action:
 **auto-accept**, **suggest**, **confirm**, or **review**.
 
-The current MVP is an **image/video upload app** backed by a lightweight
-inference API. Image prediction uses the ResNet50 FT-V2 artifacts when present.
-Video prediction samples frames and aggregates image-classifier outputs. The
-next phase is **multi-food detection**, where a detector proposes regions and
-the classifier labels each crop.
-
-The first static frontend concept is available at
-[`app/frontend/index.html`](app/frontend/index.html). It connects to the local
-FoodLens API and uses real ResNet50 FT-V2 artifacts when they are available
-under `app/artifacts/`, with mock fallback behavior for missing artifacts.
+The current MVP is an **image/video upload app** with a FastAPI backend and a
+React/Vite Analyzer Workbench under [`app/frontend`](app/frontend). Image
+prediction uses the ResNet50 FT-V2 artifacts when present. Video review samples
+frames and aggregates multi-food image results. The archived static prototype is
+available under [`app/frontend-static`](app/frontend-static).
 
 Notebook 6 exports the lightweight JSON artifacts required by the FoodLens
 backend. The ResNet50 FT-V2 `.pth` checkpoint remains a separate Kaggle model

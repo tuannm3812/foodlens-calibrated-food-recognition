@@ -11,6 +11,12 @@ Install runtime dependencies in your preferred environment:
 pip install -r app/backend/requirements.txt
 ```
 
+Install backend development dependencies before running tests:
+
+```bash
+pip install -r app/backend/requirements-dev.txt
+```
+
 Install the optional detector dependency when testing live multi-food image
 analysis:
 
@@ -24,6 +30,12 @@ Start the API:
 uvicorn app.backend.api:app --reload --port 8000
 ```
 
+Run backend tests:
+
+```bash
+python3 -m pytest tests/backend -v
+```
+
 Health check:
 
 ```text
@@ -33,19 +45,33 @@ http://127.0.0.1:8000/health
 ## Endpoints
 
 ```text
+GET /runtime/status
 POST /predict/image
 POST /predict/multi-food/image
 POST /predict/video
 ```
 
-The single-image and video endpoints use real artifacts when available and
-fallback predictions when they are not. The multi-food endpoint returns the
-Notebook 8 app contract with detected regions, crop-level predictions, decision
-bands, and artifact references. It uses live YOLO proposals plus crop
-classification when `ultralytics` is installed and marks responses with
-`detector_status: live_yolo`. It falls back to a deterministic prototype
-response marked with `detector_status: fallback_demo` when the detector runtime
-is unavailable.
+The runtime status endpoint reports classifier artifact readiness, optional
+calibration/policy artifacts, detector dependency availability, detector weight
+resolution, and the effective multi-food mode. Use it when diagnosing why an
+environment is returning live inference, detector-only classifier fallback, or
+demo fallback responses.
+
+The single-image endpoint uses real artifacts when available and fallback
+predictions when they are not. The video endpoint remains deterministic mock
+output and returns `fallback_reason: video_mock` until live video inference is
+implemented. The multi-food endpoint returns the Notebook 8 app contract with
+detected regions, crop-level predictions, decision bands, and artifact
+references. It uses live YOLO proposals plus crop classification when
+`ultralytics` and classifier artifacts are available, marking responses with
+`detector_status: live_yolo`. When YOLO is available but classifier artifacts are
+missing, it still returns real uploaded-image crops and marks classifier labels
+with `detector_status: live_yolo_classifier_fallback` and `fallback_reason:
+missing_classifier_artifacts`. It falls back to a deterministic prototype
+response marked with `detector_status: fallback_demo` when image decoding or the
+detector runtime is unavailable. Fallback responses include `fallback_reason` so
+clients can distinguish deterministic demo data, detector-only crops, and live
+inference.
 
 The frontend implements video review by sampling key frames client-side and
 calling `POST /predict/multi-food/image` for each extracted frame.
@@ -53,7 +79,7 @@ calling `POST /predict/multi-food/image` for each extracted frame.
 ## Real Inference Integration
 
 To move from mock inference to real inference, place artifacts outside git under
-`app/artifacts/` and update `app/backend/inference.py`.
+`app/artifacts/`.
 
 Required artifacts:
 
@@ -66,3 +92,17 @@ Required artifacts:
 
 The multi-food path also uses detector weights through the `ultralytics` runtime.
 Set `FOODLENS_DETECTOR_WEIGHTS` to override the default `yolo11n.pt` detector.
+When the environment variable is not set, the backend searches parent
+directories for `yolo11n.pt` before allowing Ultralytics to use its default
+download behavior.
+
+Classifier artifacts are resolved in this order:
+
+1. `FOODLENS_ARTIFACT_DIR` when set.
+2. The local worktree `app/artifacts/` directory when it contains the required
+   checkpoint and class-name files.
+3. Parent repository `app/artifacts/` directories when working from a git
+   worktree.
+
+This keeps model files out of branch worktrees while still allowing the API to
+run live inference from artifacts in the main repository checkout.

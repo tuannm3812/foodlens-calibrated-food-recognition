@@ -4,4 +4,4 @@ uvicorn
 Pillow
 torch
 torchvision
-
+yt-dlp

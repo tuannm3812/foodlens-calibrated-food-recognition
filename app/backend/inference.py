@@ -1,15 +1,16 @@
 """Inference helpers for the FoodLens API."""
 
 import base64
+import importlib.util
 from io import BytesIO
 import json
 import os
 from pathlib import Path
 from typing import Any, Optional
 
+from .decision import DEFAULT_HARD_CLASSES, DEFAULT_POLICY, build_decision
 from .schemas import (
     BoundingBox,
-    Decision,
     DetectorRegion,
     FoodLensRegionPrediction,
     MultiFoodPrediction,
@@ -21,25 +22,17 @@ from .schemas import (
 
 
 ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "artifacts"
+REQUIRED_CLASSIFIER_ARTIFACTS = (
+    "resnet50_ft_v2_best.pth",
+    "class_names.json",
+)
 MODEL_NAME = "resnet50_ft_v2"
 TEMPERATURE = 0.958111
 IMAGE_SIZE = (224, 224)
-DEFAULT_POLICY = {
-    "auto_confidence": 0.70,
-    "suggest_confidence": 0.35,
-    "margin_threshold": 0.40,
-}
 MULTI_FOOD_POLICY = {
     "auto_confidence": 0.85,
     "suggest_confidence": 0.50,
     "margin_threshold": 0.40,
-}
-DEFAULT_HARD_CLASSES = {
-    "chocolate_mousse",
-    "steak",
-    "pork_chop",
-    "bread_pudding",
-    "tuna_tartare",
 }
 DETECTOR_WEIGHTS = "yolo11n.pt"
 DETECTOR_CONFIDENCE_THRESHOLD = 0.25
@@ -126,9 +119,29 @@ _RUNTIME: Optional[dict[str, Any]] = None
 
 def artifact_status() -> str:
     """Return whether real model artifacts are currently available."""
-    checkpoint_path = ARTIFACT_DIR / "resnet50_ft_v2_best.pth"
-    class_names_path = ARTIFACT_DIR / "class_names.json"
-    return "ready" if checkpoint_path.exists() and class_names_path.exists() else "mock"
+    return "ready" if classifier_artifacts_ready(artifact_dir_path()) else "mock"
+
+
+def classifier_artifacts_ready(artifact_dir: Path) -> bool:
+    """Return whether the required classifier artifacts exist in a directory."""
+    return all((artifact_dir / artifact_name).exists() for artifact_name in REQUIRED_CLASSIFIER_ARTIFACTS)
+
+
+def artifact_dir_path() -> Path:
+    """Resolve classifier artifacts across env overrides, worktrees, and repo roots."""
+    configured_artifact_dir = os.getenv("FOODLENS_ARTIFACT_DIR")
+    if configured_artifact_dir:
+        return Path(configured_artifact_dir)
+
+    if classifier_artifacts_ready(ARTIFACT_DIR):
+        return ARTIFACT_DIR
+
+    for parent in Path(__file__).resolve().parents:
+        candidate_path = parent / "app" / "artifacts"
+        if classifier_artifacts_ready(candidate_path):
+            return candidate_path
+
+    return ARTIFACT_DIR
 
 
 def read_json(path: Path, default: Any) -> Any:
@@ -140,13 +153,13 @@ def read_json(path: Path, default: Any) -> Any:
 
 def read_temperature() -> float:
     """Read the calibrated temperature artifact when available."""
-    calibration = read_json(ARTIFACT_DIR / "calibration.json", {})
+    calibration = read_json(artifact_dir_path() / "calibration.json", {})
     return float(calibration.get("temperature", TEMPERATURE))
 
 
 def read_policy() -> dict[str, float]:
     """Read decision thresholds when available."""
-    policy = read_json(ARTIFACT_DIR / "decision_policy.json", DEFAULT_POLICY)
+    policy = read_json(artifact_dir_path() / "decision_policy.json", DEFAULT_POLICY)
     return {
         "auto_confidence": float(policy.get("auto_confidence", DEFAULT_POLICY["auto_confidence"])),
         "suggest_confidence": float(
@@ -158,13 +171,13 @@ def read_policy() -> dict[str, float]:
 
 def read_hard_classes() -> set[str]:
     """Read hard classes when available."""
-    hard_classes = read_json(ARTIFACT_DIR / "hard_classes.json", list(DEFAULT_HARD_CLASSES))
+    hard_classes = read_json(artifact_dir_path() / "hard_classes.json", list(DEFAULT_HARD_CLASSES))
     return set(hard_classes)
 
 
 def read_confusion_pairs() -> set[tuple[str, str]]:
     """Read known confusion pairs when available."""
-    raw_pairs = read_json(ARTIFACT_DIR / "confusion_pairs.json", [])
+    raw_pairs = read_json(artifact_dir_path() / "confusion_pairs.json", [])
     pairs = set()
     for pair in raw_pairs:
         if isinstance(pair, dict) and {"actual", "predicted"}.issubset(pair):
@@ -172,6 +185,91 @@ def read_confusion_pairs() -> set[tuple[str, str]]:
         elif isinstance(pair, (list, tuple)) and len(pair) >= 2:
             pairs.add((str(pair[0]), str(pair[1])))
     return pairs
+
+
+def detector_weights_path() -> str:
+    """Resolve detector weights without forcing an Ultralytics download first."""
+    configured_weights = os.getenv("FOODLENS_DETECTOR_WEIGHTS")
+    if configured_weights:
+        return configured_weights
+
+    for parent in Path(__file__).resolve().parents:
+        candidate_path = parent / DETECTOR_WEIGHTS
+        if candidate_path.exists():
+            return str(candidate_path)
+
+    return DETECTOR_WEIGHTS
+
+
+def artifact_file_status(path: Path) -> dict[str, Any]:
+    """Return status details for one artifact file."""
+    return {
+        "path": str(path),
+        "exists": path.exists(),
+        "size_bytes": path.stat().st_size if path.exists() else 0,
+    }
+
+
+def runtime_status() -> dict[str, Any]:
+    """Return runtime readiness details for backend diagnostics."""
+    resolved_artifact_dir = artifact_dir_path()
+    checkpoint_path = resolved_artifact_dir / "resnet50_ft_v2_best.pth"
+    class_names_path = resolved_artifact_dir / "class_names.json"
+    calibration_path = resolved_artifact_dir / "calibration.json"
+    decision_policy_path = resolved_artifact_dir / "decision_policy.json"
+    hard_classes_path = resolved_artifact_dir / "hard_classes.json"
+    confusion_pairs_path = resolved_artifact_dir / "confusion_pairs.json"
+    classifier_ready = classifier_artifacts_ready(resolved_artifact_dir)
+    weights_path = detector_weights_path()
+    weights_found = Path(weights_path).exists()
+    detector_dependency_available = importlib.util.find_spec("ultralytics") is not None
+
+    if classifier_ready and detector_dependency_available:
+        multi_food_mode = "live_yolo_classifier"
+    elif detector_dependency_available:
+        multi_food_mode = "detector_only_classifier_fallback"
+    else:
+        multi_food_mode = "demo_fallback"
+
+    return {
+        "classifier": {
+            "status": "ready" if classifier_ready else "missing_artifacts",
+            "artifact_status": artifact_status(),
+            "artifact_dir": str(resolved_artifact_dir),
+            "artifacts": {
+                "checkpoint": artifact_file_status(checkpoint_path),
+                "class_names": artifact_file_status(class_names_path),
+                "calibration": artifact_file_status(calibration_path),
+                "decision_policy": artifact_file_status(decision_policy_path),
+                "hard_classes": artifact_file_status(hard_classes_path),
+                "confusion_pairs": artifact_file_status(confusion_pairs_path),
+            },
+        },
+        "detector": {
+            "status": "ready" if detector_dependency_available else "missing_dependency",
+            "dependency": "ultralytics",
+            "dependency_available": detector_dependency_available,
+            "weights_path": weights_path,
+            "weights_found": weights_found,
+            "weights_source": (
+                "environment"
+                if os.getenv("FOODLENS_DETECTOR_WEIGHTS")
+                else "auto_discovered"
+                if weights_found
+                else "ultralytics_default"
+            ),
+        },
+        "multi_food": {
+            "mode": multi_food_mode,
+            "detector_status": (
+                "live_yolo"
+                if classifier_ready and detector_dependency_available
+                else "live_yolo_classifier_fallback"
+                if detector_dependency_available
+                else "fallback_demo"
+            ),
+        },
+    }
 
 
 def make_classifier_head(torch_nn: Any, in_features: int) -> Any:
@@ -208,7 +306,8 @@ def load_runtime() -> dict[str, Any]:
             "Real inference requires torch, torchvision, and Pillow."
         ) from exc
 
-    class_names = read_json(ARTIFACT_DIR / "class_names.json", [])
+    resolved_artifact_dir = artifact_dir_path()
+    class_names = read_json(resolved_artifact_dir / "class_names.json", [])
     if len(class_names) != 101:
         raise ValueError("class_names.json must contain 101 ordered Food-101 class names.")
 
@@ -216,7 +315,7 @@ def load_runtime() -> dict[str, Any]:
     model = models.resnet50(weights=None)
     model.fc = make_classifier_head(nn, model.fc.in_features)
     model.load_state_dict(
-        torch.load(ARTIFACT_DIR / "resnet50_ft_v2_best.pth", map_location=device)
+        torch.load(resolved_artifact_dir / "resnet50_ft_v2_best.pth", map_location=device)
     )
     model.to(device)
     model.eval()
@@ -295,75 +394,10 @@ def classify_pil_image(image: Any, runtime: dict[str, Any]) -> list[Prediction]:
     ]
 
 
-def build_decision(
-    mode: str,
-    predictions: list[Prediction],
-    policy: Optional[dict[str, float]] = None,
-    hard_classes: Optional[set[str]] = None,
-    confusion_pairs: Optional[set[tuple[str, str]]] = None,
-) -> Decision:
-    """Build a Notebook 6-style decision output."""
-    policy = policy or DEFAULT_POLICY
-    hard_classes = hard_classes or DEFAULT_HARD_CLASSES
-    confusion_pairs = confusion_pairs or set()
-    top_1 = predictions[0]
-    top_2 = predictions[1]
-    margin = top_1.confidence - top_2.confidence
-    predicted_label = top_1.class_name
-
-    risky_prediction = any(predicted_label in pair for pair in confusion_pairs)
-
-    if mode == "video":
-        return Decision(
-            band="confirm",
-            title="Confirm dish",
-            recommended_action=(
-                "Ask the user to confirm because sampled frames are not fully aligned."
-            ),
-            top_1_top_2_margin=margin,
-        )
-
-    if risky_prediction and margin < policy["margin_threshold"]:
-        return Decision(
-            band="review",
-            title="Review prediction",
-            recommended_action="Flag for review because this matches a known confusion risk.",
-            top_1_top_2_margin=margin,
-        )
-    if predicted_label in hard_classes and top_1.confidence < policy["auto_confidence"]:
-        return Decision(
-            band="confirm",
-            title="Confirm dish",
-            recommended_action="Ask the user to confirm because this is a hard predicted class.",
-            top_1_top_2_margin=margin,
-        )
-    if (
-        top_1.confidence >= policy["auto_confidence"]
-        and margin >= policy["margin_threshold"]
-        and predicted_label not in hard_classes
-    ):
-        return Decision(
-            band="auto_accept",
-            title="Auto-accept",
-            recommended_action="Accept the top prediction automatically.",
-            top_1_top_2_margin=margin,
-        )
-    if top_1.confidence >= policy["suggest_confidence"]:
-        return Decision(
-            band="suggest",
-            title="Show suggestions",
-            recommended_action="Show ranked suggestions for user selection.",
-            top_1_top_2_margin=margin,
-        )
-    return Decision(
-        band="confirm",
-        title="Confirm dish",
-        recommended_action="Ask the user to confirm before applying a label.",
-        top_1_top_2_margin=margin,
-    )
-
-
-def predict_mock(mode: str = "image") -> PredictionResponse:
+def predict_mock(
+    mode: str = "image",
+    fallback_reason: Optional[str] = None,
+) -> PredictionResponse:
     """Return a deterministic mock prediction response."""
     raw_predictions = MOCK_VIDEO_PREDICTIONS if mode == "video" else MOCK_IMAGE_PREDICTIONS
     predictions = build_predictions(raw_predictions)
@@ -374,10 +408,13 @@ def predict_mock(mode: str = "image") -> PredictionResponse:
         top_predictions=predictions,
         decision=build_decision(mode, predictions),
         artifact_status=artifact_status(),
+        fallback_reason=fallback_reason,
     )
 
 
-def build_multi_food_mock() -> MultiFoodPredictionResponse:
+def build_multi_food_mock(
+    fallback_reason: str = "missing_artifacts",
+) -> MultiFoodPredictionResponse:
     """Return a deterministic Notebook 8-style multi-food response."""
     predictions: list[MultiFoodPrediction] = []
     for region in MOCK_MULTI_FOOD_REGIONS:
@@ -428,6 +465,7 @@ def build_multi_food_mock() -> MultiFoodPredictionResponse:
         crop_count=len(predictions),
         predictions=predictions,
         artifact_status=artifact_status(),
+        fallback_reason=fallback_reason,
     )
 
 
@@ -438,8 +476,7 @@ def detect_candidate_regions(image: Any) -> list[dict[str, Any]]:
     except ImportError as exc:
         raise RuntimeError("Multi-food detection requires ultralytics.") from exc
 
-    weights = os.getenv("FOODLENS_DETECTOR_WEIGHTS", DETECTOR_WEIGHTS)
-    detector = YOLO(weights)
+    detector = YOLO(detector_weights_path())
     result = detector.predict(
         source=image,
         conf=DETECTOR_CONFIDENCE_THRESHOLD,
@@ -516,10 +553,113 @@ def build_crop_data_url(crop: Any) -> str:
     return f"data:image/jpeg;base64,{encoded}"
 
 
+def open_rgb_image(image_bytes: bytes) -> Any:
+    """Open uploaded image bytes without requiring the classifier runtime."""
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError("Image decoding requires Pillow.") from exc
+
+    return Image.open(BytesIO(image_bytes)).convert("RGB")
+
+
+def build_classifier_fallback_predictions(row: dict[str, Any]) -> list[Prediction]:
+    """Build honest crop labels when detector works but classifier artifacts are absent."""
+    detector_label = str(row["detector_label"])
+    if detector_label in DIRECT_FOOD_LABELS:
+        top_label = detector_label
+    elif detector_label == "bowl":
+        top_label = "food_in_container"
+    else:
+        top_label = "detected_food_region"
+
+    fallback_confidence = min(
+        float(row["detector_confidence"]),
+        MULTI_FOOD_POLICY["suggest_confidence"] - 0.01,
+    )
+    return [
+        Prediction(rank=1, class_name=top_label, confidence=fallback_confidence),
+        Prediction(rank=2, class_name="classifier_unavailable", confidence=0.0),
+    ]
+
+
+def build_multi_food_classifier_fallback_response(
+    image: Any,
+    detection_rows: list[dict[str, Any]],
+) -> MultiFoodPredictionResponse:
+    """Return real detector crops with explicit classifier-fallback labels."""
+    predictions: list[MultiFoodPrediction] = []
+
+    for region_index, row in enumerate(detection_rows):
+        crop = image.crop((row["x1"], row["y1"], row["x2"], row["y2"]))
+        crop_predictions = build_classifier_fallback_predictions(row)
+        decision = build_decision(
+            "image",
+            crop_predictions,
+            policy=MULTI_FOOD_POLICY,
+            hard_classes=set(),
+            confusion_pairs=set(),
+        )
+        crop_name = f"uploaded_image_crop_{region_index:02d}.jpg"
+
+        predictions.append(
+            MultiFoodPrediction(
+                source_id="uploaded_image",
+                detection_index=int(row["detection_index"]),
+                bbox=BoundingBox(
+                    x1=int(row["x1"]),
+                    y1=int(row["y1"]),
+                    x2=int(row["x2"]),
+                    y2=int(row["y2"]),
+                    source_width=int(row["source_width"]),
+                    source_height=int(row["source_height"]),
+                ),
+                detector=DetectorRegion(
+                    label=str(row["detector_label"]),
+                    proposal_role=str(row["proposal_role"]),
+                    confidence=float(row["detector_confidence"]),
+                    crop_area_ratio=float(row["crop_area_ratio"]),
+                ),
+                foodlens=FoodLensRegionPrediction(
+                    top_label=crop_predictions[0].class_name,
+                    top_confidence=crop_predictions[0].confidence,
+                    decision_band=decision.band,
+                    top_k_predictions=[
+                        (prediction.class_name, prediction.confidence)
+                        for prediction in crop_predictions
+                    ],
+                ),
+                artifacts=RegionArtifacts(
+                    crop_path=f"runtime/{crop_name}",
+                    crop_artifact_path=f"app://runtime/crops/{crop_name}",
+                    figure_path="runtime/uploaded_image_detections.jpg",
+                    crop_data_url=build_crop_data_url(crop),
+                ),
+            )
+        )
+
+    return MultiFoodPredictionResponse(
+        model=MODEL_NAME,
+        temperature=read_temperature(),
+        top_k=5,
+        decision_thresholds={
+            "auto_accept": MULTI_FOOD_POLICY["auto_confidence"],
+            "suggest": MULTI_FOOD_POLICY["suggest_confidence"],
+        },
+        detector_status="live_yolo_classifier_fallback",
+        crop_count=len(predictions),
+        predictions=predictions,
+        artifact_status="mock",
+        fallback_reason="missing_classifier_artifacts",
+    )
+
+
 def build_multi_food_response(
     image: Any,
     detection_rows: list[dict[str, Any]],
     runtime: dict[str, Any],
+    detector_status: str = "live_yolo",
+    fallback_reason: Optional[str] = None,
 ) -> MultiFoodPredictionResponse:
     """Classify detected regions and return the app-ready multi-food response."""
     predictions: list[MultiFoodPrediction] = []
@@ -580,10 +720,11 @@ def build_multi_food_response(
             "auto_accept": MULTI_FOOD_POLICY["auto_confidence"],
             "suggest": MULTI_FOOD_POLICY["suggest_confidence"],
         },
-        detector_status="live_yolo",
+        detector_status=detector_status,
         crop_count=len(predictions),
         predictions=predictions,
         artifact_status="ready",
+        fallback_reason=fallback_reason,
     )
 
 
@@ -595,17 +736,56 @@ def predict_multi_food_image_bytes(image_bytes: bytes) -> MultiFoodPredictionRes
     Notebook 8-style response when the detector runtime is unavailable.
     """
     if artifact_status() != "ready":
-        return build_multi_food_mock()
+        try:
+            image = open_rgb_image(image_bytes)
+        except Exception:
+            return build_multi_food_mock(fallback_reason="invalid_image")
+
+        try:
+            detections = detect_candidate_regions(image)
+        except RuntimeError:
+            return build_multi_food_mock(fallback_reason="detector_runtime_unavailable")
+        except Exception:
+            return build_multi_food_mock(fallback_reason="detector_inference_error")
+
+        if not detections:
+            detections = [build_full_image_region(image)]
+        return build_multi_food_classifier_fallback_response(image, detections)
 
     try:
         runtime = load_runtime()
-        image = runtime["image_class"].open(BytesIO(image_bytes)).convert("RGB")
-        detections = detect_candidate_regions(image)
-        if not detections:
-            detections = [build_full_image_region(image)]
-        return build_multi_food_response(image, detections, runtime)
     except Exception:
-        return build_multi_food_mock()
+        return build_multi_food_mock(fallback_reason="classifier_load_error")
+
+    try:
+        image = runtime["image_class"].open(BytesIO(image_bytes)).convert("RGB")
+    except Exception:
+        return build_multi_food_mock(fallback_reason="invalid_image")
+
+    try:
+        detections = detect_candidate_regions(image)
+    except RuntimeError:
+        return build_multi_food_mock(fallback_reason="detector_runtime_unavailable")
+    except Exception:
+        return build_multi_food_mock(fallback_reason="detector_inference_error")
+
+    detector_status = "live_yolo"
+    fallback_reason = None
+    if not detections:
+        detections = [build_full_image_region(image)]
+        detector_status = "live_yolo_whole_image_fallback"
+        fallback_reason = "no_detector_regions"
+
+    try:
+        return build_multi_food_response(
+            image,
+            detections,
+            runtime,
+            detector_status=detector_status,
+            fallback_reason=fallback_reason,
+        )
+    except Exception:
+        return build_multi_food_mock(fallback_reason="classifier_inference_error")
 
 
 def build_prediction_response(
@@ -627,17 +807,26 @@ def build_prediction_response(
             confusion_pairs=runtime["confusion_pairs"],
         ),
         artifact_status="ready",
+        fallback_reason=None,
     )
 
 
 def predict_image_bytes(image_bytes: bytes) -> PredictionResponse:
     """Predict Food-101 classes using real artifacts when available."""
     if artifact_status() != "ready":
-        return predict_mock(mode="image")
+        return predict_mock(mode="image", fallback_reason="missing_artifacts")
 
     try:
         runtime = load_runtime()
+    except Exception:
+        return predict_mock(mode="image", fallback_reason="classifier_load_error")
+
+    try:
         image = runtime["image_class"].open(BytesIO(image_bytes)).convert("RGB")
+    except Exception:
+        return predict_mock(mode="image", fallback_reason="invalid_image")
+
+    try:
         return build_prediction_response(image, runtime)
     except Exception:
-        return predict_mock(mode="image")
+        return predict_mock(mode="image", fallback_reason="classifier_inference_error")
