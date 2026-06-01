@@ -79,7 +79,7 @@ calling `POST /predict/multi-food/image` for each extracted frame.
 ## Real Inference Integration
 
 To move from mock inference to real inference, place artifacts outside git under
-`app/artifacts/` and update `app/backend/inference.py`.
+`app/artifacts/`.
 
 Required artifacts:
 
@@ -95,3 +95,14 @@ Set `FOODLENS_DETECTOR_WEIGHTS` to override the default `yolo11n.pt` detector.
 When the environment variable is not set, the backend searches parent
 directories for `yolo11n.pt` before allowing Ultralytics to use its default
 download behavior.
+
+Classifier artifacts are resolved in this order:
+
+1. `FOODLENS_ARTIFACT_DIR` when set.
+2. The local worktree `app/artifacts/` directory when it contains the required
+   checkpoint and class-name files.
+3. Parent repository `app/artifacts/` directories when working from a git
+   worktree.
+
+This keeps model files out of branch worktrees while still allowing the API to
+run live inference from artifacts in the main repository checkout.

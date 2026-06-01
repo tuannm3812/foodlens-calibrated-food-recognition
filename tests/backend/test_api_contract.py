@@ -19,6 +19,12 @@ def make_jpeg_bytes() -> bytes:
     return buffer.getvalue()
 
 
+def write_minimal_classifier_artifacts(artifact_dir: Path) -> None:
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "resnet50_ft_v2_best.pth").write_bytes(b"placeholder")
+    (artifact_dir / "class_names.json").write_text('["apple"]')
+
+
 def test_health_contract() -> None:
     response = client.get("/health")
 
@@ -31,6 +37,7 @@ def test_runtime_status_reports_missing_classifier_artifacts_and_detector_readin
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(inference, "ARTIFACT_DIR", tmp_path)
+    monkeypatch.setenv("FOODLENS_ARTIFACT_DIR", str(tmp_path))
     weights_path = tmp_path / "yolo11n.pt"
     weights_path.write_bytes(b"placeholder")
     monkeypatch.setenv("FOODLENS_DETECTOR_WEIGHTS", str(weights_path))
@@ -54,11 +61,38 @@ def test_runtime_status_reports_missing_classifier_artifacts_and_detector_readin
     assert body["multi_food"]["mode"] == "detector_only_classifier_fallback"
 
 
+def test_artifact_dir_path_uses_environment_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    artifact_dir = tmp_path / "custom-artifacts"
+    monkeypatch.setenv("FOODLENS_ARTIFACT_DIR", str(artifact_dir))
+
+    assert inference.artifact_dir_path() == artifact_dir
+
+
+def test_artifact_dir_path_finds_parent_repo_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = tmp_path / "repo"
+    backend_dir = repo_root / ".worktrees" / "branch" / "app" / "backend"
+    artifact_dir = repo_root / "app" / "artifacts"
+    backend_dir.mkdir(parents=True)
+    write_minimal_classifier_artifacts(artifact_dir)
+    monkeypatch.delenv("FOODLENS_ARTIFACT_DIR", raising=False)
+    monkeypatch.setattr(inference, "ARTIFACT_DIR", backend_dir.parent / "artifacts")
+    monkeypatch.setattr(inference, "__file__", str(backend_dir / "inference.py"))
+
+    assert inference.artifact_dir_path() == artifact_dir
+
+
 def test_single_image_missing_artifacts_returns_mock_with_fallback_reason(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(inference, "ARTIFACT_DIR", tmp_path)
+    monkeypatch.setenv("FOODLENS_ARTIFACT_DIR", str(tmp_path))
 
     response = client.post(
         "/predict/image",
@@ -78,6 +112,7 @@ def test_multi_food_missing_artifacts_returns_demo_contract(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(inference, "ARTIFACT_DIR", tmp_path)
+    monkeypatch.setenv("FOODLENS_ARTIFACT_DIR", str(tmp_path))
 
     response = client.post(
         "/predict/multi-food/image",
@@ -107,6 +142,7 @@ def test_multi_food_missing_classifier_artifacts_uses_detector_crops_with_fallba
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(inference, "ARTIFACT_DIR", tmp_path)
+    monkeypatch.setenv("FOODLENS_ARTIFACT_DIR", str(tmp_path))
     monkeypatch.setattr(
         inference,
         "detect_candidate_regions",

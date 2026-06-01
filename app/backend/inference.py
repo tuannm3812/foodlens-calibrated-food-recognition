@@ -22,6 +22,10 @@ from .schemas import (
 
 
 ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "artifacts"
+REQUIRED_CLASSIFIER_ARTIFACTS = (
+    "resnet50_ft_v2_best.pth",
+    "class_names.json",
+)
 MODEL_NAME = "resnet50_ft_v2"
 TEMPERATURE = 0.958111
 IMAGE_SIZE = (224, 224)
@@ -115,9 +119,29 @@ _RUNTIME: Optional[dict[str, Any]] = None
 
 def artifact_status() -> str:
     """Return whether real model artifacts are currently available."""
-    checkpoint_path = ARTIFACT_DIR / "resnet50_ft_v2_best.pth"
-    class_names_path = ARTIFACT_DIR / "class_names.json"
-    return "ready" if checkpoint_path.exists() and class_names_path.exists() else "mock"
+    return "ready" if classifier_artifacts_ready(artifact_dir_path()) else "mock"
+
+
+def classifier_artifacts_ready(artifact_dir: Path) -> bool:
+    """Return whether the required classifier artifacts exist in a directory."""
+    return all((artifact_dir / artifact_name).exists() for artifact_name in REQUIRED_CLASSIFIER_ARTIFACTS)
+
+
+def artifact_dir_path() -> Path:
+    """Resolve classifier artifacts across env overrides, worktrees, and repo roots."""
+    configured_artifact_dir = os.getenv("FOODLENS_ARTIFACT_DIR")
+    if configured_artifact_dir:
+        return Path(configured_artifact_dir)
+
+    if classifier_artifacts_ready(ARTIFACT_DIR):
+        return ARTIFACT_DIR
+
+    for parent in Path(__file__).resolve().parents:
+        candidate_path = parent / "app" / "artifacts"
+        if classifier_artifacts_ready(candidate_path):
+            return candidate_path
+
+    return ARTIFACT_DIR
 
 
 def read_json(path: Path, default: Any) -> Any:
@@ -129,13 +153,13 @@ def read_json(path: Path, default: Any) -> Any:
 
 def read_temperature() -> float:
     """Read the calibrated temperature artifact when available."""
-    calibration = read_json(ARTIFACT_DIR / "calibration.json", {})
+    calibration = read_json(artifact_dir_path() / "calibration.json", {})
     return float(calibration.get("temperature", TEMPERATURE))
 
 
 def read_policy() -> dict[str, float]:
     """Read decision thresholds when available."""
-    policy = read_json(ARTIFACT_DIR / "decision_policy.json", DEFAULT_POLICY)
+    policy = read_json(artifact_dir_path() / "decision_policy.json", DEFAULT_POLICY)
     return {
         "auto_confidence": float(policy.get("auto_confidence", DEFAULT_POLICY["auto_confidence"])),
         "suggest_confidence": float(
@@ -147,13 +171,13 @@ def read_policy() -> dict[str, float]:
 
 def read_hard_classes() -> set[str]:
     """Read hard classes when available."""
-    hard_classes = read_json(ARTIFACT_DIR / "hard_classes.json", list(DEFAULT_HARD_CLASSES))
+    hard_classes = read_json(artifact_dir_path() / "hard_classes.json", list(DEFAULT_HARD_CLASSES))
     return set(hard_classes)
 
 
 def read_confusion_pairs() -> set[tuple[str, str]]:
     """Read known confusion pairs when available."""
-    raw_pairs = read_json(ARTIFACT_DIR / "confusion_pairs.json", [])
+    raw_pairs = read_json(artifact_dir_path() / "confusion_pairs.json", [])
     pairs = set()
     for pair in raw_pairs:
         if isinstance(pair, dict) and {"actual", "predicted"}.issubset(pair):
@@ -188,13 +212,14 @@ def artifact_file_status(path: Path) -> dict[str, Any]:
 
 def runtime_status() -> dict[str, Any]:
     """Return runtime readiness details for backend diagnostics."""
-    checkpoint_path = ARTIFACT_DIR / "resnet50_ft_v2_best.pth"
-    class_names_path = ARTIFACT_DIR / "class_names.json"
-    calibration_path = ARTIFACT_DIR / "calibration.json"
-    decision_policy_path = ARTIFACT_DIR / "decision_policy.json"
-    hard_classes_path = ARTIFACT_DIR / "hard_classes.json"
-    confusion_pairs_path = ARTIFACT_DIR / "confusion_pairs.json"
-    classifier_ready = checkpoint_path.exists() and class_names_path.exists()
+    resolved_artifact_dir = artifact_dir_path()
+    checkpoint_path = resolved_artifact_dir / "resnet50_ft_v2_best.pth"
+    class_names_path = resolved_artifact_dir / "class_names.json"
+    calibration_path = resolved_artifact_dir / "calibration.json"
+    decision_policy_path = resolved_artifact_dir / "decision_policy.json"
+    hard_classes_path = resolved_artifact_dir / "hard_classes.json"
+    confusion_pairs_path = resolved_artifact_dir / "confusion_pairs.json"
+    classifier_ready = classifier_artifacts_ready(resolved_artifact_dir)
     weights_path = detector_weights_path()
     weights_found = Path(weights_path).exists()
     detector_dependency_available = importlib.util.find_spec("ultralytics") is not None
@@ -210,7 +235,7 @@ def runtime_status() -> dict[str, Any]:
         "classifier": {
             "status": "ready" if classifier_ready else "missing_artifacts",
             "artifact_status": artifact_status(),
-            "artifact_dir": str(ARTIFACT_DIR),
+            "artifact_dir": str(resolved_artifact_dir),
             "artifacts": {
                 "checkpoint": artifact_file_status(checkpoint_path),
                 "class_names": artifact_file_status(class_names_path),
@@ -281,7 +306,8 @@ def load_runtime() -> dict[str, Any]:
             "Real inference requires torch, torchvision, and Pillow."
         ) from exc
 
-    class_names = read_json(ARTIFACT_DIR / "class_names.json", [])
+    resolved_artifact_dir = artifact_dir_path()
+    class_names = read_json(resolved_artifact_dir / "class_names.json", [])
     if len(class_names) != 101:
         raise ValueError("class_names.json must contain 101 ordered Food-101 class names.")
 
@@ -289,7 +315,7 @@ def load_runtime() -> dict[str, Any]:
     model = models.resnet50(weights=None)
     model.fc = make_classifier_head(nn, model.fc.in_features)
     model.load_state_dict(
-        torch.load(ARTIFACT_DIR / "resnet50_ft_v2_best.pth", map_location=device)
+        torch.load(resolved_artifact_dir / "resnet50_ft_v2_best.pth", map_location=device)
     )
     model.to(device)
     model.eval()
