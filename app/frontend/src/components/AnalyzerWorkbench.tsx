@@ -83,6 +83,13 @@ function AnalyzeView({
             onVideoSelected={(file) => {
               void analyzer.analyzeVideo(file);
             }}
+            onUrlSubmit={(url) => {
+              if (analyzer.mode === "video") {
+                void analyzer.analyzeYoutubeUrl(url);
+                return;
+              }
+              void analyzer.analyzeImageUrl(url);
+            }}
             onSample={analyzer.loadSample}
             onClear={analyzer.clear}
           />

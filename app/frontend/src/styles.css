@@ -418,6 +418,52 @@ h3 {
   background: var(--lab-surface-soft);
 }
 
+.url-control {
+  display: grid;
+  flex: 1 1 340px;
+  gap: 6px;
+  min-width: min(100%, 280px);
+}
+
+.url-control label {
+  color: var(--lab-muted);
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.url-control__field {
+  display: grid;
+  grid-template-columns: auto minmax(160px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px;
+  border: 1px solid var(--lab-border);
+  border-radius: var(--lab-radius);
+  background: var(--lab-surface-soft);
+}
+
+.url-control__field svg {
+  margin-left: 8px;
+  color: var(--lab-muted);
+}
+
+.url-control__field input {
+  width: 100%;
+  min-height: 34px;
+  border: 0;
+  outline: none;
+  color: var(--lab-ink);
+  background: transparent;
+}
+
+.url-control__field button {
+  min-height: 34px;
+  white-space: nowrap;
+}
+
 .upload-button {
   position: relative;
   display: inline-flex;
@@ -895,9 +941,19 @@ meter {
 
   .upload-controls,
   .control-row,
+  .url-control,
   .segmented-control {
     align-items: stretch;
     width: 100%;
+  }
+
+  .url-control__field {
+    width: 100%;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .url-control__field button {
+    grid-column: 1 / -1;
   }
 
   .control-row > *,

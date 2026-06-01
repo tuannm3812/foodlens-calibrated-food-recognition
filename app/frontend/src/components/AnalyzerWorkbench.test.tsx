@@ -428,6 +428,45 @@ describe("AnalyzerWorkbench", () => {
     expect(result.current.previewUrl).toBeNull();
     expect(result.current.result?.strongestLabel).toBe("hamburger");
   });
+
+  it("submits a direct image URL from the workbench controls", async () => {
+    const user = userEvent.setup();
+    vi.mocked(predictMultiFoodImageUrl).mockResolvedValue(createResult("pizza", 0.94));
+    render(<AnalyzerWorkbench />);
+
+    await user.type(
+      screen.getByLabelText("Image URL"),
+      "https://example.com/pizza.jpg",
+    );
+    await user.click(screen.getByRole("button", { name: "Analyze URL" }));
+
+    expect(predictMultiFoodImageUrl).toHaveBeenCalledWith(
+      "https://example.com/pizza.jpg",
+    );
+    expect(await screen.findByText("Image URL analysis complete")).toBeInTheDocument();
+    expect(screen.getByText("pizza")).toBeInTheDocument();
+  });
+
+  it("submits a YouTube URL from video mode controls", async () => {
+    const user = userEvent.setup();
+    vi.mocked(predictMultiFoodYoutubeUrl).mockResolvedValue(
+      createResult("hamburger", 0.91),
+    );
+    render(<AnalyzerWorkbench />);
+
+    await user.click(screen.getByRole("button", { name: "Video" }));
+    await user.type(
+      screen.getByLabelText("YouTube URL"),
+      "https://www.youtube.com/watch?v=abc123",
+    );
+    await user.click(screen.getByRole("button", { name: "Analyze URL" }));
+
+    expect(predictMultiFoodYoutubeUrl).toHaveBeenCalledWith(
+      "https://www.youtube.com/watch?v=abc123",
+    );
+    expect(await screen.findByText("Video URL review complete")).toBeInTheDocument();
+    expect(screen.getByText("hamburger")).toBeInTheDocument();
+  });
 });
 
 describe("UploadControls", () => {
@@ -444,6 +483,7 @@ describe("UploadControls", () => {
         onModeChange={vi.fn()}
         onUploadImage={onUploadImage}
         onVideoSelected={onVideoSelected}
+        onUrlSubmit={vi.fn()}
         onSample={vi.fn()}
         onClear={vi.fn()}
       />,
@@ -457,6 +497,59 @@ describe("UploadControls", () => {
 
     expect(onVideoSelected).toHaveBeenCalledWith(file);
     expect(onUploadImage).not.toHaveBeenCalled();
+  });
+
+  it("submits image URLs from image mode", async () => {
+    const user = userEvent.setup();
+    const onUrlSubmit = vi.fn();
+
+    render(
+      <UploadControls
+        mode="image"
+        status="idle"
+        onModeChange={vi.fn()}
+        onUploadImage={vi.fn()}
+        onVideoSelected={vi.fn()}
+        onUrlSubmit={onUrlSubmit}
+        onSample={vi.fn()}
+        onClear={vi.fn()}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("Image URL"), "https://example.com/plate.jpg");
+    await user.click(screen.getByRole("button", { name: "Analyze URL" }));
+
+    expect(onUrlSubmit).toHaveBeenCalledWith("https://example.com/plate.jpg");
+  });
+
+  it("submits YouTube URLs from video mode", async () => {
+    const user = userEvent.setup();
+    const onUrlSubmit = vi.fn();
+
+    render(
+      <UploadControls
+        mode="video"
+        status="idle"
+        onModeChange={vi.fn()}
+        onUploadImage={vi.fn()}
+        onVideoSelected={vi.fn()}
+        onUrlSubmit={onUrlSubmit}
+        onSample={vi.fn()}
+        onClear={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByPlaceholderText("Paste a YouTube URL")).toBeInTheDocument();
+
+    await user.type(
+      screen.getByLabelText("YouTube URL"),
+      "https://www.youtube.com/watch?v=abc123",
+    );
+    await user.click(screen.getByRole("button", { name: "Analyze URL" }));
+
+    expect(onUrlSubmit).toHaveBeenCalledWith(
+      "https://www.youtube.com/watch?v=abc123",
+    );
   });
 });
 
