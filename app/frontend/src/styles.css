@@ -1,22 +1,27 @@
 :root {
-  color: #1f2420;
-  background: #f7f8f6;
+  color: #222222;
+  background: #f8f7f3;
   font-family:
     "Be Vietnam Pro", Inter, ui-sans-serif, system-ui, -apple-system,
     BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --lab-bg: #f7f8f6;
+  --lab-primary: #e12b2b;
+  --lab-secondary: #2d5a27;
+  --lab-tertiary: #f4b41a;
+  --lab-tertiary-ink: #755500;
+  --lab-neutral: #222222;
+  --lab-bg: #f8f7f3;
   --lab-surface: #ffffff;
-  --lab-surface-soft: #fbfcfa;
-  --lab-border: #d9dfd7;
-  --lab-border-strong: #cbd5cb;
-  --lab-ink: #181d19;
-  --lab-muted: #5c665c;
-  --lab-red: #d42020;
-  --lab-green: #2f7d59;
-  --lab-gold: #946200;
-  --lab-blue: #315f8f;
+  --lab-surface-soft: #fdfbf4;
+  --lab-border: #ded8cc;
+  --lab-border-strong: #c9c1b3;
+  --lab-ink: var(--lab-neutral);
+  --lab-muted: #625f56;
+  --lab-red: var(--lab-primary);
+  --lab-green: var(--lab-secondary);
+  --lab-gold: var(--lab-tertiary-ink);
+  --lab-blue: var(--lab-primary);
   --lab-radius: 8px;
   --font-display:
     "Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, -apple-system,
@@ -37,7 +42,7 @@ body {
   color: var(--lab-ink);
   font-family: var(--font-body);
   background:
-    linear-gradient(180deg, rgba(47, 125, 89, 0.07), transparent 360px),
+    linear-gradient(180deg, rgba(45, 90, 39, 0.07), transparent 360px),
     var(--lab-bg);
 }
 
@@ -63,13 +68,13 @@ button {
 
 button:hover:not(:disabled),
 .upload-button:hover:not(.is-disabled) {
-  border-color: var(--lab-blue);
-  color: var(--lab-blue);
+  border-color: var(--lab-primary);
+  color: var(--lab-primary);
 }
 
 button:focus-visible,
 .upload-button:focus-within {
-  outline: 3px solid rgba(49, 95, 143, 0.22);
+  outline: 3px solid rgba(225, 43, 43, 0.22);
   outline-offset: 2px;
 }
 
@@ -140,7 +145,7 @@ h3 {
   width: 12px;
   height: 12px;
   margin-right: 10px;
-  border: 2px solid var(--lab-green);
+  border: 2px solid var(--lab-primary);
   border-radius: 50%;
   content: "";
 }
@@ -160,8 +165,8 @@ h3 {
 }
 
 .product-nav button.is-active {
-  border-color: var(--lab-border-strong);
-  color: var(--lab-ink);
+  border-color: rgba(225, 43, 43, 0.42);
+  color: var(--lab-primary);
   background: var(--lab-surface);
 }
 
@@ -208,13 +213,13 @@ h3 {
   align-content: center;
   padding: 14px 16px;
   border: 1px solid var(--lab-border);
-  border-left: 4px solid var(--lab-blue);
+  border-left: 4px solid var(--lab-primary);
   border-radius: var(--lab-radius);
   background: var(--lab-surface);
 }
 
 .status-notice__label {
-  color: var(--lab-blue);
+  color: var(--lab-primary);
   font-family: var(--font-display);
   font-size: 0.75rem;
   font-weight: 800;
@@ -280,8 +285,8 @@ h3 {
   border: 1px solid var(--lab-border-strong);
   border-radius: var(--lab-radius);
   background:
-    linear-gradient(135deg, rgba(49, 95, 143, 0.1), transparent 48%),
-    linear-gradient(315deg, rgba(47, 125, 89, 0.1), transparent 42%),
+    linear-gradient(135deg, rgba(225, 43, 43, 0.08), transparent 48%),
+    linear-gradient(315deg, rgba(45, 90, 39, 0.1), transparent 42%),
     var(--lab-surface-soft);
 }
 
@@ -360,7 +365,7 @@ h3 {
   font-family: var(--font-display);
   font-size: 0.78rem;
   font-weight: 800;
-  background: rgba(47, 125, 89, 0.18);
+  background: rgba(45, 90, 39, 0.18);
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
 }
 
@@ -481,22 +486,22 @@ h3 {
 
 .decision-badge--auto_accept {
   color: var(--lab-green);
-  background: rgba(47, 125, 89, 0.12);
+  background: rgba(45, 90, 39, 0.12);
 }
 
 .decision-badge--suggest {
-  color: var(--lab-blue);
-  background: rgba(49, 95, 143, 0.12);
+  color: var(--lab-tertiary-ink);
+  background: rgba(244, 180, 26, 0.2);
 }
 
 .decision-badge--confirm {
   color: var(--lab-gold);
-  background: rgba(148, 98, 0, 0.14);
+  background: rgba(244, 180, 26, 0.16);
 }
 
 .decision-badge--review {
   color: var(--lab-red);
-  background: rgba(212, 32, 32, 0.1);
+  background: rgba(225, 43, 43, 0.1);
 }
 
 .confidence-metric {
@@ -518,7 +523,7 @@ h3 {
   height: 8px;
   overflow: hidden;
   border-radius: 999px;
-  background: #edf1eb;
+  background: #edf0e8;
 }
 
 .confidence-track span {
@@ -587,7 +592,7 @@ meter {
 
 .eyebrow {
   margin-bottom: 8px;
-  color: var(--lab-blue);
+  color: var(--lab-primary);
 }
 
 .model-metadata dd {
@@ -626,7 +631,7 @@ meter {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--lab-blue);
+  background: var(--lab-primary);
 }
 
 .decision-policy__tile--auto .decision-policy__dot {
@@ -634,7 +639,7 @@ meter {
 }
 
 .decision-policy__tile--suggest .decision-policy__dot {
-  background: var(--lab-blue);
+  background: var(--lab-tertiary);
 }
 
 .decision-policy__tile--confirm .decision-policy__dot {
