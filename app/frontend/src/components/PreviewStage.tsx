@@ -75,7 +75,11 @@ export function PreviewStage({ mode, previewUrl, result }: PreviewStageProps) {
           </div>
         ) : (
           <div className="preview-stage__empty">
-            <span>Awaiting {mode} input</span>
+            <span className="preview-stage__empty-icon" aria-hidden="true">
+              +
+            </span>
+            <strong>No subject detected</strong>
+            <span>Upload a food {mode} or load the sample to begin analysis.</span>
           </div>
         )}
       </div>

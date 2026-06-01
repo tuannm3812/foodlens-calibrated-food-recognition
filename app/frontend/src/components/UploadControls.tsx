@@ -59,7 +59,7 @@ export function UploadControls({
         </button>
       </div>
       <div className="control-row">
-        <label className={`upload-button ${disabled ? "is-disabled" : ""}`}>
+        <label className={disabled ? "upload-button is-disabled" : "upload-button"}>
           <Upload size={16} aria-hidden="true" />
           Upload
           <input

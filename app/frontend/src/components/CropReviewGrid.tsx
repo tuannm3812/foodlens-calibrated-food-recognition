@@ -20,7 +20,7 @@ export function CropReviewGrid({ result }: CropReviewGridProps) {
       {regions.length === 0 ? (
         <p className="muted-copy">Detected crop cards will appear here.</p>
       ) : (
-        <div className="crop-review__grid">
+        <div className="crop-grid">
           {regions.map((region) => (
             <article key={`${region.source_id}-${region.detection_index}`} className="crop-card">
               <div className="crop-card__media">
