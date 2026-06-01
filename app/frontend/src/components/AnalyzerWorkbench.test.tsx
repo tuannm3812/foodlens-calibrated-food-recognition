@@ -1,0 +1,133 @@
+import { act, render, renderHook, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { AnalyzerWorkbench } from "./AnalyzerWorkbench";
+import type { AnalyzerResult } from "../api/types";
+import { predictMultiFoodImage } from "../api/foodlensClient";
+import { useAnalyzer } from "../state/useAnalyzer";
+
+vi.mock("../api/foodlensClient", () => ({
+  predictMultiFoodImage: vi.fn(),
+  toLocalDemoResult: () => createResult("ravioli", 0.972, "local_demo"),
+}));
+
+function createResult(
+  label: string,
+  confidence: number,
+  source: AnalyzerResult["source"] = "live",
+): AnalyzerResult {
+  return {
+    modelName: "test-model · Multi-food",
+    temperature: 1,
+    detectorStatus: source,
+    artifactStatus: "mock",
+    fallbackReason: source === "local_demo" ? "frontend_local_demo" : undefined,
+    source,
+    strongestLabel: label,
+    strongestConfidence: confidence,
+    decisionBand: confidence > 0.85 ? "auto_accept" : "suggest",
+    actionCopy: "Test action copy.",
+    topPredictions: [[label, confidence]],
+    regions: [
+      {
+        source_id: `source-${label}`,
+        detection_index: 0,
+        displayIndex: 1,
+        bbox: {
+          x1: 10,
+          y1: 10,
+          x2: 90,
+          y2: 90,
+          source_width: 100,
+          source_height: 100,
+        },
+        detector: {
+          label: "plate",
+          proposal_role: "direct_food",
+          confidence: 0.8,
+          crop_area_ratio: 0.64,
+        },
+        foodlens: {
+          top_label: label,
+          top_confidence: confidence,
+          decision_band: confidence > 0.85 ? "auto_accept" : "suggest",
+          top_k_predictions: [[label, confidence]],
+        },
+        artifacts: {
+          crop_path: `${label}.jpg`,
+          crop_artifact_path: `${label}.jpg`,
+          figure_path: `${label}-figure.jpg`,
+        },
+      },
+    ],
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return { promise, resolve, reject };
+}
+
+describe("AnalyzerWorkbench", () => {
+  beforeEach(() => {
+    vi.mocked(predictMultiFoodImage).mockReset();
+  });
+
+  it("renders the idle analyzer controls", () => {
+    render(<AnalyzerWorkbench />);
+
+    expect(
+      screen.getByRole("heading", { name: "Analyzer Workbench" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("No input selected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sample" })).toBeInTheDocument();
+  });
+
+  it("renders local demo fallback after selecting sample", async () => {
+    const user = userEvent.setup();
+    render(<AnalyzerWorkbench />);
+
+    await user.click(screen.getByRole("button", { name: "Sample" }));
+
+    expect(screen.getByText("ravioli")).toBeInTheDocument();
+    expect(screen.getByText("Local demo")).toBeInTheDocument();
+    expect(screen.getByText("Detected regions")).toBeInTheDocument();
+  });
+
+  it("keeps stale image analysis from overwriting the current request", async () => {
+    const first = deferred<AnalyzerResult>();
+    const second = deferred<AnalyzerResult>();
+    vi.mocked(predictMultiFoodImage)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const firstFile = new File(["first"], "first.jpg", { type: "image/jpeg" });
+    const secondFile = new File(["second"], "second.jpg", { type: "image/jpeg" });
+    const { result } = renderHook(() => useAnalyzer());
+
+    await act(async () => {
+      void result.current.analyzeImage(firstFile);
+    });
+    await act(async () => {
+      void result.current.analyzeImage(secondFile);
+    });
+
+    await act(async () => {
+      second.resolve(createResult("second_upload", 0.91));
+      await second.promise;
+    });
+    expect(result.current.result?.strongestLabel).toBe("second_upload");
+
+    await act(async () => {
+      first.resolve(createResult("first_upload", 0.99));
+      await first.promise;
+    });
+    expect(result.current.result?.strongestLabel).toBe("second_upload");
+  });
+});
