@@ -70,6 +70,16 @@ describe("workbench layout alignment", () => {
     );
   });
 
+  it("keeps video sampled frame cards more compact than image crop cards", () => {
+    expect(cssRule(".crop-review--video .crop-grid")).toContain("gap: 12px");
+    expect(cssRule(".crop-review--video .crop-card__media")).toContain(
+      "height: clamp(150px, 12vw, 178px)",
+    );
+    expect(cssRule(".crop-review--video .crop-card__body")).toContain("min-height: 108px");
+    expect(cssRule(".crop-review--video .crop-card__body")).toContain("padding: 10px");
+    expect(cssRule(".crop-review--video .crop-card__body h3")).toContain("font-size: 0.92rem");
+  });
+
   it("renders runtime readiness as compact status chips", () => {
     expect(cssRule(".runtime-status")).toContain(
       "grid-template-columns: minmax(180px, 1fr) auto",

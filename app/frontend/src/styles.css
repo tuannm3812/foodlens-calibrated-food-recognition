@@ -896,6 +896,10 @@ meter {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.crop-review--video .crop-grid {
+  gap: 12px;
+}
+
 .crop-card {
   min-width: 0;
   overflow: hidden;
@@ -942,6 +946,10 @@ meter {
   object-fit: cover;
 }
 
+.crop-review--video .crop-card__media {
+  height: clamp(150px, 12vw, 178px);
+}
+
 .crop-card__body {
   display: grid;
   gap: 7px;
@@ -951,10 +959,20 @@ meter {
   color: var(--lab-muted);
 }
 
+.crop-review--video .crop-card__body {
+  gap: 5px;
+  min-height: 108px;
+  padding: 10px;
+}
+
 .crop-card__body h3 {
   color: var(--lab-ink);
   font-size: 0.98rem;
   line-height: 1.25;
+}
+
+.crop-review--video .crop-card__body h3 {
+  font-size: 0.92rem;
 }
 
 .crop-card__body p {

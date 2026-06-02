@@ -60,6 +60,20 @@ function formatConfidence(value: number): string {
   return `${Math.round(value * 1000) / 10}%`;
 }
 
+function detectorMetadata(result: AnalyzerResult): { label: string; details: string | null } {
+  if (result.source === "video_review") {
+    return {
+      label: "Video aggregation",
+      details: result.detectorStatusLabel,
+    };
+  }
+
+  return {
+    label: result.detectorStatusLabel,
+    details: null,
+  };
+}
+
 type SharedResultProps = {
   result: AnalyzerResult | null;
   selectedRegionKey: string | null;
@@ -136,6 +150,8 @@ function ReviewQueuePanel({ result }: { result: AnalyzerResult | null }) {
     );
   }
 
+  const detector = detectorMetadata(result);
+
   return (
     <section className="secondary-panel" aria-label="Review queue">
       <div className="section-heading">
@@ -157,8 +173,14 @@ function ReviewQueuePanel({ result }: { result: AnalyzerResult | null }) {
         </div>
         <div>
           <dt>Detector</dt>
-          <dd>{result.detectorStatusLabel}</dd>
+          <dd>{detector.label}</dd>
         </div>
+        {detector.details ? (
+          <div>
+            <dt>Detector details</dt>
+            <dd>{detector.details}</dd>
+          </div>
+        ) : null}
         <div>
           <dt>Artifacts</dt>
           <dd>{result.artifactStatusLabel}</dd>
@@ -192,6 +214,8 @@ function ModelsView({
   runtimeStatus: RuntimeStatusSummary | null;
   result: AnalyzerResult | null;
 }) {
+  const detector = result ? detectorMetadata(result) : null;
+
   return (
     <section className="models-view" aria-label="Model runtime details">
       <RuntimeStatusPanel status={runtimeStatus} />
@@ -212,8 +236,14 @@ function ModelsView({
             </div>
             <div>
               <dt>Detector</dt>
-              <dd>{result.detectorStatusLabel}</dd>
+              <dd>{detector?.label}</dd>
             </div>
+            {detector?.details ? (
+              <div>
+                <dt>Detector details</dt>
+                <dd>{detector.details}</dd>
+              </div>
+            ) : null}
             <div>
               <dt>Artifacts</dt>
               <dd>{result.artifactStatusLabel}</dd>

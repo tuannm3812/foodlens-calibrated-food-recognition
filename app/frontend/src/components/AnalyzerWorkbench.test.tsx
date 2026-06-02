@@ -396,11 +396,12 @@ describe("AnalyzerWorkbench", () => {
     });
     const file = new File(["image"], "food.jpg", { type: "image/jpeg" });
 
-    render(<AnalyzerWorkbench />);
+    const { container } = render(<AnalyzerWorkbench />);
     await user.upload(screen.getByLabelText("Upload"), file);
     await screen.findAllByText("hamburger");
 
     expect(screen.getByRole("heading", { name: "Sampled frame regions" })).toBeInTheDocument();
+    expect(container.querySelector(".crop-review--video")).toBeInTheDocument();
     expect(screen.getAllByText("Frame 2 · 2.4s").length).toBeGreaterThan(0);
     const selectedCropDetails = screen.getByLabelText("Selected crop details");
     expect(within(selectedCropDetails).getByText("Region 2")).toBeInTheDocument();
@@ -413,6 +414,32 @@ describe("AnalyzerWorkbench", () => {
     expect(screen.getByRole("img", { name: "Region 2: hamburger" })).toHaveClass(
       "bbox-overlay--selected",
     );
+  });
+
+  it("splits video aggregation metadata from frame details in the models tab", async () => {
+    const user = userEvent.setup();
+    const result = createResult("hamburger", 0.971, "video_review");
+    result.modelName = "resnet50_ft_v2 · Video review";
+    result.detectorStatusLabel = "3 frames · 4 regions · 1 fallback frame";
+    vi.mocked(predictMultiFoodImage).mockResolvedValue(result);
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn(() => "blob:food-preview"),
+      revokeObjectURL: vi.fn(),
+    });
+    const file = new File(["image"], "food.jpg", { type: "image/jpeg" });
+
+    render(<AnalyzerWorkbench />);
+    await user.upload(screen.getByLabelText("Upload"), file);
+    await screen.findAllByText("hamburger");
+    await user.click(screen.getByRole("button", { name: "Models" }));
+
+    const metadata = screen.getByLabelText("Model metadata");
+    expect(within(metadata).getByText("Detector")).toBeInTheDocument();
+    expect(within(metadata).getByText("Video aggregation")).toBeInTheDocument();
+    expect(within(metadata).getByText("Detector details")).toBeInTheDocument();
+    expect(
+      within(metadata).getByText("3 frames · 4 regions · 1 fallback frame"),
+    ).toBeInTheDocument();
   });
 
   it("loads the bundled burger video when sample is selected in video mode", async () => {

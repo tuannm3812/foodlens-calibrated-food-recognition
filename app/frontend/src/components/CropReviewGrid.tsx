@@ -75,9 +75,10 @@ export function CropReviewGrid({
   const emptyCopy = isVideoReview
     ? "Sampled video frame cards will appear here."
     : "Detected crop cards will appear here.";
+  const reviewClassName = `crop-review${isVideoReview ? " crop-review--video" : ""}`;
 
   return (
-    <section className="crop-review" aria-labelledby="crop-review-title">
+    <section className={reviewClassName} aria-labelledby="crop-review-title">
       <div className="section-heading">
         <p className="eyebrow">Crops</p>
         <h2 id="crop-review-title">{sectionTitle}</h2>
