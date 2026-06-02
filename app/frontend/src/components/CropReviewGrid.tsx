@@ -86,10 +86,24 @@ export function CropReviewGrid({
             <aside className="crop-detail" aria-label="Selected crop details">
               <span className="metric-label">Selected crop</span>
               <strong>{`Region ${selectedRegion.displayIndex}`}</strong>
-              <p>{`Classifier: ${selectedRegion.foodlens.top_label}`}</p>
-              <p>{`Detector: ${selectedRegion.detectorLabel}`}</p>
-              <p>{`Review type: ${selectedRegion.detectorRoleLabel}`}</p>
-              <p>{bboxCopy(selectedRegion)}</p>
+              <dl className="crop-detail__list">
+                <div>
+                  <dt>Classifier</dt>
+                  <dd>{selectedRegion.foodlens.top_label}</dd>
+                </div>
+                <div>
+                  <dt>Detector</dt>
+                  <dd>{selectedRegion.detectorLabel}</dd>
+                </div>
+                <div>
+                  <dt>Review type</dt>
+                  <dd>{selectedRegion.detectorRoleLabel}</dd>
+                </div>
+                <div>
+                  <dt>Bounds</dt>
+                  <dd>{bboxCopy(selectedRegion)}</dd>
+                </div>
+              </dl>
             </aside>
           ) : null}
         </div>

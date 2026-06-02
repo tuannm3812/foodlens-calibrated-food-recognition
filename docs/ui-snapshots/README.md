@@ -18,3 +18,4 @@ Visual reference captures used while comparing application refinements.
 
 - [`foodlens-west-bookings-polish-2026-06-02.png`](2026-06-02/foodlens-west-bookings-polish-2026-06-02.png) - Refined analyzed-state UI using the West Kitchen image URL, captured at `1440x1013`, showing labeled crop overlays and first-viewport result context.
 - [`foodlens-west-bookings-aligned-2026-06-02.png`](2026-06-02/foodlens-west-bookings-aligned-2026-06-02.png) - Alignment pass for the analyzed West Kitchen image state, captured at `1440x1013`, with the result status aligned to the decision panel and crop cards aligned with the selected crop detail.
+- [`foodlens-west-bookings-crop-polish-2026-06-02.png`](2026-06-02/foodlens-west-bookings-crop-polish-2026-06-02.png) - Crop review polish pass for the analyzed West Kitchen image state, captured at `1440x1013`, with denser crop cards, structured selected crop metadata, and compact runtime readiness chips.

@@ -40,4 +40,23 @@ describe("workbench layout alignment", () => {
     );
     expect(cssRule(".crop-detail")).toContain("align-self: start");
   });
+
+  it("keeps crop review dense and selected details structured", () => {
+    expect(cssRule(".crop-card__media")).toContain("height: clamp(190px, 16vw, 240px)");
+    expect(cssRule(".crop-card__media")).toContain("overflow: hidden");
+    expect(cssRule(".crop-card--selected")).toContain(
+      "border-color: rgba(45, 90, 39, 0.62)",
+    );
+    expect(cssRule(".crop-detail__list div")).toContain(
+      "grid-template-columns: 92px minmax(0, 1fr)",
+    );
+  });
+
+  it("renders runtime readiness as compact status chips", () => {
+    expect(cssRule(".runtime-status")).toContain(
+      "grid-template-columns: minmax(180px, 1fr) auto",
+    );
+    expect(cssRule(".runtime-status__checks")).toContain("justify-content: flex-end");
+    expect(cssRule(".runtime-status__checks span")).toContain("border-radius: 999px");
+  });
 });

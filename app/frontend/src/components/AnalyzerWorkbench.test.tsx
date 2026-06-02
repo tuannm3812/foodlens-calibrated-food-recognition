@@ -229,7 +229,7 @@ describe("AnalyzerWorkbench", () => {
 
     expect(screen.getByRole("heading", { name: "Review Queue" })).toBeInTheDocument();
     expect(screen.getByText("Current result")).toBeInTheDocument();
-    expect(screen.getByText("ravioli")).toBeInTheDocument();
+    expect(screen.getAllByText("ravioli").length).toBeGreaterThan(0);
     expect(screen.getByText("Region 1")).toBeInTheDocument();
   });
 
@@ -255,7 +255,7 @@ describe("AnalyzerWorkbench", () => {
 
     await user.click(screen.getByRole("button", { name: "Sample" }));
 
-    expect(screen.getByText("ravioli")).toBeInTheDocument();
+    expect(screen.getAllByText("ravioli").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Local demo").length).toBeGreaterThan(0);
     expect(screen.getByText("Detected regions")).toBeInTheDocument();
   });
@@ -268,13 +268,13 @@ describe("AnalyzerWorkbench", () => {
 
     expect(screen.getByLabelText("Decision summary")).toHaveClass("decision-card");
     expect(screen.getAllByText("Local demo").length).toBeGreaterThan(0);
-    expect(screen.getByText("ravioli")).toBeInTheDocument();
+    expect(screen.getAllByText("ravioli").length).toBeGreaterThan(0);
     expect(screen.getByText("97.2%")).toBeInTheDocument();
     expect(screen.getByText("Detected regions")).toBeInTheDocument();
     expect(screen.getByText("Decision")).toBeInTheDocument();
     expect(screen.getByText("Confidence")).toBeInTheDocument();
     expect(screen.getByText("Model")).toBeInTheDocument();
-    expect(screen.getByText("Detector")).toBeInTheDocument();
+    expect(screen.getAllByText("Detector").length).toBeGreaterThan(0);
   });
 
   it("selects crop cards and highlights the matching preview box", async () => {
@@ -311,13 +311,16 @@ describe("AnalyzerWorkbench", () => {
 
     render(<AnalyzerWorkbench />);
     await user.upload(screen.getByLabelText("Upload"), file);
-    await screen.findByText("ravioli");
+    await screen.findAllByText("ravioli");
 
     await user.click(screen.getByRole("button", { name: /Region 2: ramen/i }));
 
-    expect(screen.getByText("Selected crop")).toBeInTheDocument();
-    expect(screen.getByText("Classifier: ramen")).toBeInTheDocument();
-    expect(screen.getByText("Detector: bowl")).toBeInTheDocument();
+    const selectedCropDetails = screen.getByLabelText("Selected crop details");
+    expect(within(selectedCropDetails).getByText("Selected crop")).toBeInTheDocument();
+    expect(within(selectedCropDetails).getByText("Classifier")).toBeInTheDocument();
+    expect(within(selectedCropDetails).getByText("ramen")).toBeInTheDocument();
+    expect(within(selectedCropDetails).getByText("Detector")).toBeInTheDocument();
+    expect(within(selectedCropDetails).getByText("bowl")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Region 2: ramen" })).toHaveClass(
       "bbox-overlay--selected",
     );
@@ -341,7 +344,7 @@ describe("AnalyzerWorkbench", () => {
 
     expect(fetch).toHaveBeenCalledWith("/demo/burger-making-demo.mp4");
     expect(await screen.findByText("Video review complete")).toBeInTheDocument();
-    expect(screen.getByText("hamburger")).toBeInTheDocument();
+    expect(screen.getAllByText("hamburger").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Selected food video")).toBeInTheDocument();
   });
 
@@ -362,7 +365,9 @@ describe("AnalyzerWorkbench", () => {
     render(<CropReviewGrid result={result} />);
 
     expect(screen.queryByText(/fallback_region/i)).not.toBeInTheDocument();
-    expect(screen.getByText("Review type: Whole image review")).toBeInTheDocument();
+    const selectedCropDetails = screen.getByLabelText("Selected crop details");
+    expect(within(selectedCropDetails).getByText("Review type")).toBeInTheDocument();
+    expect(within(selectedCropDetails).getByText("Whole image review")).toBeInTheDocument();
   });
 
   it("keeps stale image analysis from overwriting the current request", async () => {
@@ -450,7 +455,7 @@ describe("AnalyzerWorkbench", () => {
       "https://example.com/pizza.jpg",
     );
     expect(await screen.findByText("Image URL analysis complete")).toBeInTheDocument();
-    expect(screen.getByText("pizza")).toBeInTheDocument();
+    expect(screen.getAllByText("pizza").length).toBeGreaterThan(0);
     expect(screen.getByText("1 region detected")).toBeInTheDocument();
     expect(screen.getByText("Source: Image URL")).toBeInTheDocument();
   });
@@ -473,7 +478,7 @@ describe("AnalyzerWorkbench", () => {
       "https://www.youtube.com/watch?v=abc123",
     );
     expect(await screen.findByText("Video URL review complete")).toBeInTheDocument();
-    expect(screen.getByText("hamburger")).toBeInTheDocument();
+    expect(screen.getAllByText("hamburger").length).toBeGreaterThan(0);
   });
 });
 

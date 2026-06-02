@@ -15,9 +15,11 @@ export function RuntimeStatusPanel({ status }: RuntimeStatusPanelProps) {
         <span className="metric-label">Runtime</span>
         <strong>{status.title}</strong>
       </div>
-      <span>{status.classifierLabel}</span>
-      <span>{status.detectorLabel}</span>
-      <span>{status.modeLabel}</span>
+      <div className="runtime-status__checks">
+        <span>{status.classifierLabel}</span>
+        <span>{status.detectorLabel}</span>
+        <span>{status.modeLabel}</span>
+      </div>
     </section>
   );
 }
