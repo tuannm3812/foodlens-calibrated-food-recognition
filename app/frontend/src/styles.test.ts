@@ -42,6 +42,9 @@ describe("workbench layout alignment", () => {
   });
 
   it("keeps crop review dense and selected details structured", () => {
+    expect(cssRule(".crop-grid--balanced")).toContain(
+      "grid-template-columns: repeat(2, minmax(0, 1fr))",
+    );
     expect(cssRule(".crop-card__media")).toContain("height: clamp(190px, 16vw, 240px)");
     expect(cssRule(".crop-card__media")).toContain("overflow: hidden");
     expect(cssRule(".crop-card__body")).toContain("min-height: 126px");
@@ -50,6 +53,8 @@ describe("workbench layout alignment", () => {
     );
     expect(cssRule(".crop-confidence__track")).toContain("height: 6px");
     expect(cssRule(".crop-status-pill")).toContain("border-radius: 999px");
+    expect(cssRule(".crop-status-pill--fallback")).toContain("color: var(--lab-gold)");
+    expect(cssRule(".crop-source-pill")).toContain("font-size: 0.68rem");
     expect(cssRule(".crop-detail__summary")).toContain("display: flex");
     expect(cssRule(".crop-detail__list div")).toContain(
       "grid-template-columns: 92px minmax(0, 1fr)",

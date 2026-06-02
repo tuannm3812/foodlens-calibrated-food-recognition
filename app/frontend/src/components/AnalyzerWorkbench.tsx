@@ -44,6 +44,18 @@ const DECISION_COPY: Record<AnalyzerResult["decisionBand"], string> = {
   review: "Review",
 };
 
+function regionKey(region: AnalyzerResult["regions"][number]): string {
+  return `${region.source_id}-${region.detection_index}`;
+}
+
+function defaultRegionKey(result: AnalyzerResult | null): string | null {
+  const strongestRegion = result?.regions
+    .slice()
+    .sort((left, right) => right.foodlens.top_confidence - left.foodlens.top_confidence)[0];
+
+  return strongestRegion ? regionKey(strongestRegion) : null;
+}
+
 function formatConfidence(value: number): string {
   return `${Math.round(value * 1000) / 10}%`;
 }
@@ -228,15 +240,19 @@ export function AnalyzerWorkbench() {
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatusSummary | null>(null);
   const [selectedRegionKey, setSelectedRegionKey] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<ProductView>("analyze");
-  const firstRegionKey = useMemo(() => {
-    const firstRegion = analyzer.result?.regions[0];
-    if (!firstRegion) {
-      return null;
-    }
-
-    return `${firstRegion.source_id}-${firstRegion.detection_index}`;
-  }, [analyzer.result]);
-  const activeRegionKey = selectedRegionKey ?? firstRegionKey;
+  const fallbackRegionKey = useMemo(
+    () => defaultRegionKey(analyzer.result),
+    [analyzer.result],
+  );
+  const selectedRegionExists = useMemo(
+    () =>
+      Boolean(
+        selectedRegionKey &&
+          analyzer.result?.regions.some((region) => regionKey(region) === selectedRegionKey),
+      ),
+    [analyzer.result, selectedRegionKey],
+  );
+  const activeRegionKey = selectedRegionExists ? selectedRegionKey : fallbackRegionKey;
 
   useEffect(() => {
     let mounted = true;

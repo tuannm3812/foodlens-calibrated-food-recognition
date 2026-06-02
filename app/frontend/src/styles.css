@@ -873,6 +873,10 @@ meter {
   gap: 14px;
 }
 
+.crop-grid--balanced {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .crop-card {
   min-width: 0;
   overflow: hidden;
@@ -976,6 +980,27 @@ meter {
   font-size: 0.72rem;
   font-weight: 800;
   background: rgba(45, 90, 39, 0.08);
+}
+
+.crop-status-pill--fallback {
+  border-color: rgba(244, 180, 26, 0.28);
+  color: var(--lab-gold);
+  background: rgba(244, 180, 26, 0.12);
+}
+
+.crop-source-pill {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 22px;
+  align-items: center;
+  padding: 2px 7px;
+  border: 1px solid var(--lab-border);
+  border-radius: 999px;
+  color: var(--lab-muted);
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  font-weight: 800;
+  background: var(--lab-surface-soft);
 }
 
 .crop-detail {

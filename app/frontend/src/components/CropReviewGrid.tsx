@@ -18,6 +18,26 @@ function regionKey(region: UiRegionPrediction): string {
   return `${region.source_id}-${region.detection_index}`;
 }
 
+function strongestRegion(regions: UiRegionPrediction[]): UiRegionPrediction | undefined {
+  return regions
+    .slice()
+    .sort((left, right) => right.foodlens.top_confidence - left.foodlens.top_confidence)[0];
+}
+
+function sourceLabel(region: UiRegionPrediction): string | null {
+  if (region.source_id.startsWith("video frame ")) {
+    return region.source_id.replace("video frame ", "Frame ");
+  }
+
+  return null;
+}
+
+function statusPillClass(region: UiRegionPrediction): string {
+  return region.regionStatusLabel.toLowerCase().includes("fallback")
+    ? "crop-status-pill crop-status-pill--fallback"
+    : "crop-status-pill";
+}
+
 function bboxCopy(region: UiRegionPrediction): string {
   if (region.detector.label === "whole_image") {
     return "Whole image fallback";
@@ -36,8 +56,11 @@ export function CropReviewGrid({
   onSelectRegion,
 }: CropReviewGridProps) {
   const regions = result?.regions ?? [];
+  const fallbackRegion = strongestRegion(regions);
   const selectedRegion =
-    regions.find((region) => regionKey(region) === selectedRegionKey) ?? regions[0];
+    regions.find((region) => regionKey(region) === selectedRegionKey) ?? fallbackRegion;
+  const activeSelectedRegionKey = selectedRegion ? regionKey(selectedRegion) : null;
+  const balancedGrid = regions.length === 4;
 
   return (
     <section className="crop-review" aria-labelledby="crop-review-title">
@@ -49,10 +72,11 @@ export function CropReviewGrid({
         <p className="muted-copy">Detected crop cards will appear here.</p>
       ) : (
         <div className="crop-review__body">
-          <div className="crop-grid">
+          <div className={balancedGrid ? "crop-grid crop-grid--balanced" : "crop-grid"}>
             {regions.map((region) => {
               const key = regionKey(region);
-              const selected = key === selectedRegionKey;
+              const selected = key === activeSelectedRegionKey;
+              const regionSourceLabel = sourceLabel(region);
 
               return (
                 <article
@@ -76,6 +100,9 @@ export function CropReviewGrid({
                       )}
                     </div>
                     <div className="crop-card__body">
+                      {regionSourceLabel ? (
+                        <span className="crop-source-pill">{regionSourceLabel}</span>
+                      ) : null}
                       <h3>{`Region ${region.displayIndex}: ${region.foodlens.top_label}`}</h3>
                       <div className="crop-confidence">
                         <span>{`${formatPercent(region.foodlens.top_confidence)} confidence`}</span>
@@ -93,7 +120,9 @@ export function CropReviewGrid({
                         </div>
                       </div>
                       <p>{`${region.detectorLabel} · ${region.detectorRoleLabel}`}</p>
-                      <span className="crop-status-pill">{region.regionStatusLabel}</span>
+                      <span className={statusPillClass(region)}>
+                        {region.regionStatusLabel}
+                      </span>
                     </div>
                   </button>
                 </article>
@@ -105,7 +134,9 @@ export function CropReviewGrid({
               <span className="metric-label">Selected crop</span>
               <strong>{`Region ${selectedRegion.displayIndex}`}</strong>
               <div className="crop-detail__summary">
-                <span className="crop-status-pill">{selectedRegion.regionStatusLabel}</span>
+                <span className={statusPillClass(selectedRegion)}>
+                  {selectedRegion.regionStatusLabel}
+                </span>
                 <span>{`${formatPercent(selectedRegion.foodlens.top_confidence)} confidence`}</span>
               </div>
               <div
@@ -133,6 +164,12 @@ export function CropReviewGrid({
                   <dt>Review type</dt>
                   <dd>{selectedRegion.detectorRoleLabel}</dd>
                 </div>
+                {sourceLabel(selectedRegion) ? (
+                  <div>
+                    <dt>Source</dt>
+                    <dd>{sourceLabel(selectedRegion)}</dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>Bounds</dt>
                   <dd>{bboxCopy(selectedRegion)}</dd>

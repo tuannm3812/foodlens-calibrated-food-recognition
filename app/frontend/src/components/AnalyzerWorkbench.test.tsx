@@ -336,6 +336,64 @@ describe("AnalyzerWorkbench", () => {
     ).toBeInTheDocument();
   });
 
+  it("defaults crop review and preview selection to the strongest region", async () => {
+    const user = userEvent.setup();
+    const result = createResult("baby_back_ribs", 0.54);
+    result.regions = [
+      {
+        ...result.regions[0],
+        source_id: "video frame 1",
+        displayIndex: 1,
+        foodlens: {
+          ...result.regions[0].foodlens,
+          top_label: "baby_back_ribs",
+          top_confidence: 0.54,
+        },
+        regionStatusLabel: "Whole image fallback",
+        detectorLabel: "Whole image",
+        detectorRoleLabel: "Whole image review",
+      },
+      {
+        ...result.regions[0],
+        source_id: "video frame 2",
+        displayIndex: 2,
+        detection_index: 1,
+        foodlens: {
+          ...result.regions[0].foodlens,
+          top_label: "hamburger",
+          top_confidence: 0.971,
+        },
+        detectorLabel: "sandwich",
+        detectorRoleLabel: "Food region",
+        regionStatusLabel: "Detector crop",
+      },
+    ];
+    result.strongestLabel = "hamburger";
+    result.strongestConfidence = 0.971;
+    vi.mocked(predictMultiFoodImage).mockResolvedValue(result);
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn(() => "blob:food-preview"),
+      revokeObjectURL: vi.fn(),
+    });
+    const file = new File(["image"], "food.jpg", { type: "image/jpeg" });
+
+    render(<AnalyzerWorkbench />);
+    await user.upload(screen.getByLabelText("Upload"), file);
+    await screen.findAllByText("hamburger");
+
+    const selectedCropDetails = screen.getByLabelText("Selected crop details");
+    expect(within(selectedCropDetails).getByText("Region 2")).toBeInTheDocument();
+    expect(within(selectedCropDetails).getByText("hamburger")).toBeInTheDocument();
+    expect(within(selectedCropDetails).getByText("Frame 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Region 2: hamburger/i })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("img", { name: "Region 2: hamburger" })).toHaveClass(
+      "bbox-overlay--selected",
+    );
+  });
+
   it("loads the bundled burger video when sample is selected in video mode", async () => {
     const user = userEvent.setup();
     installVideoSamplingMocks();
