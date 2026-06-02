@@ -1,5 +1,5 @@
 export type DecisionBand = "auto_accept" | "suggest" | "confirm" | "review";
-export type ResultSource = "live" | "backend_fallback" | "local_demo";
+export type ResultSource = "live" | "backend_fallback" | "local_demo" | "video_review";
 
 export type BoundingBox = {
   x1: number;

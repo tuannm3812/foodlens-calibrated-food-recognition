@@ -167,11 +167,13 @@ describe("combineFrameResults", () => {
     const first = normalizeMultiFoodResponse({
       ...LOCAL_DEMO_RESPONSE,
       detector_status: "live_yolo",
+      fallback_reason: null,
       predictions: [LOCAL_DEMO_RESPONSE.predictions[1]],
     });
     const second = normalizeMultiFoodResponse({
       ...LOCAL_DEMO_RESPONSE,
       detector_status: "live_yolo",
+      fallback_reason: null,
       predictions: [
         {
           ...LOCAL_DEMO_RESPONSE.predictions[0],
@@ -187,7 +189,10 @@ describe("combineFrameResults", () => {
     const result = combineFrameResults([first, second]);
 
     expect(result.modelName).toBe("resnet50_ft_v2 · Video review");
-    expect(result.detectorStatus).toBe("live_yolo · 2 frames");
+    expect(result.source).toBe("video_review");
+    expect(result.detectorStatus).toBe("video_review · 2 frames");
+    expect(result.detectorStatusLabel).toBe("2 frames · 2 regions");
+    expect(result.fallbackReasonLabel).toBeUndefined();
     expect(result.strongestLabel).toBe("ravioli");
     expect(result.strongestConfidence).toBe(0.991);
     expect(result.topPredictions).toEqual([["ravioli", 0.991]]);
@@ -196,6 +201,38 @@ describe("combineFrameResults", () => {
       "video frame 2",
     ]);
     expect(result.regions.map((region) => region.displayIndex)).toEqual([1, 2]);
+  });
+
+  it("summarizes mixed video frame health without marking the whole result as backend fallback", () => {
+    const fallbackFrame = normalizeMultiFoodResponse({
+      ...LOCAL_DEMO_RESPONSE,
+      detector_status: "live_yolo_whole_image_fallback",
+      fallback_reason: "no_detector_regions",
+      predictions: [
+        {
+          ...LOCAL_DEMO_RESPONSE.predictions[1],
+          detector: {
+            ...LOCAL_DEMO_RESPONSE.predictions[1].detector,
+            label: "whole_image",
+            proposal_role: "fallback_region",
+          },
+        },
+      ],
+    });
+    const detectorFrame = normalizeMultiFoodResponse({
+      ...LOCAL_DEMO_RESPONSE,
+      detector_status: "live_yolo",
+      fallback_reason: null,
+      predictions: [LOCAL_DEMO_RESPONSE.predictions[0]],
+    });
+
+    const result = combineFrameResults([fallbackFrame, detectorFrame]);
+
+    expect(result.source).toBe("video_review");
+    expect(result.detectorStatusLabel).toBe("2 frames · 2 regions · 1 fallback frame");
+    expect(result.fallbackReasonLabel).toBeUndefined();
+    expect(result.regions[0].regionStatusLabel).toBe("Whole image fallback");
+    expect(result.regions[1].regionStatusLabel).toBe("Detector crop");
   });
 
   it("falls back to local demo metadata when no frame results are provided", () => {

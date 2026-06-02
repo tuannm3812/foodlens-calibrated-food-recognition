@@ -5,6 +5,7 @@ const SOURCE_LABELS: Record<ResultSource, string> = {
   live: "Live API",
   backend_fallback: "Backend fallback",
   local_demo: "Local demo",
+  video_review: "Video review",
 };
 
 const STATUS_LABELS: Record<AnalyzerStatus, string> = {

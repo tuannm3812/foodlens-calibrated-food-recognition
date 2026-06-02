@@ -324,6 +324,15 @@ export function toLocalDemoResult(): AnalyzerResult {
 
 export function combineFrameResults(results: AnalyzerResult[]): AnalyzerResult {
   const first = results[0] ?? toLocalDemoResult();
+  if (results.length === 0) {
+    return {
+      ...first,
+      modelName: first.modelName.replace("Multi-food", "Video review"),
+      detectorStatus: `${first.detectorStatus} · 0 frames`,
+      regions: [],
+    };
+  }
+
   const regions = results.flatMap((result, frameIndex) =>
     result.regions.map((region) => ({
       ...region,
@@ -334,11 +343,27 @@ export function combineFrameResults(results: AnalyzerResult[]): AnalyzerResult {
     .slice()
     .sort((a, b) => b.foodlens.top_confidence - a.foodlens.top_confidence)[0];
   const decisionBand: DecisionBand = "confirm";
+  const fallbackFrameCount = results.filter(
+    (result) =>
+      result.source === "backend_fallback" ||
+      Boolean(result.fallbackReason) ||
+      result.detectorStatus.includes("fallback"),
+  ).length;
+  const detectorStatusLabel =
+    fallbackFrameCount > 0
+      ? `${results.length} frames · ${regions.length} regions · ${fallbackFrameCount} fallback ${
+          fallbackFrameCount === 1 ? "frame" : "frames"
+        }`
+      : `${results.length} frames · ${regions.length} regions`;
 
   return {
     ...first,
     modelName: first.modelName.replace("Multi-food", "Video review"),
-    detectorStatus: `${first.detectorStatus} · ${results.length} frames`,
+    detectorStatus: `video_review · ${results.length} frames`,
+    detectorStatusLabel,
+    fallbackReason: undefined,
+    fallbackReasonLabel: undefined,
+    source: "video_review",
     strongestLabel: strongest?.foodlens.top_label ?? first.strongestLabel,
     strongestConfidence:
       strongest?.foodlens.top_confidence ?? first.strongestConfidence,

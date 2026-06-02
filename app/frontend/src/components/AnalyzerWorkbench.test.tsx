@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AnalyzerWorkbench } from "./AnalyzerWorkbench";
 import { CropReviewGrid } from "./CropReviewGrid";
 import { PreviewStage } from "./PreviewStage";
+import { StatusNotice } from "./StatusNotice";
 import { UploadControls } from "./UploadControls";
 import type { AnalyzerResult } from "../api/types";
 import {
@@ -178,6 +179,20 @@ describe("AnalyzerWorkbench", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("labels aggregated video review results without calling them backend fallback", () => {
+    render(
+      <StatusNotice
+        status="ready"
+        message="Video review complete"
+        source="video_review"
+      />,
+    );
+
+    expect(screen.getByText("Result ready")).toBeInTheDocument();
+    expect(screen.getByText("Video review")).toBeInTheDocument();
+    expect(screen.queryByText("Backend fallback")).not.toBeInTheDocument();
   });
 
   it("renders the Precision Lab product shell", async () => {
