@@ -1,6 +1,7 @@
 import type { AnalyzerResult, UiRegionPrediction } from "../api/types";
 import type { AnalyzerMode } from "../state/useAnalyzer";
 import type { CSSProperties } from "react";
+import { useEffect, useState } from "react";
 
 type PreviewStageProps = {
   mode: AnalyzerMode;
@@ -42,6 +43,24 @@ function layerStyle(regions: UiRegionPrediction[]): CSSProperties | undefined {
   };
 }
 
+function videoLayerStyle(videoSize: { width: number; height: number } | null): CSSProperties {
+  if (!videoSize) {
+    return {
+      aspectRatio: "16 / 9",
+      width: "100%",
+    };
+  }
+
+  const videoAspectRatio = videoSize.width / videoSize.height;
+  const frameAspectRatio = 16 / 9;
+
+  return {
+    aspectRatio: `${videoSize.width} / ${videoSize.height}`,
+    width: videoAspectRatio >= frameAspectRatio ? "100%" : "auto",
+    height: videoAspectRatio >= frameAspectRatio ? "auto" : "100%",
+  };
+}
+
 function regionKey(region: UiRegionPrediction): string {
   return `${region.source_id}-${region.detection_index}`;
 }
@@ -56,15 +75,30 @@ export function PreviewStage({
   result,
   selectedRegionKey,
 }: PreviewStageProps) {
+  const [videoSize, setVideoSize] = useState<{ width: number; height: number } | null>(null);
   const regions = previewUrl && mode === "image"
     ? (result?.regions ?? []).filter((region) => region.bbox).slice(0, 8)
     : [];
+  const previewLayerStyle = mode === "video" ? videoLayerStyle(videoSize) : layerStyle(regions);
+
+  useEffect(() => {
+    setVideoSize(null);
+  }, [mode, previewUrl]);
 
   return (
     <section className="preview-stage" aria-label={`${mode === "video" ? "Video" : "Image"} preview`}>
-      <div className="preview-stage__frame">
+      <div
+        className={`preview-stage__frame${
+          mode === "video" ? " preview-stage__frame--video" : ""
+        }`}
+      >
         {previewUrl ? (
-          <div className="preview-image-layer" style={layerStyle(regions)}>
+          <div
+            className={`preview-image-layer${
+              mode === "video" ? " preview-image-layer--video" : ""
+            }`}
+            style={previewLayerStyle}
+          >
             {mode === "video" ? (
               <video
                 className="preview-stage__image"
@@ -73,6 +107,15 @@ export function PreviewStage({
                 controls
                 muted
                 playsInline
+                onLoadedMetadata={(event) => {
+                  const video = event.currentTarget;
+                  if (video.videoWidth > 0 && video.videoHeight > 0) {
+                    setVideoSize({
+                      width: video.videoWidth,
+                      height: video.videoHeight,
+                    });
+                  }
+                }}
               />
             ) : (
               <>

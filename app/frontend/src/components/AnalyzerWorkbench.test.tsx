@@ -1,9 +1,10 @@
-import { act, render, renderHook, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AnalyzerWorkbench } from "./AnalyzerWorkbench";
 import { CropReviewGrid } from "./CropReviewGrid";
+import { DecisionSummary } from "./DecisionSummary";
 import { PreviewStage } from "./PreviewStage";
 import { StatusNotice } from "./StatusNotice";
 import { UploadControls } from "./UploadControls";
@@ -695,13 +696,54 @@ describe("PreviewStage", () => {
   });
 
   it("renders video previews with a video element", () => {
-    render(
+    const { container } = render(
       <PreviewStage mode="video" previewUrl="blob:video-preview" result={null} />,
     );
 
+    const frame = container.querySelector(".preview-stage__frame") as HTMLElement;
+    const layer = container.querySelector(".preview-image-layer") as HTMLElement;
     const video = screen.getByLabelText("Selected food video") as HTMLVideoElement;
+
+    expect(frame).toHaveClass("preview-stage__frame--video");
+    expect(layer).toHaveClass("preview-image-layer--video");
     expect(video.tagName).toBe("VIDEO");
     expect(video).toHaveAttribute("src", "blob:video-preview");
     expect(video).toHaveAttribute("controls");
+  });
+
+  it("uses video metadata to preserve the player aspect ratio", () => {
+    const { container } = render(
+      <PreviewStage mode="video" previewUrl="blob:video-preview" result={null} />,
+    );
+
+    const layer = container.querySelector(".preview-image-layer") as HTMLElement;
+    const video = screen.getByLabelText("Selected food video") as HTMLVideoElement;
+    Object.defineProperties(video, {
+      videoWidth: { configurable: true, value: 640 },
+      videoHeight: { configurable: true, value: 360 },
+    });
+
+    fireEvent.loadedMetadata(video);
+
+    expect(layer).toHaveStyle({
+      aspectRatio: "640 / 360",
+      width: "100%",
+      height: "auto",
+    });
+  });
+});
+
+describe("DecisionSummary", () => {
+  it("surfaces video frame context in the decision context row", () => {
+    const result = createResult("hamburger", 0.971, "video_review");
+    result.detectorStatusLabel = "3 frames · 4 regions · 1 fallback frame";
+
+    render(<DecisionSummary result={result} resultSourceLabel="Uploaded video" />);
+
+    const resultContext = screen.getByLabelText("Result context");
+    expect(
+      within(resultContext).getByText("3 frames · 4 regions · 1 fallback frame"),
+    ).toBeInTheDocument();
+    expect(within(resultContext).getByText("Source: Uploaded video")).toBeInTheDocument();
   });
 });

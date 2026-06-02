@@ -37,6 +37,8 @@ export function DecisionSummary({
   const confidence = formatConfidence(result.strongestConfidence);
   const regionCount = result.regions.length;
   const regionLabel = `${regionCount} ${regionCount === 1 ? "region" : "regions"} detected`;
+  const videoContextLabel =
+    result.source === "video_review" ? result.detectorStatusLabel : null;
 
   return (
     <section className="decision-card" aria-label="Decision summary">
@@ -61,6 +63,7 @@ export function DecisionSummary({
       <div className="decision-context" aria-label="Result context">
         <span>{regionLabel}</span>
         {resultSourceLabel ? <span>Source: {resultSourceLabel}</span> : null}
+        {videoContextLabel ? <span>{videoContextLabel}</span> : null}
       </div>
 
       <div className="confidence-track" aria-hidden="true">

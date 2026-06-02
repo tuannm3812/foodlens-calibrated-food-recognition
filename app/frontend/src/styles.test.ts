@@ -21,6 +21,15 @@ describe("decision card visual density", () => {
   });
 });
 
+describe("preview media treatment", () => {
+  it("uses a dedicated player surface for video previews", () => {
+    expect(cssRule(".preview-stage__frame--video")).toContain("padding: 12px");
+    expect(cssRule(".preview-stage__frame--video")).toContain("background: #101412");
+    expect(cssRule(".preview-image-layer--video")).toContain("width: min(100%, 960px)");
+    expect(cssRule(".preview-image-layer--video")).toContain("max-height: 100%");
+  });
+});
+
 describe("workbench layout alignment", () => {
   it("uses the same column grid for the title/status row and analysis row", () => {
     expect(cssRule(".app-shell")).toContain(
