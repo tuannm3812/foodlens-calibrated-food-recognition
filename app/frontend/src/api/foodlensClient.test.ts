@@ -186,7 +186,7 @@ describe("combineFrameResults", () => {
       ],
     });
 
-    const result = combineFrameResults([first, second]);
+    const result = combineFrameResults([first, second], [1.2, 2.4]);
 
     expect(result.modelName).toBe("resnet50_ft_v2 · Video review");
     expect(result.source).toBe("video_review");
@@ -200,6 +200,7 @@ describe("combineFrameResults", () => {
       "video frame 1",
       "video frame 2",
     ]);
+    expect(result.regions.map((region) => region.sourceTimeSeconds)).toEqual([1.2, 2.4]);
     expect(result.regions.map((region) => region.displayIndex)).toEqual([1, 2]);
   });
 

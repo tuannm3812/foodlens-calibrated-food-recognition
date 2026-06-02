@@ -51,6 +51,7 @@ export type UiRegionPrediction = BackendRegionPrediction & {
   detectorLabel: string;
   detectorRoleLabel: string;
   regionStatusLabel: string;
+  sourceTimeSeconds?: number;
 };
 
 export type AnalyzerResult = {

@@ -322,7 +322,10 @@ export function toLocalDemoResult(): AnalyzerResult {
   };
 }
 
-export function combineFrameResults(results: AnalyzerResult[]): AnalyzerResult {
+export function combineFrameResults(
+  results: AnalyzerResult[],
+  sampleTimes: number[] = [],
+): AnalyzerResult {
   const first = results[0] ?? toLocalDemoResult();
   if (results.length === 0) {
     return {
@@ -337,6 +340,7 @@ export function combineFrameResults(results: AnalyzerResult[]): AnalyzerResult {
     result.regions.map((region) => ({
       ...region,
       source_id: `video frame ${frameIndex + 1}`,
+      sourceTimeSeconds: sampleTimes[frameIndex],
     })),
   );
   const strongest = regions

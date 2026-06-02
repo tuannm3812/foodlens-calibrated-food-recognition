@@ -26,10 +26,19 @@ function strongestRegion(regions: UiRegionPrediction[]): UiRegionPrediction | un
 
 function sourceLabel(region: UiRegionPrediction): string | null {
   if (region.source_id.startsWith("video frame ")) {
-    return region.source_id.replace("video frame ", "Frame ");
+    const frameLabel = region.source_id.replace("video frame ", "Frame ");
+    if (typeof region.sourceTimeSeconds === "number") {
+      return `${frameLabel} · ${formatTime(region.sourceTimeSeconds)}`;
+    }
+
+    return frameLabel;
   }
 
   return null;
+}
+
+function formatTime(value: number): string {
+  return `${Math.round(value * 10) / 10}s`;
 }
 
 function statusPillClass(region: UiRegionPrediction): string {
@@ -61,15 +70,20 @@ export function CropReviewGrid({
     regions.find((region) => regionKey(region) === selectedRegionKey) ?? fallbackRegion;
   const activeSelectedRegionKey = selectedRegion ? regionKey(selectedRegion) : null;
   const balancedGrid = regions.length === 4;
+  const isVideoReview = result?.source === "video_review";
+  const sectionTitle = isVideoReview ? "Sampled frame regions" : "Detected regions";
+  const emptyCopy = isVideoReview
+    ? "Sampled video frame cards will appear here."
+    : "Detected crop cards will appear here.";
 
   return (
     <section className="crop-review" aria-labelledby="crop-review-title">
       <div className="section-heading">
         <p className="eyebrow">Crops</p>
-        <h2 id="crop-review-title">Detected regions</h2>
+        <h2 id="crop-review-title">{sectionTitle}</h2>
       </div>
       {regions.length === 0 ? (
-        <p className="muted-copy">Detected crop cards will appear here.</p>
+        <p className="muted-copy">{emptyCopy}</p>
       ) : (
         <div className="crop-review__body">
           <div className={balancedGrid ? "crop-grid crop-grid--balanced" : "crop-grid"}>

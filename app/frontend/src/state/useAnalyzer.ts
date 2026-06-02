@@ -239,8 +239,9 @@ export function useAnalyzer(): AnalyzerState {
           return;
         }
 
+        const sampleTimes = videoSampleTimes(video.duration);
         const frameFiles: File[] = [];
-        for (const [index, sampleTime] of videoSampleTimes(video.duration).entries()) {
+        for (const [index, sampleTime] of sampleTimes.entries()) {
           await seekVideo(video, sampleTime);
           if (requestSequence !== requestSequenceRef.current) {
             return;
@@ -260,7 +261,7 @@ export function useAnalyzer(): AnalyzerState {
           }
         }
 
-        const nextResult = combineFrameResults(frameResults);
+        const nextResult = combineFrameResults(frameResults, sampleTimes);
         if (requestSequence !== requestSequenceRef.current) {
           return;
         }

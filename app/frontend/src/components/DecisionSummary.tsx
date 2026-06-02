@@ -39,6 +39,8 @@ export function DecisionSummary({
   const regionLabel = `${regionCount} ${regionCount === 1 ? "region" : "regions"} detected`;
   const videoContextLabel =
     result.source === "video_review" ? result.detectorStatusLabel : null;
+  const detectorMetadataLabel =
+    result.source === "video_review" ? "Video aggregation" : result.detectorStatusLabel;
 
   return (
     <section className="decision-card" aria-label="Decision summary">
@@ -83,7 +85,7 @@ export function DecisionSummary({
         </div>
         <div>
           <dt>Detector</dt>
-          <dd>{result.detectorStatusLabel}</dd>
+          <dd>{detectorMetadataLabel}</dd>
         </div>
         <div>
           <dt>Artifacts</dt>

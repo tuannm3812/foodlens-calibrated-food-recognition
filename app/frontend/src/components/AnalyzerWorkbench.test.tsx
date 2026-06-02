@@ -359,6 +359,7 @@ describe("AnalyzerWorkbench", () => {
       {
         ...result.regions[0],
         source_id: "video frame 1",
+        sourceTimeSeconds: 0.6,
         displayIndex: 1,
         foodlens: {
           ...result.regions[0].foodlens,
@@ -372,6 +373,7 @@ describe("AnalyzerWorkbench", () => {
       {
         ...result.regions[0],
         source_id: "video frame 2",
+        sourceTimeSeconds: 2.4,
         displayIndex: 2,
         detection_index: 1,
         foodlens: {
@@ -386,6 +388,7 @@ describe("AnalyzerWorkbench", () => {
     ];
     result.strongestLabel = "hamburger";
     result.strongestConfidence = 0.971;
+    result.source = "video_review";
     vi.mocked(predictMultiFoodImage).mockResolvedValue(result);
     vi.stubGlobal("URL", {
       createObjectURL: vi.fn(() => "blob:food-preview"),
@@ -397,10 +400,12 @@ describe("AnalyzerWorkbench", () => {
     await user.upload(screen.getByLabelText("Upload"), file);
     await screen.findAllByText("hamburger");
 
+    expect(screen.getByRole("heading", { name: "Sampled frame regions" })).toBeInTheDocument();
+    expect(screen.getAllByText("Frame 2 · 2.4s").length).toBeGreaterThan(0);
     const selectedCropDetails = screen.getByLabelText("Selected crop details");
     expect(within(selectedCropDetails).getByText("Region 2")).toBeInTheDocument();
     expect(within(selectedCropDetails).getByText("hamburger")).toBeInTheDocument();
-    expect(within(selectedCropDetails).getByText("Frame 2")).toBeInTheDocument();
+    expect(within(selectedCropDetails).getByText("Frame 2 · 2.4s")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Region 2: hamburger/i })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -745,5 +750,6 @@ describe("DecisionSummary", () => {
       within(resultContext).getByText("3 frames · 4 regions · 1 fallback frame"),
     ).toBeInTheDocument();
     expect(within(resultContext).getByText("Source: Uploaded video")).toBeInTheDocument();
+    expect(screen.getByText("Video aggregation")).toBeInTheDocument();
   });
 });
