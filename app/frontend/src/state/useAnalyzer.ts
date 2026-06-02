@@ -22,6 +22,7 @@ type AnalyzerState = {
   status: AnalyzerStatus;
   result: AnalyzerResult | null;
   resultSourceLabel: string | null;
+  resultSourceContextLabel: string | null;
   message: string;
   setMode: (mode: AnalyzerMode) => void;
   clear: () => void;
@@ -133,12 +134,23 @@ function videoSampleTimes(duration: number): number[] {
   );
 }
 
+function sourceHost(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
 export function useAnalyzer(): AnalyzerState {
   const [mode, setMode] = useState<AnalyzerMode>("image");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<AnalyzerStatus>("idle");
   const [result, setResult] = useState<AnalyzerResult | null>(null);
   const [resultSourceLabel, setResultSourceLabel] = useState<string | null>(null);
+  const [resultSourceContextLabel, setResultSourceContextLabel] = useState<string | null>(
+    null,
+  );
   const [message, setMessage] = useState("Ready for input");
   const objectUrlRef = useRef<string | null>(null);
   const requestSequenceRef = useRef(0);
@@ -174,6 +186,7 @@ export function useAnalyzer(): AnalyzerState {
     setStatus("idle");
     setResult(null);
     setResultSourceLabel(null);
+    setResultSourceContextLabel(null);
     setMessage("Ready for input");
   }, [replacePreview]);
 
@@ -186,6 +199,7 @@ export function useAnalyzer(): AnalyzerState {
       setStatus("loading");
       setResult(null);
       setResultSourceLabel("Uploaded image");
+      setResultSourceContextLabel(`Uploaded image · ${file.name}`);
       setMessage("Analyzing image");
 
       try {
@@ -213,14 +227,19 @@ export function useAnalyzer(): AnalyzerState {
   );
 
   const analyzeVideo = useCallback(
-    async (file: File) => {
+    async (
+      file: File,
+      sourceLabel = "Uploaded video",
+      sourceContextLabel = `Uploaded video · ${file.name}`,
+    ) => {
       requestSequenceRef.current += 1;
       const requestSequence = requestSequenceRef.current;
       const nextPreviewUrl = createPreviewUrl(file);
       replacePreview(nextPreviewUrl);
       setStatus("loading");
       setResult(null);
-      setResultSourceLabel("Uploaded video");
+      setResultSourceLabel(sourceLabel);
+      setResultSourceContextLabel(sourceContextLabel);
       setMessage("Sampling video frames");
 
       try {
@@ -292,6 +311,7 @@ export function useAnalyzer(): AnalyzerState {
       setStatus("loading");
       setResult(null);
       setResultSourceLabel("Image URL");
+      setResultSourceContextLabel(`Image URL · ${sourceHost(url)}`);
       setMessage("Analyzing image URL");
 
       try {
@@ -309,6 +329,7 @@ export function useAnalyzer(): AnalyzerState {
         if (isUserInputApiError(error)) {
           setResult(null);
           setResultSourceLabel(null);
+          setResultSourceContextLabel(null);
           setStatus("error");
           setMessage(error.message);
           return;
@@ -333,6 +354,7 @@ export function useAnalyzer(): AnalyzerState {
       setStatus("loading");
       setResult(null);
       setResultSourceLabel("YouTube URL");
+      setResultSourceContextLabel(`YouTube · ${sourceHost(url)}`);
       setMessage("Downloading YouTube video");
 
       try {
@@ -350,6 +372,7 @@ export function useAnalyzer(): AnalyzerState {
         if (isUserInputApiError(error)) {
           setResult(null);
           setResultSourceLabel(null);
+          setResultSourceContextLabel(null);
           setStatus("error");
           setMessage(error.message);
           return;
@@ -373,6 +396,7 @@ export function useAnalyzer(): AnalyzerState {
       setStatus("ready");
       setResult(toLocalDemoResult());
       setResultSourceLabel("Sample");
+      setResultSourceContextLabel("Sample · local demo");
       setMessage("Local demo data loaded");
       return;
     }
@@ -383,6 +407,7 @@ export function useAnalyzer(): AnalyzerState {
     setStatus("loading");
     setResult(null);
     setResultSourceLabel("Sample video");
+    setResultSourceContextLabel(`Sample video · ${DEMO_VIDEO_NAME}`);
     setMessage("Loading sample video");
 
     try {
@@ -390,13 +415,14 @@ export function useAnalyzer(): AnalyzerState {
       if (requestSequence !== requestSequenceRef.current) {
         return;
       }
-      await analyzeVideo(sampleFile);
+      await analyzeVideo(sampleFile, "Sample video", `Sample video · ${DEMO_VIDEO_NAME}`);
     } catch (error) {
       if (requestSequence !== requestSequenceRef.current) {
         return;
       }
       setResult(toLocalDemoResult());
       setResultSourceLabel("Sample video");
+      setResultSourceContextLabel(`Sample video · ${DEMO_VIDEO_NAME}`);
       setStatus("ready");
       setMessage(
         error instanceof Error
@@ -414,6 +440,7 @@ export function useAnalyzer(): AnalyzerState {
     status,
     result,
     resultSourceLabel,
+    resultSourceContextLabel,
     message,
     setMode,
     clear,

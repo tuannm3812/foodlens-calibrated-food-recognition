@@ -102,6 +102,7 @@ function AnalyzeView({
           <UploadControls
             mode={analyzer.mode}
             status={analyzer.status}
+            sourceContextLabel={analyzer.resultSourceContextLabel}
             onModeChange={analyzer.setMode}
             onUploadImage={(file) => {
               void analyzer.analyzeImage(file);

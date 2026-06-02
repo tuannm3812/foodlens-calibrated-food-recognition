@@ -89,4 +89,11 @@ describe("workbench layout alignment", () => {
     expect(cssRule(".runtime-status__checks span")).toContain("border-radius: 999px");
     expect(cssRule(".runtime-status__checks span")).toContain("font-size: 0.74rem");
   });
+
+  it("shows the analyzed source as a compact chip", () => {
+    expect(cssRule(".source-context")).toContain("border-radius: 999px");
+    expect(cssRule(".source-context")).toContain("width: fit-content");
+    expect(cssRule(".source-context strong")).toContain("text-overflow: ellipsis");
+    expect(cssRule(".source-context strong")).toContain("white-space: nowrap");
+  });
 });

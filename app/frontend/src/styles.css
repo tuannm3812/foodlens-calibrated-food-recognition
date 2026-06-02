@@ -446,6 +446,38 @@ h3 {
   padding-left: 1px;
 }
 
+.source-context {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border: 1px solid var(--lab-border);
+  border-radius: 999px;
+  color: var(--lab-muted);
+  font-size: 0.82rem;
+  line-height: 1.2;
+  background: var(--lab-surface-soft);
+}
+
+.source-context span {
+  font-family: var(--font-display);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.source-context strong {
+  overflow: hidden;
+  color: var(--lab-ink);
+  font-family: var(--font-display);
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .url-control {
   display: grid;
   gap: 6px;

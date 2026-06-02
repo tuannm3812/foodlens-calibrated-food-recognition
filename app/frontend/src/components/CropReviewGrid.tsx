@@ -47,6 +47,14 @@ function statusPillClass(region: UiRegionPrediction): string {
     : "crop-status-pill";
 }
 
+function statusPillLabel(region: UiRegionPrediction, isVideoReview: boolean): string {
+  if (isVideoReview && region.regionStatusLabel.toLowerCase().includes("fallback")) {
+    return "Frame-level review";
+  }
+
+  return region.regionStatusLabel;
+}
+
 function bboxCopy(region: UiRegionPrediction): string {
   if (region.detector.label === "whole_image") {
     return "Whole image fallback";
@@ -136,7 +144,7 @@ export function CropReviewGrid({
                       </div>
                       <p>{`${region.detectorLabel} · ${region.detectorRoleLabel}`}</p>
                       <span className={statusPillClass(region)}>
-                        {region.regionStatusLabel}
+                        {statusPillLabel(region, isVideoReview)}
                       </span>
                     </div>
                   </button>
@@ -150,7 +158,7 @@ export function CropReviewGrid({
               <strong>{`Region ${selectedRegion.displayIndex}`}</strong>
               <div className="crop-detail__summary">
                 <span className={statusPillClass(selectedRegion)}>
-                  {selectedRegion.regionStatusLabel}
+                  {statusPillLabel(selectedRegion, isVideoReview)}
                 </span>
                 <span>{`${formatPercent(selectedRegion.foodlens.top_confidence)} confidence`}</span>
               </div>

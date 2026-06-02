@@ -402,6 +402,7 @@ describe("AnalyzerWorkbench", () => {
 
     expect(screen.getByRole("heading", { name: "Sampled frame regions" })).toBeInTheDocument();
     expect(container.querySelector(".crop-review--video")).toBeInTheDocument();
+    expect(screen.getByText("Frame-level review")).toBeInTheDocument();
     expect(screen.getAllByText("Frame 2 · 2.4s").length).toBeGreaterThan(0);
     const selectedCropDetails = screen.getByLabelText("Selected crop details");
     expect(within(selectedCropDetails).getByText("Region 2")).toBeInTheDocument();
@@ -528,6 +529,7 @@ describe("AnalyzerWorkbench", () => {
     expect(result.current.message).toBe("Image URL analysis complete");
     expect(result.current.previewUrl).toBe("https://example.com/pizza.jpg");
     expect(result.current.resultSourceLabel).toBe("Image URL");
+    expect(result.current.resultSourceContextLabel).toBe("Image URL · example.com");
     expect(result.current.result?.strongestLabel).toBe("pizza");
   });
 
@@ -550,6 +552,7 @@ describe("AnalyzerWorkbench", () => {
     expect(result.current.message).toBe("Video URL review complete");
     expect(result.current.previewUrl).toBeNull();
     expect(result.current.resultSourceLabel).toBe("YouTube URL");
+    expect(result.current.resultSourceContextLabel).toBe("YouTube · youtube.com");
     expect(result.current.result?.strongestLabel).toBe("hamburger");
   });
 
@@ -571,6 +574,8 @@ describe("AnalyzerWorkbench", () => {
     expect(screen.getAllByText("pizza").length).toBeGreaterThan(0);
     expect(screen.getByText("1 region detected")).toBeInTheDocument();
     expect(screen.getByText("Source: Image URL")).toBeInTheDocument();
+    expect(screen.getByText("Current source")).toBeInTheDocument();
+    expect(screen.getByText("Image URL · example.com")).toBeInTheDocument();
   });
 
   it("submits a YouTube URL from video mode controls", async () => {
@@ -592,6 +597,7 @@ describe("AnalyzerWorkbench", () => {
     );
     expect(await screen.findByText("Video URL review complete")).toBeInTheDocument();
     expect(screen.getAllByText("hamburger").length).toBeGreaterThan(0);
+    expect(screen.getByText("YouTube · youtube.com")).toBeInTheDocument();
   });
 });
 

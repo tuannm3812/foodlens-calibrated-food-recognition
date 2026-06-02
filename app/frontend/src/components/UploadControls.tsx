@@ -7,6 +7,7 @@ import type { AnalyzerMode, AnalyzerStatus } from "../state/useAnalyzer";
 type UploadControlsProps = {
   mode: AnalyzerMode;
   status: AnalyzerStatus;
+  sourceContextLabel?: string | null;
   onModeChange: (mode: AnalyzerMode) => void;
   onUploadImage: (file: File) => void;
   onVideoSelected: (file: File) => void;
@@ -18,6 +19,7 @@ type UploadControlsProps = {
 export function UploadControls({
   mode,
   status,
+  sourceContextLabel,
   onModeChange,
   onUploadImage,
   onVideoSelected,
@@ -118,6 +120,12 @@ export function UploadControls({
           Clear
         </button>
       </div>
+      {sourceContextLabel ? (
+        <div className="source-context" aria-label="Current source">
+          <span>Current source</span>
+          <strong>{sourceContextLabel}</strong>
+        </div>
+      ) : null}
     </section>
   );
 }
