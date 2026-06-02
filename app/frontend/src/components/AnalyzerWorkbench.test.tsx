@@ -321,6 +321,13 @@ describe("AnalyzerWorkbench", () => {
     expect(within(selectedCropDetails).getByText("ramen")).toBeInTheDocument();
     expect(within(selectedCropDetails).getByText("Detector")).toBeInTheDocument();
     expect(within(selectedCropDetails).getByText("bowl")).toBeInTheDocument();
+    expect(within(selectedCropDetails).getByText("Detector crop")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Region 2 confidence 61%"),
+    ).toBeInTheDocument();
+    expect(
+      within(selectedCropDetails).getByLabelText("Selected crop confidence 61%"),
+    ).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Region 2: ramen" })).toHaveClass(
       "bbox-overlay--selected",
     );

@@ -10,6 +10,10 @@ function formatPercent(value: number): string {
   return `${Math.round(value * 1000) / 10}%`;
 }
 
+function confidenceWidth(value: number): string {
+  return `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%`;
+}
+
 function regionKey(region: UiRegionPrediction): string {
   return `${region.source_id}-${region.detection_index}`;
 }
@@ -73,9 +77,23 @@ export function CropReviewGrid({
                     </div>
                     <div className="crop-card__body">
                       <h3>{`Region ${region.displayIndex}: ${region.foodlens.top_label}`}</h3>
-                      <p>{`${formatPercent(region.foodlens.top_confidence)} confidence`}</p>
+                      <div className="crop-confidence">
+                        <span>{`${formatPercent(region.foodlens.top_confidence)} confidence`}</span>
+                        <div
+                          className="crop-confidence__track"
+                          aria-label={`Region ${region.displayIndex} confidence ${formatPercent(
+                            region.foodlens.top_confidence,
+                          )}`}
+                        >
+                          <span
+                            style={{
+                              width: confidenceWidth(region.foodlens.top_confidence),
+                            }}
+                          />
+                        </div>
+                      </div>
                       <p>{`${region.detectorLabel} · ${region.detectorRoleLabel}`}</p>
-                      <p>{region.regionStatusLabel}</p>
+                      <span className="crop-status-pill">{region.regionStatusLabel}</span>
                     </div>
                   </button>
                 </article>
@@ -86,6 +104,22 @@ export function CropReviewGrid({
             <aside className="crop-detail" aria-label="Selected crop details">
               <span className="metric-label">Selected crop</span>
               <strong>{`Region ${selectedRegion.displayIndex}`}</strong>
+              <div className="crop-detail__summary">
+                <span className="crop-status-pill">{selectedRegion.regionStatusLabel}</span>
+                <span>{`${formatPercent(selectedRegion.foodlens.top_confidence)} confidence`}</span>
+              </div>
+              <div
+                className="crop-confidence__track crop-confidence__track--detail"
+                aria-label={`Selected crop confidence ${formatPercent(
+                  selectedRegion.foodlens.top_confidence,
+                )}`}
+              >
+                <span
+                  style={{
+                    width: confidenceWidth(selectedRegion.foodlens.top_confidence),
+                  }}
+                />
+              </div>
               <dl className="crop-detail__list">
                 <div>
                   <dt>Classifier</dt>

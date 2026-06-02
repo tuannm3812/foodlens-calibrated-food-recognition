@@ -752,9 +752,9 @@ meter {
 .runtime-status {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) auto;
-  gap: 10px 16px;
+  gap: 8px 14px;
   align-items: center;
-  padding: 12px 14px;
+  padding: 9px 12px;
   border: 1px solid var(--lab-border);
   border-radius: var(--lab-radius);
   color: var(--lab-muted);
@@ -762,27 +762,34 @@ meter {
   background: var(--lab-surface);
 }
 
+.runtime-status > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: baseline;
+}
+
 .runtime-status strong {
-  display: block;
   color: var(--lab-ink);
+  font-size: 0.98rem;
 }
 
 .runtime-status__checks {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   justify-content: flex-end;
 }
 
 .runtime-status__checks span {
   display: inline-flex;
-  min-height: 28px;
+  min-height: 26px;
   align-items: center;
-  padding: 4px 9px;
+  padding: 3px 8px;
   border: 1px solid var(--lab-border);
   border-radius: 999px;
   color: var(--lab-muted);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   font-weight: 800;
   background: var(--lab-surface-soft);
 }
@@ -914,8 +921,8 @@ meter {
 
 .crop-card__body {
   display: grid;
-  gap: 5px;
-  min-height: 120px;
+  gap: 7px;
+  min-height: 126px;
   align-content: start;
   padding: 12px;
   color: var(--lab-muted);
@@ -931,9 +938,49 @@ meter {
   line-height: 1.28;
 }
 
+.crop-confidence {
+  display: grid;
+  gap: 5px;
+  color: var(--lab-muted);
+  line-height: 1.25;
+}
+
+.crop-confidence__track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf0e8;
+}
+
+.crop-confidence__track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--lab-green);
+}
+
+.crop-confidence__track--detail {
+  height: 7px;
+}
+
+.crop-status-pill {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 24px;
+  align-items: center;
+  padding: 3px 8px;
+  border: 1px solid rgba(45, 90, 39, 0.18);
+  border-radius: 999px;
+  color: var(--lab-green);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 800;
+  background: rgba(45, 90, 39, 0.08);
+}
+
 .crop-detail {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   align-self: start;
   padding: 14px;
   border: 1px solid var(--lab-border);
@@ -945,6 +992,15 @@ meter {
 .crop-detail strong {
   color: var(--lab-ink);
   font-family: var(--font-display);
+}
+
+.crop-detail__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  color: var(--lab-muted);
+  line-height: 1.25;
 }
 
 .crop-detail__list {

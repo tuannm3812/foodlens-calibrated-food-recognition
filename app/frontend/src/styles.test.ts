@@ -44,9 +44,13 @@ describe("workbench layout alignment", () => {
   it("keeps crop review dense and selected details structured", () => {
     expect(cssRule(".crop-card__media")).toContain("height: clamp(190px, 16vw, 240px)");
     expect(cssRule(".crop-card__media")).toContain("overflow: hidden");
+    expect(cssRule(".crop-card__body")).toContain("min-height: 126px");
     expect(cssRule(".crop-card--selected")).toContain(
       "border-color: rgba(45, 90, 39, 0.62)",
     );
+    expect(cssRule(".crop-confidence__track")).toContain("height: 6px");
+    expect(cssRule(".crop-status-pill")).toContain("border-radius: 999px");
+    expect(cssRule(".crop-detail__summary")).toContain("display: flex");
     expect(cssRule(".crop-detail__list div")).toContain(
       "grid-template-columns: 92px minmax(0, 1fr)",
     );
@@ -56,7 +60,9 @@ describe("workbench layout alignment", () => {
     expect(cssRule(".runtime-status")).toContain(
       "grid-template-columns: minmax(180px, 1fr) auto",
     );
+    expect(cssRule(".runtime-status")).toContain("padding: 9px 12px");
     expect(cssRule(".runtime-status__checks")).toContain("justify-content: flex-end");
     expect(cssRule(".runtime-status__checks span")).toContain("border-radius: 999px");
+    expect(cssRule(".runtime-status__checks span")).toContain("font-size: 0.74rem");
   });
 });
