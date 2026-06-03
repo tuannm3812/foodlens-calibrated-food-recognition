@@ -44,7 +44,7 @@ Question:
 > What is a reliable baseline for Food-101, and which pretrained backbone
 > should be fine-tuned first?
 
-Logic flow:
+Key points:
 
 1. Load the Food-101 image folders and create a reproducible manifest.
 2. Validate class balance and image availability.
@@ -78,7 +78,7 @@ Question:
 > Can the selected ResNet50 improve through a better training recipe without
 > changing the architecture?
 
-Logic flow:
+Key points:
 
 1. Start from the best baseline ResNet50 checkpoint.
 2. Keep the architecture fixed so gains can be attributed to training changes.
@@ -109,7 +109,7 @@ Question:
 > Do EfficientNet-B0 or ConvNeXt-Tiny offer a better accuracy, size, and
 > latency trade-off than ResNet50 FT-V2?
 
-Logic flow:
+Key points:
 
 1. Keep the same Food-101 split and evaluation contract.
 2. Train frozen-head challengers for EfficientNet-B0 and ConvNeXt-Tiny.
@@ -140,7 +140,7 @@ Question:
 > Can ResNet50 FT-V2 become easier to trust in a practical food-recognition
 > workflow?
 
-Logic flow:
+Key points:
 
 1. Load the **ResNet50 FT-V2** checkpoint from the champion artifact.
 2. Reuse the same Food-101 validation/test split.
@@ -172,7 +172,7 @@ Question:
 
 > How should the product act on each calibrated prediction?
 
-Logic flow:
+Key points:
 
 1. Load calibrated prediction outputs from Notebook 4.
    Inputs can come from the linked Notebook output directory or from the
@@ -205,7 +205,7 @@ Question:
 
 > What does the final food-recognition experience look like for one image?
 
-Logic flow:
+Key points:
 
 1. Load the ResNet50 FT-V2 checkpoint.
 2. Load calibrated temperature and decision thresholds.
@@ -235,7 +235,7 @@ Question:
 > Can a pretrained detector propose useful food regions for images or sampled
 > video frames?
 
-Logic flow:
+Key points:
 
 1. Load a pretrained detector such as YOLO.
 2. Process one image or sampled video frames.
@@ -256,7 +256,7 @@ Question:
 > Can detected regions be classified with the existing ResNet50 FT-V2 Food-101
 > model?
 
-Logic flow:
+Key points:
 
 1. Load detections and crops from Notebook 7.
 2. Load the FoodLens ResNet50 FT-V2 classifier and class names.
@@ -277,7 +277,7 @@ Question:
 > Does continuing from ResNet50 FT-V2 with full-backbone fine-tuning improve
 > Food-101 accuracy?
 
-Logic flow:
+Key points:
 
 1. Load the ResNet50 FT-V2 champion checkpoint.
 2. Unfreeze all ResNet50 parameters.

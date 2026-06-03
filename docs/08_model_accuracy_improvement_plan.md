@@ -273,7 +273,7 @@ kaggle/accuracy_phase1_a3/
 `-- foodlens_accuracy_phase1_a3.py
 ```
 
-### A3 Logic Flow
+### A3 Key Points
 
 - Start from the ConvNeXt-Tiny frozen-head checkpoint when the Kaggle model
   artifact is attached.
@@ -286,9 +286,7 @@ kaggle/accuracy_phase1_a3/
 - Promote only if A3 closes the frozen-head gap and creates a better product
   trade-off than ResNet50 FT-V2.
 
-The notebook includes detailed markdown at each section so the Kaggle run is
-not only executable, but also explains why each training, evaluation, and
-promotion decision exists.
+The notebook keeps each section focused on the key decisions behind the training, evaluation, and promotion contract.
 
 ## 10. A1 Result
 
