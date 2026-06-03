@@ -19,6 +19,15 @@ Current champion:
 | --- | ---: | ---: | ---: | ---: |
 | ResNet50 FT-V2 | 78.28% | 92.65% | 0.0265 | 5.35 ms/image |
 
+Current accuracy leader:
+
+| Model | Test top-1 | Test top-5 | Test ECE | T4 latency |
+| --- | ---: | ---: | ---: | ---: |
+| A3 ConvNeXt-Tiny full fine-tune | 83.41% | 95.73% | 0.0562 | 5.41 ms/image |
+
+A3 is not yet the product champion because its calibrated ECE is worse than the
+ResNet50 FT-V2 decision-layer baseline.
+
 Target for the next accuracy phase:
 
 | Target | Threshold |
@@ -65,6 +74,7 @@ is to determine whether better training alone can beat the current champion.
 | `A1` | ResNet50 FT-V3 | full backbone | 224 | lower LR full fine-tune from FT-V2 | establishes whether more unfreezing helps |
 | `A2` | ResNet50 FT-V4 | full backbone | 320 | higher resolution + current recipe | improves hard fine-grained classes |
 | `A3` | ConvNeXt-Tiny FT | full backbone | 224 | fair full fine-tune challenger | beats frozen-head result by a wide margin |
+| `A3b` | ConvNeXt-Tiny continued FT | full backbone | 224 | continue from A3 at lower LR | tests remaining headroom from rising validation curve |
 | `A4` | ConvNeXt-Tiny FT-HR | full backbone | 320 | higher resolution ConvNeXt | challenges ResNet50 with modern features |
 | `A5` | EfficientNetV2-S FT | full backbone | 300 | compact but stronger EfficientNet family | accuracy / latency trade-off |
 | `A6` | Swin-Tiny or ViT-S FT | full backbone | 224 or 384 | transformer-style challenger | only continue if validation is strong |
@@ -288,6 +298,21 @@ kaggle/accuracy_phase1_a3/
 
 The notebook keeps each section focused on the key decisions behind the training, evaluation, and promotion contract.
 
+Active A3b notebook entry point:
+
+```text
+notebooks/11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb
+```
+
+Active A3b Kaggle upload package:
+
+```text
+kaggle/accuracy_phase1_a3b/
+|-- kernel-metadata.json
+|-- 11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb
+`-- foodlens_accuracy_phase1_a3b.py
+```
+
 ## 10. A1 Result
 
 A1 completed on Kaggle. It should not replace the champion.
@@ -303,5 +328,29 @@ Interpretation:
 - top-5 accuracy dropped slightly;
 - calibration improved slightly after temperature scaling;
 - latency increased slightly;
-- the next Phase 1 run should be `A3` ConvNeXt-Tiny full fine-tuning rather
+- the follow-up Phase 1 run moved to `A3` ConvNeXt-Tiny full fine-tuning rather
   than more ResNet50 continuation at 224px.
+
+## 11. A3 Result
+
+A3 completed on Kaggle and is the strongest accuracy result so far.
+
+```text
+https://www.kaggle.com/code/tuannm3823/foodlens-a3-convnext-tiny-full-finetune
+```
+
+| Model | Test top-1 | Test top-5 | Test ECE calibrated | Latency |
+| --- | ---: | ---: | ---: | ---: |
+| ResNet50 FT-V2 champion | 78.28% | 92.65% | 0.0265 | 5.35 ms/image |
+| A3 ConvNeXt-Tiny full fine-tune | 83.41% | 95.73% | 0.0562 | 5.41 ms/image |
+
+Interpretation:
+
+- A3 improves held-out test top-1 by **5.13 percentage points**.
+- A3 improves held-out test top-5 by **3.08 percentage points**.
+- A3 latency is effectively tied with ResNet50 FT-V2 in the Kaggle run.
+- A3 calibrated ECE is worse, so product promotion requires recalibrating the
+  decision layer and checking auto-accept accuracy.
+- A3 validation accuracy improved every epoch through epoch 8, so the next
+  active run is `A3b`: continue from the A3 checkpoint with lower learning
+  rates.

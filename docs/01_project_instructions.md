@@ -39,8 +39,10 @@ The project is organized into controlled notebook stages:
 | Refinement | `02_resnet50_training_refinements.ipynb` | improve ResNet50 with a stronger training recipe |
 | Backbone comparison | `03_modern_backbone_comparison.ipynb` | test EfficientNet-B0 and ConvNeXt-Tiny against the champion |
 | Calibration and inference | `04_resnet50_error_calibration_inference.ipynb` | calibrate confidence and prepare deterministic inference |
+| Accuracy phase | `09` to `11` notebooks | test controlled Food-101 accuracy improvements beyond ResNet50 FT-V2 |
 
-The current champion is **ResNet50 FT-V2**.
+The current product champion is **ResNet50 FT-V2**. The current accuracy leader
+is **A3 ConvNeXt-Tiny**, pending decision-layer recalibration.
 
 ## 4. Evaluation Contract
 

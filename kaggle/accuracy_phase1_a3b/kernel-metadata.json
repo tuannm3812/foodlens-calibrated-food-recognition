@@ -1,0 +1,21 @@
+{
+  "id": "tuannm3823/foodlens-a3b-convnext-tiny-continued",
+  "title": "FoodLens A3b ConvNeXt Tiny Continued",
+  "code_file": "11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [
+    "kmader/food41"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "tuannm3823/foodlens-a3-convnext-tiny-full-finetune"
+  ],
+  "model_sources": [
+    "tuannm3823/food101-modern-backbones/PyTorch/default/1"
+  ]
+}

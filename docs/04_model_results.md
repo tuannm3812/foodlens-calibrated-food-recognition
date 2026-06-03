@@ -215,6 +215,45 @@ came from the ResNet50 training recipe, not from switching backbones. The next
 technical step should focus on error-driven refinement and calibration before
 adding more architectures.
 
+## 9.1 A3 Full ConvNeXt-Tiny Fine-Tuning Result
+
+Notebook 10 revisited ConvNeXt-Tiny with full-backbone fine-tuning. This
+changed the conclusion from the frozen-head comparison: ConvNeXt-Tiny can beat
+ResNet50 FT-V2 when the full backbone is adapted to Food-101.
+
+| Model | Test top-1 | Test top-5 | Calibrated ECE | Latency |
+| --- | ---: | ---: | ---: | ---: |
+| ResNet50 FT-V2 champion | 78.28% | 92.65% | 0.0265 | 5.35 ms/image |
+| ConvNeXt-Tiny frozen head | 70.92% | 90.24% | n/a | 7.17 ms/image |
+| A3 ConvNeXt-Tiny full fine-tune | 83.41% | 95.73% | 0.0562 | 5.41 ms/image |
+
+Interpretation:
+
+- A3 improves test top-1 by **5.13 percentage points** over ResNet50 FT-V2.
+- A3 improves test top-5 by **3.08 percentage points** over ResNet50 FT-V2.
+- A3 latency is effectively tied with ResNet50 FT-V2 in the Kaggle benchmark.
+- A3 calibration is weaker, so it should be treated as an accuracy champion
+  candidate rather than a complete product champion.
+- A3 validation top-1 improved every epoch through epoch 8, so continued
+  fine-tuning at lower learning rates is justified before moving to a new
+  architecture.
+
+The weakest A3 classes are still fine-grained food groups:
+
+| Class | Test F1 |
+| --- | ---: |
+| `chocolate_mousse` | 0.589 |
+| `pork_chop` | 0.591 |
+| `steak` | 0.595 |
+| `bread_pudding` | 0.660 |
+| `foie_gras` | 0.688 |
+| `tuna_tartare` | 0.689 |
+| `filet_mignon` | 0.704 |
+
+The most frequent A3 confusion pairs remain visually plausible: filet mignon
+vs steak, ramen vs pho, chocolate cake vs chocolate mousse, bread pudding vs
+apple pie, tuna tartare vs beef tartare, and dumplings vs gyoza.
+
 ## 10. Calibration And Inference Results
 
 Notebook 4 evaluated the current champion, `resnet50_ft_v2_best.pth`, with

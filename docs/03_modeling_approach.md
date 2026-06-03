@@ -299,7 +299,48 @@ Notebook 9 does **not** promote a new model. It rules out a simple
 full-backbone ResNet50 continuation at 224px and points the next accuracy
 experiment toward `A3`: fully fine-tuned ConvNeXt-Tiny.
 
-## 12. Cross-Notebook Evaluation Contract
+## 12. Notebook 10: A3 ConvNeXt-Tiny Full Fine-Tuning
+
+Question:
+
+> Was the frozen-head ConvNeXt result weak because the backbone was unsuitable,
+> or because it was not fully fine-tuned?
+
+Key points:
+
+1. Load the ConvNeXt-Tiny frozen-head checkpoint when available.
+2. Unfreeze the full backbone.
+3. Train with separate backbone and classifier-head learning rates.
+4. Keep the Food-101 split and champion comparison contract unchanged.
+5. Report accuracy, calibration, latency, class reports, and confusion pairs.
+
+Decision produced:
+
+| Model | Test top-1 | Test top-5 | Test ECE |
+| --- | ---: | ---: | ---: |
+| ResNet50 FT-V2 champion | 78.28% | 92.65% | 0.0265 |
+| A3 ConvNeXt-Tiny full fine-tune | 83.41% | 95.73% | 0.0562 |
+
+Notebook 10 establishes ConvNeXt-Tiny as the strongest accuracy candidate so
+far. It does not fully replace the product champion yet because calibration is
+weaker than ResNet50 FT-V2.
+
+## 13. Notebook 11: A3b ConvNeXt-Tiny Continued Fine-Tuning
+
+Question:
+
+> Does the A3 checkpoint still have useful training headroom after epoch 8?
+
+Key points:
+
+1. Start from the A3 best checkpoint.
+2. Continue full-backbone fine-tuning at lower learning rates.
+3. Keep augmentation, split, and evaluation contract unchanged.
+4. Compare A3b against A3 and ResNet50 FT-V2.
+5. Decide whether to continue ConvNeXt training or move to recalibration and
+   hard-class refinement.
+
+## 14. Cross-Notebook Evaluation Contract
 
 All notebooks should preserve the same **comparison contract**:
 
@@ -320,10 +361,13 @@ This keeps model changes interpretable. A new experiment should explain **what
 changed**, **why it changed**, and whether the result is strong enough to alter
 the project direction.
 
-## 13. Current Reasoning Conclusion
+## 15. Current Reasoning Conclusion
 
-The current champion is **ResNet50 FT-V2**. The project has moved from general
-model search to **targeted improvement and decision design**:
+The current product champion is **ResNet50 FT-V2** because it has the strongest
+calibrated decision-layer evidence. The current accuracy leader is **A3
+ConvNeXt-Tiny**, which needs decision-layer recalibration before promotion. The
+project has moved from broad model search to **targeted improvement and
+decision design**:
 
 1. **Calibrate confidence scores**.
 2. Study repeated **hard-class confusion pairs**.
@@ -331,7 +375,7 @@ model search to **targeted improvement and decision design**:
 4. Define **product decision bands** from calibrated predictions.
 5. Demonstrate the final **user-facing prediction workflow**.
 6. Extend toward **multi-food detection** through detector crops.
-7. Run controlled **accuracy Phase 1** experiments before using external
+7. Continue controlled **accuracy Phase 1** with A3b before using external
    datasets.
 8. Revisit compact models only if **deployment constraints** become more
    important than accuracy.

@@ -11,16 +11,18 @@ The project now has a clear champion and a trustworthy evaluation layer.
 | Refined ResNet50 FT-V2 | 78.28% test top-1 |
 | Refined ResNet50 FT-V2 | 92.65% test top-5 |
 | Calibrated ResNet50 FT-V2 | 0.0265 test ECE |
+| A3 ConvNeXt-Tiny full fine-tune | 83.41% test top-1 |
+| A3 ConvNeXt-Tiny full fine-tune | 95.73% test top-5 |
 | Decision layer | 58.02% auto-accept coverage at 96.47% top-1 |
 
-The current production reference remains **ResNet50 FT-V2**. Modern backbone
-replacement is not justified by the frozen-head evidence, and temperature
-scaling has made confidence scores more reliable.
+The current production reference remains **ResNet50 FT-V2** because its
+calibrated decision layer is stronger. A3 ConvNeXt-Tiny is now the accuracy
+leader, but it needs decision-layer recalibration before product promotion.
 
 The active model-improvement direction is now:
 
-> Keep ResNet50 FT-V2 as the champion baseline, then run a controlled
-> Food-101-only accuracy phase before using external datasets.
+> Keep ResNet50 FT-V2 as the product baseline, continue the ConvNeXt-Tiny
+> accuracy phase, and recalibrate the decision layer before promotion.
 
 The detailed execution plan is maintained in
 [`08_model_accuracy_improvement_plan.md`](08_model_accuracy_improvement_plan.md).
@@ -46,19 +48,20 @@ Interpretation:
 - The model is strong enough for **ranked suggestions**.
 - The model should not expose raw confidence without the calibrated
   temperature.
-- The next accuracy work should be controlled training, not broad architecture
+- The next accuracy work should continue from A3 before broad architecture
   search or direct dataset mixing.
 - Product hardening remains important, but the next model step is Phase 1 of
   the accuracy plan.
 
 ## 3. Active Accuracy Phase
 
-Run the first two accuracy experiments before adding external datasets:
+The first two accuracy experiments are now complete:
 
 | Run | Model | Why this comes first |
 | --- | --- | --- |
-| `A1` | ResNet50 FT-V3 full-backbone 224 | lowest-risk continuation from the current champion |
-| `A3` | ConvNeXt-Tiny full fine-tune 224 | fair test of the strongest modern challenger after its frozen-head result |
+| `A1` | ResNet50 FT-V3 full-backbone 224 | did not beat ResNet50 FT-V2 |
+| `A3` | ConvNeXt-Tiny full fine-tune 224 | best accuracy result so far, but calibration is weaker |
+| `A3b` | ConvNeXt-Tiny continued fine-tune 224 | next active run because A3 validation accuracy was still improving |
 
 Promotion criteria:
 
@@ -202,8 +205,9 @@ FoodLens product workflow.
 After the decision layer is in place, the next improvements should be scoped
 and evidence-driven:
 
-1. **Accuracy Phase 1:** run `A1` and `A3` from
-   `08_model_accuracy_improvement_plan.md`.
+1. **Accuracy Phase 1:** run `A3b` from
+   `08_model_accuracy_improvement_plan.md`, then recalibrate the decision layer
+   around the best ConvNeXt checkpoint.
 2. **Final reporting:** turn the model, calibration, decision-layer, and demo
    results into a concise project summary or presentation.
 3. **Demo stress testing:** expand the sample set beyond one example per

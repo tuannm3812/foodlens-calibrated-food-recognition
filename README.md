@@ -102,12 +102,14 @@ More interface captures are indexed in
 | Model | Stage | Test top-1 | Test top-5 | Parameters | Model size | T4 latency |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | ResNet50 FT-V2 | current champion | 78.28% | 92.65% | 24.7M | 94.48 MB | 5.35 ms/image |
+| ConvNeXt-Tiny A3 | accuracy challenger | 83.41% | 95.73% | 28.4M | 108.23 MB | 5.41 ms/image |
 | ConvNeXt-Tiny | frozen-head challenger | 70.92% | 90.24% | 28.4M | 108.23 MB | 7.17 ms/image |
 | EfficientNet-B0 | frozen-head challenger | 52.13% | 77.02% | 4.8M | 18.55 MB | 7.44 ms/image |
 
-The largest improvement came from refining the ResNet50 training recipe rather
-than switching backbones. ResNet50 FT-V2 improved held-out test top-1 accuracy
-by 4.63 percentage points over the first fine-tuned ResNet50 baseline.
+A3 ConvNeXt-Tiny is the strongest accuracy result so far, improving held-out
+test top-1 by 5.13 percentage points over ResNet50 FT-V2. It is not yet the
+product champion because its calibrated ECE is worse than ResNet50 FT-V2, so
+the next step is continued fine-tuning plus decision-layer recalibration.
 
 ## Repository Structure
 
@@ -220,6 +222,7 @@ weights path.
 | `08_detection_to_foodlens_pipeline.ipynb` | Detector-to-classifier pipeline for crop-level FoodLens predictions. |
 | `09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb` | Phase 1 accuracy experiment testing full-backbone ResNet50 continuation from the FT-V2 champion. |
 | `10_food101_accuracy_phase1_a3_convnext_tiny.ipynb` | Phase 1 accuracy experiment testing full-backbone ConvNeXt-Tiny after A1 failed to beat the champion. |
+| `11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb` | Phase 1 continuation run from the A3 ConvNeXt-Tiny checkpoint with lower learning rates. |
 
 ## Key Findings
 
@@ -255,8 +258,9 @@ Detailed documentation is available in:
 
 ## Roadmap
 
-- Continue the Phase 1 Food-101 accuracy experiments: A1 did not beat the
-  champion, so the next active run is full-backbone ConvNeXt-Tiny fine-tuning.
+- Continue the Phase 1 Food-101 accuracy experiments: A3 is the best accuracy
+  candidate so far, and A3b tests whether continued ConvNeXt-Tiny fine-tuning
+  can improve it without worsening calibration.
 - Improve detector quality with food-specific detection or segmentation.
 - Expand live video inference beyond sampled-frame review.
 - Add richer metadata for known confusion pairs and hard classes.
