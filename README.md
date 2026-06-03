@@ -1,29 +1,79 @@
-# FoodLens: Food Recognition
+# FoodLens: Calibrated Food Recognition
 
-<img src="https://www.meatdistrictco.com.au/wp-content/uploads/2024/08/0O2A0384-1700x660.jpg" alt="Food recognition project banner" width="100%">
+<img src="https://logmeal.com/static/image/logmeal-food-detection-recognition-api-services.jpg" alt="FoodLens food detection and recognition banner" width="100%">
 
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/Framework-PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
-![Computer Vision](https://img.shields.io/badge/Domain-Computer%20Vision-455A64?style=flat-square)
+![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/Frontend-React-61DAFB?style=flat-square&logo=react&logoColor=111111)
 ![Status](https://img.shields.io/badge/Status-Champion%20Model-2E7D32?style=flat-square)
 
-**FoodLens** is a computer-vision project for food recognition. It starts with
-calibrated **Food-101 image classification** and now extends toward
-**multi-food detection**, where visible dishes can be detected, cropped,
-classified, and routed through a product decision layer.
+FoodLens is a computer vision project for calibrated food recognition. It
+trains and evaluates Food-101 classifiers, converts model confidence into
+product decisions, and extends single-image classification into a multi-food
+analysis prototype with a FastAPI backend and React/Vite frontend.
 
-## 1. Project Overview
+The current champion is a refined ResNet50 FT-V2 model with strong top-5
+performance, low calibration error, and a decision layer that routes predictions
+into auto-accept, suggest, confirm, or review workflows.
 
-Food recognition is a **fine-grained computer vision** problem. Many dishes
-share similar colors, ingredients, textures, and plating styles, so the model
-needs to be evaluated beyond a single accuracy score.
+## Highlights
 
-This project classifies Food-101 images into **101 food categories** and uses
-that classifier as the foundation for a FoodLens app prototype. The next phase
-adds detector-generated crops so the system can move beyond one label per
-image. The work is structured around **reproducible notebooks** because each
-notebook records the reasoning, code, metrics, errors, and model artifacts for
-one experiment stage.
+- Classifies Food-101 images across 101 food categories.
+- Evaluates top-1 accuracy, top-5 accuracy, calibration, model size, parameter
+  count, and inference latency.
+- Uses temperature scaling and confidence thresholds to support product-ready
+  decisions instead of exposing raw model confidence.
+- Includes a React Analyzer Workbench for image, video, URL, and YouTube-style
+  food analysis workflows.
+- Supports live inference when model artifacts are available and deterministic
+  demo fallback responses when artifacts are missing.
+- Explores multi-food detection by generating candidate regions, classifying
+  crops, and returning crop-level FoodLens predictions.
+
+## Demo Walkthrough
+
+The FoodLens Analyzer Workbench turns an image, video, or URL into detected food
+regions, crop-level predictions, calibrated confidence, and a product decision
+band.
+
+### 1. Submit an image source
+
+FoodLens accepts local uploads and direct image URLs. The workbench keeps the
+submitted source visible so the analysis can be traced back to the original
+input.
+
+<img src="docs/ui-snapshots/2026-06-02/foodlens-source-context-image-2026-06-02.png" alt="FoodLens image URL source context and detected food regions" width="100%">
+
+### 2. Detect candidate food regions
+
+The backend proposes food regions, overlays them on the source image, and
+returns crop cards for each detected area. Each card includes the classifier
+label, confidence, detector label, and review type.
+
+<img src="docs/ui-snapshots/2026-06-02/foodlens-west-bookings-analysis-polish-2026-06-02.png" alt="FoodLens detected regions with crop confidence cards and selected crop details" width="100%">
+
+### 3. Review the selected crop
+
+Selecting a crop exposes the detailed classifier and detector metadata used by
+the decision layer. The interface separates model confidence from product
+action, so ambiguous dishes can be suggested or confirmed instead of accepted
+blindly.
+
+<img src="docs/ui-snapshots/2026-06-02/foodlens-west-bookings-crop-polish-2026-06-02.png" alt="FoodLens selected crop detail with classifier confidence and detector metadata" width="100%">
+
+### 4. Analyze sampled video frames
+
+For video inputs, the frontend samples key frames and sends each frame through
+the same multi-food image pipeline. Results are grouped as frame-level regions
+so the user can review the strongest food predictions across time.
+
+<img src="docs/ui-snapshots/2026-06-02/foodlens-video-compact-crops-2026-06-02.png" alt="FoodLens sampled video frame crop review with selected hamburger region" width="100%">
+
+More interface captures are indexed in
+[docs/ui-snapshots/README.md](docs/ui-snapshots/README.md).
+
+## Results
 
 | Item | Value |
 | --- | ---: |
@@ -32,30 +82,8 @@ one experiment stage.
 | Classes | 101 |
 | Images per class | 1,000 |
 | Split strategy | Stratified train / validation / test |
-| Framework | PyTorch |
 
-## 2. Task And Goal
-
-The task is **multi-class food image classification**: given one food image,
-predict the correct class from **101 possible labels**.
-
-The goal is to build a **defensible model** that can support practical
-food-recognition workflows. That means the project tracks:
-
-1. **Held-out test accuracy**, not validation accuracy only.
-2. **Top-1 and top-5 accuracy** for both strict prediction and ranked suggestions.
-3. **Model size, parameter count, and inference latency**.
-4. **Hard classes, repeated confusion pairs, and qualitative failure examples**.
-5. Whether a new experiment changes the decision, not only whether it adds
-   complexity.
-
-## 3. Key Metrics
-
-The current champion is **ResNet50 FT-V2**, a refined ResNet50 model trained
-with longer fine-tuning, AdamW, learning-rate scheduling, stronger
-augmentation, and label smoothing.
-
-| Metric | Champion result |
+| Metric | ResNet50 FT-V2 champion |
 | --- | ---: |
 | Validation top-1 accuracy | 77.90% |
 | Validation top-5 accuracy | 92.36% |
@@ -69,21 +97,7 @@ augmentation, and label smoothing.
 | Model size | 94.48 MB |
 | T4 latency | 5.35 ms/image |
 
-## 4. Model Progress
-
-| Stage | Result |
-| --- | ---: |
-| Frozen ResNet50 transfer learning | 59.49% validation top-1 |
-| Baseline fine-tuned ResNet50 `layer3 + layer4` | 73.64% test top-1 |
-| Refined ResNet50 FT-V2 | 78.28% test top-1 |
-| Refined ResNet50 FT-V2 | 92.65% test top-5 |
-| Calibrated decision layer | 58.02% auto-accept coverage at 96.47% top-1 |
-
-The largest gain came from improving the **ResNet50 training recipe**. The
-FT-V2 model improved held-out test top-1 by **4.63 percentage points** over the
-first fine-tuned ResNet50 baseline.
-
-## 5. Model Comparison
+### Model Comparison
 
 | Model | Stage | Test top-1 | Test top-5 | Parameters | Model size | T4 latency |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
@@ -91,84 +105,158 @@ first fine-tuned ResNet50 baseline.
 | ConvNeXt-Tiny | frozen-head challenger | 70.92% | 90.24% | 28.4M | 108.23 MB | 7.17 ms/image |
 | EfficientNet-B0 | frozen-head challenger | 52.13% | 77.02% | 4.8M | 18.55 MB | 7.44 ms/image |
 
-**ConvNeXt-Tiny** was the strongest modern-backbone challenger, but it was less
-accurate, larger, and slower than **ResNet50 FT-V2**. **EfficientNet-B0** was
-much smaller, but its accuracy was not competitive for the current target.
+The largest improvement came from refining the ResNet50 training recipe rather
+than switching backbones. ResNet50 FT-V2 improved held-out test top-1 accuracy
+by 4.63 percentage points over the first fine-tuned ResNet50 baseline.
 
-## 6. Technical Findings
+## Repository Structure
 
-- **ResNet50** remains the strongest model family tested so far.
-- **Training-recipe refinement** delivered more value than switching to a modern
-  backbone.
-- **Top-5 accuracy above 92%** shows the model is much stronger as a ranked
-  suggestion engine than as a single hard-label system.
-- **Temperature scaling** improves confidence quality without changing the
-  model ranking, reducing test ECE from 0.0432 to **0.0265**.
-- **Decision thresholds** convert calibrated confidence into practical actions:
-  auto-accept easy predictions, show suggestions for ambiguous classes, and
-  reserve confirmation or review for risky cases.
-- **Hard classes** cluster around visually similar foods: steak-like dishes,
-  tartare or ceviche dishes, pastry-like desserts, and chocolate desserts.
+```text
+.
+|-- app/
+|   |-- backend/           # FastAPI service and inference contract
+|   |-- frontend/          # React/Vite Analyzer Workbench
+|   |-- frontend-static/   # Archived static prototype
+|   `-- artifacts/         # Local model artifacts; kept out of git
+|-- docs/                  # Project documentation, results, and roadmap
+|-- notebooks/             # Reproducible experiment notebooks
+`-- tests/backend/         # Backend API and ingestion tests
+```
 
-## 7. Business Implications
+## Quick Start
 
-- A food-recognition product should present **ranked suggestions** rather than
-  only one label, because top-5 performance is materially stronger than top-1.
-- The model is promising for **user-assisted tagging, menu enrichment, search**,
-  or food diary workflows where the user can confirm one of several likely
-  predictions.
-- The hardest classes are realistic **business edge cases**: visually similar
-  dishes may need user confirmation, richer metadata, or manual review.
-- **Confidence scores should not be exposed directly without calibration**,
-  because the model can be very confident on semantically plausible but wrong
-  classes.
-- The decision layer supports a more usable product experience: easy dishes can
-  be accepted automatically, ambiguous correct cases can become ranked
-  suggestions, hard classes can request confirmation, and known confusion pairs
-  can be flagged for review.
-- **ResNet50 FT-V2 is the best current trade-off**: the tested modern
-  alternatives did not improve accuracy or efficiency enough to justify
-  replacing it.
+### Backend
 
-## 8. Experiment Workflow
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r app/backend/requirements.txt
+pip install -r app/backend/requirements-dev.txt
+uvicorn app.backend.api:app --reload --port 8000
+```
+
+Optional detector runtime for live multi-food proposals:
+
+```bash
+pip install -r app/backend/requirements-detector.txt
+```
+
+Backend checks:
+
+```bash
+python3 -m pytest tests/backend -v
+```
+
+### Frontend
+
+```bash
+cd app/frontend
+npm install
+npm run dev
+```
+
+Frontend checks:
+
+```bash
+cd app/frontend
+npm test
+npm run typecheck
+npm run build
+```
+
+The frontend calls the local API when the backend is running. If live artifacts
+are not available, the app still works through deterministic fallback
+predictions so the interface and response contracts remain testable.
+
+## API Surface
+
+```text
+GET  /health
+GET  /runtime/status
+POST /predict/image
+POST /predict/multi-food/image
+POST /predict/multi-food/image-url
+POST /predict/multi-food/youtube-url
+POST /predict/video
+```
+
+`/runtime/status` reports classifier artifact readiness, detector dependency
+availability, detector weight resolution, and the effective multi-food mode.
+Fallback responses include `fallback_reason` and detector status fields so
+clients can distinguish demo data, detector-only crops, and live inference.
+
+## Model Artifacts
+
+Large trained artifacts are intentionally excluded from git. Real inference
+expects the following files under `app/artifacts/` or a path provided through
+`FOODLENS_ARTIFACT_DIR`:
+
+- `resnet50_ft_v2_best.pth`
+- `class_names.json`
+- `calibration.json`
+- `decision_policy.json`
+- `hard_classes.json`
+- `confusion_pairs.json`
+
+The ResNet50 FT-V2 checkpoint is managed as a separate Kaggle model artifact.
+Notebook 6 exports the JSON files and demo CSVs, and also packages them into
+`foodlens_app_artifacts.zip` for convenient transfer into the app runtime.
+
+For multi-food detection, the backend uses the optional `ultralytics` runtime.
+Set `FOODLENS_DETECTOR_WEIGHTS` to override the default `yolo11n.pt` detector
+weights path.
+
+## Experiment Notebooks
 
 | Notebook | Purpose |
 | --- | --- |
-| `01_food101_baseline_transfer_finetuning.ipynb` | Builds the baseline with data ingestion, transfer-learning comparison, ResNet50 fine-tuning, held-out test evaluation, confusion analysis, qualitative errors, and efficiency reporting. |
-| `02_resnet50_training_refinements.ipynb` | Improves the selected ResNet50 checkpoint with longer fine-tuning, AdamW, LR scheduling, stronger augmentation, and label smoothing. |
-| `03_modern_backbone_comparison.ipynb` | Compares EfficientNet-B0 and ConvNeXt-Tiny against ResNet50 FT-V2 using the same split, metrics, and artifact exports. |
-| `04_resnet50_error_calibration_inference.ipynb` | Analyzes the champion with calibration metrics, hard-class reports, high-confidence errors, and deterministic single-image inference. |
-| `05_confidence_decision_layer.ipynb` | Converts calibrated predictions into product actions: auto-accept, show suggestions, request confirmation, or review. |
-| `06_food_recognition_demo_inference.ipynb` | Demonstrates the final single-image workflow with top-k predictions, calibrated confidence, decision action, and CSV demo exports. |
-| `07_multi_food_detection_exploration.ipynb` | Explores pretrained detection on food images and videos, exporting bounding boxes, crops, and detection metadata. |
-| `08_detection_to_foodlens_pipeline.ipynb` | Connects detected crops to the existing FoodLens classifier and decision layer for per-food predictions. |
+| `01_food101_baseline_transfer_finetuning.ipynb` | Baseline data ingestion, transfer learning, ResNet50 fine-tuning, test evaluation, confusion analysis, and efficiency reporting. |
+| `02_resnet50_training_refinements.ipynb` | Improved ResNet50 training with longer fine-tuning, AdamW, LR scheduling, stronger augmentation, and label smoothing. |
+| `03_modern_backbone_comparison.ipynb` | EfficientNet-B0 and ConvNeXt-Tiny comparison against ResNet50 FT-V2. |
+| `04_resnet50_error_calibration_inference.ipynb` | Champion error analysis, calibration metrics, hard classes, high-confidence errors, and deterministic inference. |
+| `05_confidence_decision_layer.ipynb` | Confidence policy for auto-accept, suggestion, confirmation, and review decisions. |
+| `06_food_recognition_demo_inference.ipynb` | Final single-image demo workflow and lightweight app artifact exports. |
+| `07_multi_food_detection_exploration.ipynb` | Pretrained detector exploration for food images and videos. |
+| `08_detection_to_foodlens_pipeline.ipynb` | Detector-to-classifier pipeline for crop-level FoodLens predictions. |
 
-## 9. Product Direction: FoodLens
+## Key Findings
 
-The product direction is **FoodLens**, an image-first food-recognition
-assistant. FoodLens uses the final model workflow to identify dishes from
-uploaded images, show ranked predictions, and choose the right product action:
-**auto-accept**, **suggest**, **confirm**, or **review**.
+- Top-5 accuracy above 92% makes the model especially useful as a ranked
+  suggestion system.
+- Temperature scaling reduced test ECE from 0.0432 to 0.0265 without changing
+  the prediction ranking.
+- The most difficult classes are visually similar foods, including steak-like
+  dishes, tartare or ceviche dishes, pastry-style desserts, and chocolate
+  desserts.
+- Confidence thresholds make the model more practical by separating easy
+  predictions from cases that need confirmation or review.
+- Generic object detectors can support a prototype, but a food-specific
+  detector or segmentation model is the next major quality improvement.
 
-The current MVP is an **image/video upload app** with a FastAPI backend and a
-React/Vite Analyzer Workbench under [`app/frontend`](app/frontend). Image
-prediction uses the ResNet50 FT-V2 artifacts when present. Video review samples
-frames and aggregates multi-food image results. The archived static prototype is
-available under [`app/frontend-static`](app/frontend-static).
+## Product Direction
 
-Notebook 6 exports the lightweight JSON artifacts required by the FoodLens
-backend. The ResNet50 FT-V2 `.pth` checkpoint remains a separate Kaggle model
-artifact. Notebook 6 also bundles the app JSON files and demo CSVs into
-`foodlens_app_artifacts.zip` for one-step download.
+FoodLens is designed as an image-first food recognition assistant for workflows
+such as user-assisted tagging, menu enrichment, search, and food diary entry.
+The current Analyzer Workbench accepts image and video inputs, presents ranked
+predictions, and exposes the decision band that should drive the user
+experience.
 
-Detailed approach, result notes, and next steps are indexed in
-[docs/README.md](docs/README.md) and maintained in
-[docs/03_modeling_approach.md](docs/03_modeling_approach.md),
-[docs/04_model_results.md](docs/04_model_results.md), and
-[docs/05_next_steps.md](docs/05_next_steps.md). The FoodLens product concept
-is documented in [docs/06_foodlens_app_concept.md](docs/06_foodlens_app_concept.md).
-The multi-food detection plan is documented in
-[docs/07_multi_food_detection_plan.md](docs/07_multi_food_detection_plan.md).
+Detailed documentation is available in:
+
+- [docs/README.md](docs/README.md)
+- [docs/03_modeling_approach.md](docs/03_modeling_approach.md)
+- [docs/04_model_results.md](docs/04_model_results.md)
+- [docs/05_next_steps.md](docs/05_next_steps.md)
+- [docs/06_foodlens_app_concept.md](docs/06_foodlens_app_concept.md)
+- [docs/07_multi_food_detection_plan.md](docs/07_multi_food_detection_plan.md)
+
+## Roadmap
+
+- Improve detector quality with food-specific detection or segmentation.
+- Expand live video inference beyond sampled-frame review.
+- Add richer metadata for known confusion pairs and hard classes.
+- Validate the decision layer on real product workflows and user feedback.
+- Package model artifacts and runtime configuration for repeatable deployment.
 
 Banner image source:
-[`meatdistrictco.com.au`](https://www.meatdistrictco.com.au/wp-content/uploads/2024/08/0O2A0384-1700x660.jpg)
+[`logmeal.com`](https://logmeal.com/static/image/logmeal-food-detection-recognition-api-services.jpg)
