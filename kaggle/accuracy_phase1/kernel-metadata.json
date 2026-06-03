@@ -1,0 +1,19 @@
+{
+  "id": "tuannm3823/foodlens-a1-resnet50-ft-v3-notebook",
+  "title": "FoodLens A1 ResNet50 FT V3 Notebook",
+  "code_file": "09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [
+    "kmader/food41"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": [
+    "tuannm3823/food101-resnet50-refinements/PyTorch/default/1"
+  ]
+}

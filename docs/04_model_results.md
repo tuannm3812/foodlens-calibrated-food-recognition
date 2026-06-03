@@ -354,3 +354,32 @@ Final project conclusion:
 - The final workflow is now more mature than a raw classifier because it
   combines **top-k prediction**, **calibrated confidence**, and a
   **decision action** for each image.
+
+## 13. Accuracy Phase 1 A1 Result
+
+Notebook 9 tests whether continuing from the ResNet50 FT-V2 champion with
+full-backbone fine-tuning improves Food-101 accuracy.
+
+Kaggle kernels:
+
+- completed script run:
+  `https://www.kaggle.com/code/tuannm3823/foodlens-accuracy-phase-1-a1-resnet50-ft-v3`
+- notebook-backed run:
+  `https://www.kaggle.com/code/tuannm3823/foodlens-a1-resnet50-ft-v3-notebook`
+
+Result:
+
+| Model | Test top-1 | Test top-5 | Test ECE calibrated | Latency |
+| --- | ---: | ---: | ---: | ---: |
+| ResNet50 FT-V2 champion | 78.28% | 92.65% | 0.0265 | 5.35 ms/image |
+| A1 ResNet50 FT-V3 full backbone | 78.23% | 92.45% | 0.0229 | 5.53 ms/image |
+
+Decision:
+
+- Do not promote A1.
+- Full-backbone ResNet50 continuation at 224px did not improve held-out
+  accuracy.
+- The slight calibration improvement is useful but not enough to offset the
+  accuracy, top-5, and latency results.
+- Continue Phase 1 with `A3`: full fine-tuning ConvNeXt-Tiny under the same
+  split and reporting contract.

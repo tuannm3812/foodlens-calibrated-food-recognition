@@ -218,6 +218,8 @@ weights path.
 | `06_food_recognition_demo_inference.ipynb` | Final single-image demo workflow and lightweight app artifact exports. |
 | `07_multi_food_detection_exploration.ipynb` | Pretrained detector exploration for food images and videos. |
 | `08_detection_to_foodlens_pipeline.ipynb` | Detector-to-classifier pipeline for crop-level FoodLens predictions. |
+| `09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb` | Phase 1 accuracy experiment testing full-backbone ResNet50 continuation from the FT-V2 champion. |
+| `10_food101_accuracy_phase1_a3_convnext_tiny.ipynb` | Phase 1 accuracy experiment testing full-backbone ConvNeXt-Tiny after A1 failed to beat the champion. |
 
 ## Key Findings
 
@@ -249,9 +251,12 @@ Detailed documentation is available in:
 - [docs/05_next_steps.md](docs/05_next_steps.md)
 - [docs/06_foodlens_app_concept.md](docs/06_foodlens_app_concept.md)
 - [docs/07_multi_food_detection_plan.md](docs/07_multi_food_detection_plan.md)
+- [docs/08_model_accuracy_improvement_plan.md](docs/08_model_accuracy_improvement_plan.md)
 
 ## Roadmap
 
+- Continue the Phase 1 Food-101 accuracy experiments: A1 did not beat the
+  champion, so the next active run is full-backbone ConvNeXt-Tiny fine-tuning.
 - Improve detector quality with food-specific detection or segmentation.
 - Expand live video inference beyond sampled-frame review.
 - Add richer metadata for known confusion pairs and hard classes.

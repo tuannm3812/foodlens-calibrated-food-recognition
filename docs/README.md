@@ -12,6 +12,7 @@ steps. The root `README.md` stays focused on the high-level project story.
 | [`05_next_steps.md`](05_next_steps.md) | recommended next work, demo validation, and decision-layer plan |
 | [`06_foodlens_app_concept.md`](06_foodlens_app_concept.md) | FoodLens product concept, MVP scope, app architecture, and roadmap |
 | [`07_multi_food_detection_plan.md`](07_multi_food_detection_plan.md) | detector-plus-classifier plan for multi-food image and video recognition |
+| [`08_model_accuracy_improvement_plan.md`](08_model_accuracy_improvement_plan.md) | phased plan for improving Food-101 accuracy, calibration, and product-level model quality |
 
 Current notebook sequence:
 
@@ -23,3 +24,15 @@ Current notebook sequence:
 6. `06_food_recognition_demo_inference.ipynb`
 7. `07_multi_food_detection_exploration.ipynb`
 8. `08_detection_to_foodlens_pipeline.ipynb`
+9. `09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb`
+10. `10_food101_accuracy_phase1_a3_convnext_tiny.ipynb`
+
+Current accuracy-improvement execution plan:
+
+- start with Food-101-only full fine-tuning experiments;
+- treat A1 ResNet50 FT-V3 as a non-promotion result because it stayed just
+  below the ResNet50 FT-V2 champion;
+- run A3 ConvNeXt-Tiny full fine-tuning to determine whether the frozen-head
+  ConvNeXt result was limited by training scope rather than backbone quality;
+- use external food datasets later for pretraining, detector training, or crop
+  robustness instead of directly mixing labels into the 101-class classifier.

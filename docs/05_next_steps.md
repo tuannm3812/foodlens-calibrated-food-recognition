@@ -13,9 +13,17 @@ The project now has a clear champion and a trustworthy evaluation layer.
 | Calibrated ResNet50 FT-V2 | 0.0265 test ECE |
 | Decision layer | 58.02% auto-accept coverage at 96.47% top-1 |
 
-The current model direction is settled: **keep ResNet50 FT-V2 as the
-champion**. Modern backbone replacement is not justified by the current
-evidence, and temperature scaling has made confidence scores more reliable.
+The current production reference remains **ResNet50 FT-V2**. Modern backbone
+replacement is not justified by the frozen-head evidence, and temperature
+scaling has made confidence scores more reliable.
+
+The active model-improvement direction is now:
+
+> Keep ResNet50 FT-V2 as the champion baseline, then run a controlled
+> Food-101-only accuracy phase before using external datasets.
+
+The detailed execution plan is maintained in
+[`08_model_accuracy_improvement_plan.md`](08_model_accuracy_improvement_plan.md).
 
 ## 2. What The Latest Output Means
 
@@ -38,10 +46,33 @@ Interpretation:
 - The model is strong enough for **ranked suggestions**.
 - The model should not expose raw confidence without the calibrated
   temperature.
-- The next useful improvement is **demo hardening and product validation**, not
-  another architecture search.
+- The next accuracy work should be controlled training, not broad architecture
+  search or direct dataset mixing.
+- Product hardening remains important, but the next model step is Phase 1 of
+  the accuracy plan.
 
-## 3. Implemented Next Task
+## 3. Active Accuracy Phase
+
+Run the first two accuracy experiments before adding external datasets:
+
+| Run | Model | Why this comes first |
+| --- | --- | --- |
+| `A1` | ResNet50 FT-V3 full-backbone 224 | lowest-risk continuation from the current champion |
+| `A3` | ConvNeXt-Tiny full fine-tune 224 | fair test of the strongest modern challenger after its frozen-head result |
+
+Promotion criteria:
+
+- improve held-out test top-1 by at least 2 percentage points;
+- preserve or improve top-5 accuracy;
+- recalibrate and keep ECE near or below the current 0.0265 test result;
+- inspect hard-class F1 and repeated confusion pairs;
+- report latency and model size before replacing the champion.
+
+External datasets should wait until this Food-101-only phase is complete. Their
+first role should be pretraining, detector training, or crop robustness rather
+than direct 101-class label mixing.
+
+## 4. Implemented Decision-Layer Task
 
 Notebook 5 now implements a confidence-based decision layer around calibrated
 predictions.
@@ -59,7 +90,7 @@ The exact thresholds are learned from Notebook 4 outputs rather than chosen
 manually. The notebook analyzes calibrated confidence, correctness,
 top-1/top-2 margin, and hard-class membership together.
 
-## 4. Notebook 5
+## 5. Notebook 5
 
 File:
 
@@ -113,7 +144,7 @@ Expected outputs:
 - `decision_examples_confirm.csv`
 - `decision_examples_review.csv`
 
-## 5. Next After Notebook 5
+## 6. Next After Notebook 5
 
 Notebook 5 has produced the selected decision thresholds and band metrics:
 
@@ -143,7 +174,7 @@ Next action:
 > Package the final project story: champion model, calibration, decision layer,
 > and four-band demo behavior.
 
-## 6. Multi-Food Detection Phase
+## 7. Multi-Food Detection Phase
 
 The next product capability is **multi-food detection**. The current FoodLens
 classifier predicts one label for a whole image or sampled video frame. It does
@@ -166,25 +197,27 @@ New notebooks:
 This should stay in the same repo because it is a direct extension of the
 FoodLens product workflow.
 
-## 7. Secondary Improvements
+## 8. Secondary Improvements
 
 After the decision layer is in place, the next improvements should be scoped
 and evidence-driven:
 
-1. **Final reporting:** turn the model, calibration, decision-layer, and demo
+1. **Accuracy Phase 1:** run `A1` and `A3` from
+   `08_model_accuracy_improvement_plan.md`.
+2. **Final reporting:** turn the model, calibration, decision-layer, and demo
    results into a concise project summary or presentation.
-2. **Demo stress testing:** expand the sample set beyond one example per
+3. **Demo stress testing:** expand the sample set beyond one example per
    decision band and include non-Food-101 images.
-3. **Hard-class review:** build class-group reports for meat dishes, tartare
+4. **Hard-class review:** build class-group reports for meat dishes, tartare
    dishes, pastry desserts, and chocolate desserts.
-4. **Inference packaging:** create a small reusable inference function or demo
+5. **Inference packaging:** create a small reusable inference function or demo
    notebook for one-image prediction.
-5. **Artifact documentation:** document the final champion checkpoint,
+6. **Artifact documentation:** document the final champion checkpoint,
    calibrated temperature, and expected input preprocessing.
-6. **Compact model revisit:** revisit EfficientNet-B0 or another small model
+7. **Compact model revisit:** revisit EfficientNet-B0 or another small model
    only if deployment size becomes more important than accuracy.
 
-## 8. Stop Conditions
+## 9. Stop Conditions
 
 Avoid expanding the project endlessly. A next experiment should be skipped if
 it does not improve at least one of these:

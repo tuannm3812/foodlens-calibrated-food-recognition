@@ -13,6 +13,7 @@ The core reasoning is:
 3. Test whether a **modern backbone** justifies replacing the refined champion.
 4. Use **error analysis and calibration** to make the champion easier to trust.
 5. Convert calibrated predictions into **product decision bands**.
+6. Run controlled accuracy-improvement experiments against the champion.
 
 ## 2. Why Notebook-First
 
@@ -266,7 +267,39 @@ Logic flow:
 Notebook 8 is the bridge from detection exploration to a multi-food FoodLens
 workflow.
 
-## 11. Cross-Notebook Evaluation Contract
+## 11. Notebook 9: Accuracy Phase 1 A1
+
+Notebook:
+[`../notebooks/09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb`](../notebooks/09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb)
+
+Question:
+
+> Does continuing from ResNet50 FT-V2 with full-backbone fine-tuning improve
+> Food-101 accuracy?
+
+Logic flow:
+
+1. Load the ResNet50 FT-V2 champion checkpoint.
+2. Unfreeze all ResNet50 parameters.
+3. Fine-tune with a lower backbone learning rate and a higher classifier-head
+   learning rate.
+4. Reuse the project-standard Food-101 split and evaluation contract.
+5. Fit temperature scaling on validation logits.
+6. Compare test top-1, top-5, calibrated ECE, latency, and model size against
+   the champion.
+
+Decision produced:
+
+| Model | Test top-1 | Test top-5 | Test ECE |
+| --- | ---: | ---: | ---: |
+| ResNet50 FT-V2 champion | 78.28% | 92.65% | 0.0265 |
+| A1 ResNet50 FT-V3 full backbone | 78.23% | 92.45% | 0.0229 |
+
+Notebook 9 does **not** promote a new model. It rules out a simple
+full-backbone ResNet50 continuation at 224px and points the next accuracy
+experiment toward `A3`: fully fine-tuned ConvNeXt-Tiny.
+
+## 12. Cross-Notebook Evaluation Contract
 
 All notebooks should preserve the same **comparison contract**:
 
@@ -287,7 +320,7 @@ This keeps model changes interpretable. A new experiment should explain **what
 changed**, **why it changed**, and whether the result is strong enough to alter
 the project direction.
 
-## 12. Current Reasoning Conclusion
+## 13. Current Reasoning Conclusion
 
 The current champion is **ResNet50 FT-V2**. The project has moved from general
 model search to **targeted improvement and decision design**:
@@ -298,5 +331,7 @@ model search to **targeted improvement and decision design**:
 4. Define **product decision bands** from calibrated predictions.
 5. Demonstrate the final **user-facing prediction workflow**.
 6. Extend toward **multi-food detection** through detector crops.
-7. Revisit compact models only if **deployment constraints** become more
+7. Run controlled **accuracy Phase 1** experiments before using external
+   datasets.
+8. Revisit compact models only if **deployment constraints** become more
    important than accuracy.

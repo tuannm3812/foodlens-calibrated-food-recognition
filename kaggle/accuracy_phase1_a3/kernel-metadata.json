@@ -1,0 +1,19 @@
+{
+  "id": "tuannm3823/foodlens-a3-convnext-tiny-full-finetune",
+  "title": "FoodLens A3 ConvNeXt Tiny Full Finetune",
+  "code_file": "10_food101_accuracy_phase1_a3_convnext_tiny.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [
+    "kmader/food41"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": [
+    "tuannm3823/food101-modern-backbones/PyTorch/default/1"
+  ]
+}
