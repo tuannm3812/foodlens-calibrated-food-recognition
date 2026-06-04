@@ -23,9 +23,9 @@ Current accuracy leader:
 
 | Model | Test top-1 | Test top-5 | Test ECE | T4 latency |
 | --- | ---: | ---: | ---: | ---: |
-| A3 ConvNeXt-Tiny full fine-tune | 83.41% | 95.73% | 0.0562 | 5.41 ms/image |
+| A3b ConvNeXt-Tiny continued fine-tune | 83.90% | 95.78% | 0.0556 | 5.29 ms/image |
 
-A3 is not yet the product champion because its calibrated ECE is worse than the
+A3b is not yet the product champion because its calibrated ECE is worse than the
 ResNet50 FT-V2 decision-layer baseline.
 
 Target for the next accuracy phase:
@@ -354,3 +354,49 @@ Interpretation:
 - A3 validation accuracy improved every epoch through epoch 8, so the next
   active run is `A3b`: continue from the A3 checkpoint with lower learning
   rates.
+
+## 12. A3b Result
+
+A3b completed on Kaggle and is the current accuracy leader.
+
+```text
+https://www.kaggle.com/code/tuannm3823/foodlens-a3b-convnext-tiny-continued
+```
+
+| Model | Test top-1 | Test top-5 | Test ECE calibrated | Latency |
+| --- | ---: | ---: | ---: | ---: |
+| ResNet50 FT-V2 champion | 78.28% | 92.65% | 0.0265 | 5.35 ms/image |
+| A3 ConvNeXt-Tiny full fine-tune | 83.41% | 95.73% | 0.0562 | 5.41 ms/image |
+| A3b ConvNeXt-Tiny continued fine-tune | 83.90% | 95.78% | 0.0556 | 5.29 ms/image |
+
+Interpretation:
+
+- A3b improves held-out test top-1 by **5.62 percentage points** over
+  ResNet50 FT-V2.
+- A3b improves test top-1 by **0.50 percentage points** over A3.
+- A3b still has weaker calibrated ECE than ResNet50 FT-V2, so product
+  promotion requires decision-layer recalibration.
+- The next expansion step is `12_food_taxonomy_expansion_audit.ipynb`, which
+  audits external datasets before training a classifier beyond 101 classes.
+
+## 13. Expanded Taxonomy Audit
+
+Notebook 12 audits Food-101 plus candidate external food-classification
+datasets before any labels are merged.
+
+```text
+notebooks/12_food_taxonomy_expansion_audit.ipynb
+```
+
+Kaggle package:
+
+```text
+kaggle/taxonomy_expansion/
+|-- kernel-metadata.json
+`-- 12_food_taxonomy_expansion_audit.ipynb
+```
+
+The audit exports class counts, Food-101 overlaps, candidate new labels, and a
+candidate expanded taxonomy. Training a broader classifier should use those
+outputs rather than directly mixing external labels into the current 101-class
+target.

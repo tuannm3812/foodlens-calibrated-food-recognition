@@ -340,7 +340,26 @@ Key points:
 5. Decide whether to continue ConvNeXt training or move to recalibration and
    hard-class refinement.
 
-## 14. Cross-Notebook Evaluation Contract
+## 14. Notebook 12: Expanded Taxonomy Audit
+
+Question:
+
+> Which external food labels are safe candidates for a classifier beyond the
+> current 101 Food-101 classes?
+
+Key points:
+
+1. Keep Food-101 as the benchmark taxonomy.
+2. Audit external dataset folder labels before merging anything.
+3. Normalize class names and measure exact overlap with Food-101.
+4. Export candidate new labels and class-count reports.
+5. Use the audit outputs to decide whether the next step should be broad
+   classifier training, food-domain pretraining, or regional specialist heads.
+
+Notebook 12 deliberately does not train a model. It creates the taxonomy
+contract needed before expanding prediction coverage beyond 101 classes.
+
+## 15. Cross-Notebook Evaluation Contract
 
 All notebooks should preserve the same **comparison contract**:
 
@@ -361,10 +380,10 @@ This keeps model changes interpretable. A new experiment should explain **what
 changed**, **why it changed**, and whether the result is strong enough to alter
 the project direction.
 
-## 15. Current Reasoning Conclusion
+## 16. Current Reasoning Conclusion
 
 The current product champion is **ResNet50 FT-V2** because it has the strongest
-calibrated decision-layer evidence. The current accuracy leader is **A3
+calibrated decision-layer evidence. The current accuracy leader is **A3b
 ConvNeXt-Tiny**, which needs decision-layer recalibration before promotion. The
 project has moved from broad model search to **targeted improvement and
 decision design**:
@@ -375,7 +394,7 @@ decision design**:
 4. Define **product decision bands** from calibrated predictions.
 5. Demonstrate the final **user-facing prediction workflow**.
 6. Extend toward **multi-food detection** through detector crops.
-7. Continue controlled **accuracy Phase 1** with A3b before using external
-   datasets.
+7. Recalibrate the A3b decision layer before product promotion.
+8. Audit external labels before training beyond the 101 Food-101 classes.
 8. Revisit compact models only if **deployment constraints** become more
    important than accuracy.

@@ -254,6 +254,27 @@ The most frequent A3 confusion pairs remain visually plausible: filet mignon
 vs steak, ramen vs pho, chocolate cake vs chocolate mousse, bread pudding vs
 apple pie, tuna tartare vs beef tartare, and dumplings vs gyoza.
 
+## 9.2 A3b ConvNeXt-Tiny Continuation Result
+
+Notebook 11 continued from the A3 checkpoint with lower learning rates. This
+produced another accuracy gain, but it did not solve the calibration gap.
+
+| Model | Test top-1 | Test top-5 | Calibrated ECE | Latency |
+| --- | ---: | ---: | ---: | ---: |
+| ResNet50 FT-V2 champion | 78.28% | 92.65% | 0.0265 | 5.35 ms/image |
+| A3 ConvNeXt-Tiny full fine-tune | 83.41% | 95.73% | 0.0562 | 5.41 ms/image |
+| A3b ConvNeXt-Tiny continued fine-tune | 83.90% | 95.78% | 0.0556 | 5.29 ms/image |
+
+A3b is the current accuracy leader. It improves test top-1 by **5.62
+percentage points** over ResNet50 FT-V2 and by **0.50 percentage points** over
+A3. Because calibrated ECE remains worse than ResNet50 FT-V2, the model should
+move next into decision-layer recalibration rather than direct product
+promotion.
+
+The weakest A3b classes remain fine-grained visual clusters: `steak`,
+`chocolate_mousse`, `pork_chop`, `bread_pudding`, `ceviche`, `ravioli`,
+`foie_gras`, `tuna_tartare`, `panna_cotta`, and `filet_mignon`.
+
 ## 10. Calibration And Inference Results
 
 Notebook 4 evaluated the current champion, `resnet50_ft_v2_best.pth`, with

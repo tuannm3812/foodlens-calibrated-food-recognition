@@ -1,0 +1,19 @@
+{
+  "id": "tuannm3823/foodlens-expanded-taxonomy-audit",
+  "title": "FoodLens Expanded Taxonomy Audit",
+  "code_file": "12_food_taxonomy_expansion_audit.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "false",
+  "enable_tpu": "false",
+  "enable_internet": "false",
+  "dataset_sources": [
+    "kmader/food41",
+    "harishkumardatalab/food-image-classification-dataset",
+    "jvageesh11/foodies-ai-food-image-classification-challenge"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

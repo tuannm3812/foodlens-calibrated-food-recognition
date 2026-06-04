@@ -40,9 +40,10 @@ The project is organized into controlled notebook stages:
 | Backbone comparison | `03_modern_backbone_comparison.ipynb` | test EfficientNet-B0 and ConvNeXt-Tiny against the champion |
 | Calibration and inference | `04_resnet50_error_calibration_inference.ipynb` | calibrate confidence and prepare deterministic inference |
 | Accuracy phase | `09` to `11` notebooks | test controlled Food-101 accuracy improvements beyond ResNet50 FT-V2 |
+| Taxonomy expansion | `12_food_taxonomy_expansion_audit.ipynb` | audit external food labels before training beyond 101 classes |
 
 The current product champion is **ResNet50 FT-V2**. The current accuracy leader
-is **A3 ConvNeXt-Tiny**, pending decision-layer recalibration.
+is **A3b ConvNeXt-Tiny**, pending decision-layer recalibration.
 
 ## 4. Evaluation Contract
 

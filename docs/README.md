@@ -27,15 +27,16 @@ Current notebook sequence:
 9. `09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb`
 10. `10_food101_accuracy_phase1_a3_convnext_tiny.ipynb`
 11. `11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb`
+12. `12_food_taxonomy_expansion_audit.ipynb`
 
 Current accuracy-improvement execution plan:
 
 - start with Food-101-only full fine-tuning experiments;
 - treat A1 ResNet50 FT-V3 as a non-promotion result because it stayed just
   below the ResNet50 FT-V2 champion;
-- treat A3 ConvNeXt-Tiny as the current accuracy leader, with product promotion
+- treat A3b ConvNeXt-Tiny as the current accuracy leader, with product promotion
   blocked until calibration and decision-layer behavior are rechecked;
-- run A3b ConvNeXt-Tiny continuation because A3 validation accuracy was still
-  improving at the final configured epoch;
+- audit candidate external datasets before training any classifier beyond the
+  current 101 classes;
 - use external food datasets later for pretraining, detector training, or crop
   robustness instead of directly mixing labels into the 101-class classifier.

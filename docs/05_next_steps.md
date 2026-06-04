@@ -13,10 +13,12 @@ The project now has a clear champion and a trustworthy evaluation layer.
 | Calibrated ResNet50 FT-V2 | 0.0265 test ECE |
 | A3 ConvNeXt-Tiny full fine-tune | 83.41% test top-1 |
 | A3 ConvNeXt-Tiny full fine-tune | 95.73% test top-5 |
+| A3b ConvNeXt-Tiny continued fine-tune | 83.90% test top-1 |
+| A3b ConvNeXt-Tiny continued fine-tune | 95.78% test top-5 |
 | Decision layer | 58.02% auto-accept coverage at 96.47% top-1 |
 
 The current production reference remains **ResNet50 FT-V2** because its
-calibrated decision layer is stronger. A3 ConvNeXt-Tiny is now the accuracy
+calibrated decision layer is stronger. A3b ConvNeXt-Tiny is now the accuracy
 leader, but it needs decision-layer recalibration before product promotion.
 
 The active model-improvement direction is now:
@@ -61,7 +63,8 @@ The first two accuracy experiments are now complete:
 | --- | --- | --- |
 | `A1` | ResNet50 FT-V3 full-backbone 224 | did not beat ResNet50 FT-V2 |
 | `A3` | ConvNeXt-Tiny full fine-tune 224 | best accuracy result so far, but calibration is weaker |
-| `A3b` | ConvNeXt-Tiny continued fine-tune 224 | next active run because A3 validation accuracy was still improving |
+| `A3b` | ConvNeXt-Tiny continued fine-tune 224 | best accuracy result so far, but calibration is weaker |
+| `T1` | Expanded taxonomy audit | active step before training beyond 101 classes |
 
 Promotion criteria:
 
@@ -205,9 +208,10 @@ FoodLens product workflow.
 After the decision layer is in place, the next improvements should be scoped
 and evidence-driven:
 
-1. **Accuracy Phase 1:** run `A3b` from
-   `08_model_accuracy_improvement_plan.md`, then recalibrate the decision layer
-   around the best ConvNeXt checkpoint.
+1. **Decision-layer recalibration:** recalibrate around the A3b ConvNeXt
+   checkpoint before product promotion.
+2. **Expanded taxonomy audit:** run `12_food_taxonomy_expansion_audit.ipynb`
+   before training beyond 101 classes.
 2. **Final reporting:** turn the model, calibration, decision-layer, and demo
    results into a concise project summary or presentation.
 3. **Demo stress testing:** expand the sample set beyond one example per
