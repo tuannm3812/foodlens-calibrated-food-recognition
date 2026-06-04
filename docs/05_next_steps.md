@@ -67,6 +67,7 @@ The first expanded-taxonomy baseline is now complete:
 | `A1` | ResNet50 FT-V3 full-backbone 224 | did not beat ResNet50 FT-V2 |
 | `A3` | ConvNeXt-Tiny full fine-tune 224 | best accuracy result so far, but calibration is weaker |
 | `A3b` | ConvNeXt-Tiny continued fine-tune 224 | best accuracy result so far, but calibration is weaker |
+| `A4` | ConvNeXt-Tiny full fine-tune 320 | prepared; next step if keeping ConvNeXt backbone |
 | `T1` | Expanded taxonomy audit | found 36 raw candidate new classes and a conservative 130-class target |
 | `E1` | Expanded taxonomy v1 baseline | completed head-only 130-class run from the A3b checkpoint |
 | `E2` | Expanded taxonomy fine-tune | completed partial-ConvNeXt fine-tune from E1 checkpoint |

@@ -206,12 +206,13 @@ re-evaluated before promotion.
 
 ## 8. First Execution Slice
 
-Start with two runs:
+Start with two runs, and prepare a follow-up high-resolution run:
 
 | Run | Reason |
 | --- | --- |
 | `A1` ResNet50 FT-V3 full-backbone 224 | lowest-risk continuation from champion |
 | `A3` ConvNeXt-Tiny full fine-tune 224 | fair test of the strongest modern challenger |
+| `A4` ConvNeXt-Tiny full fine-tune 320 (prepared) | isolate high-resolution benefit |
 
 Required outputs:
 
@@ -224,7 +225,14 @@ Required outputs:
 |   |-- calibration_summary.csv
 |   |-- class_report.csv
 |   `-- confusion_pairs.csv
-`-- a3_convnext_tiny_ft/
+|-- a3_convnext_tiny_ft/
+|   |-- best_model.pth
+|   |-- validation_metrics.csv
+|   |-- test_metrics.csv
+|   |-- calibration_summary.csv
+|   |-- class_report.csv
+|   `-- confusion_pairs.csv
+|-- a4_convnext_tiny_full_finetune_320/
     |-- best_model.pth
     |-- validation_metrics.csv
     |-- test_metrics.csv
@@ -234,7 +242,16 @@ Required outputs:
 ```
 
 After those two runs, decide whether to continue high-resolution training or
-move to noise-aware refinement.
+move to noise-aware refinement. `A4` is prepared and should be the first follow-up
+run if you keep the full-backbone ConvNeXt path.
+
+Local kernel package for `A4`:
+
+```text
+`kaggle/accuracy_phase1_a4/`
+|-- kernel-metadata.json
+`-- foodlens_accuracy_phase1_a4.py
+```
 
 ## 9. Kaggle Execution
 
