@@ -472,8 +472,8 @@ Decision:
   expanded baseline.
 - It should not replace the 101-class product champion yet because it has not
   been wired through the decision layer or app artifacts.
-- Validation top-1 improved through epoch 5, so E2 is now running as a partial
-  backbone fine-tune from E1 with the same taxonomy.
+- E2 has completed as a partial backbone fine-tune from E1 with the same
+  taxonomy.
 - Weak labels needing review include `kaathi_rolls`, `masala_dosa`, `dosa`,
   `butter_naan`, `dal_makhani`, and other overlapping regional dishes.
 
@@ -505,3 +505,29 @@ The contract focuses on partial ConvNeXt unfreezing:
 - track top-1/top-5 on val and test,
 - preserve calibration with temperature scaling,
 - compare source-level behavior for Food-101 vs public datasets.
+
+Observed outcome (most recent run):
+
+| Metric | E2 |
+| --- | ---: |
+| Validation top-1 | 87.65% |
+| Validation top-5 | 97.21% |
+| Test top-1 | 88.00% |
+| Test top-5 | 97.43% |
+| Test calibrated ECE | 0.0138 |
+
+Source-level test behavior:
+
+| Source | Test top-1 |
+| --- | ---: |
+| Food-101 | 88.26% |
+| Food Image Classification | 88.94% |
+| Foodies AI Challenge | 83.90% |
+
+Decision summary:
+
+- E2 improved across top-1, top-5, and calibrated ECE versus E1.
+- Weak-class remediation for regional overlap remains the highest-priority
+  quality lift.
+- Next step: promote this checkpoint for 130-class decision-layer work only after
+  the action-policy audit is updated.

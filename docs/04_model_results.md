@@ -486,8 +486,57 @@ Decision:
 - Keep E1 as the expanded-taxonomy baseline.
 - Do not promote it to product champion until the 130-class decision layer and
   app artifacts are rebuilt.
-- Run E2 with partial or full backbone fine-tuning because validation accuracy
-  was still improving through epoch 5.
-- Review weak or overlapping regional labels before broadening the taxonomy
+- E2 has now completed and is the current expanded-taxonomy candidate.
+- Continue reviewing weak or overlapping regional labels before broadening taxonomy
   further, especially `kaathi_rolls`, `masala_dosa`, `dosa`, `butter_naan`,
   and `dal_makhani`.
+
+## 15. Expanded Taxonomy E2 Result
+
+Notebook 14 runs a partial ConvNeXt-Tiny fine-tune on the same 130-class target.
+
+Kaggle run:
+
+```text
+https://www.kaggle.com/code/tuannm3823/foodlens-expanded-taxonomy-v2-finetune
+```
+
+The E2 run starts from the E1 best checkpoint, unfreezes the later ConvNeXt
+stages plus head, preserves temperature calibration, and outputs source-level
+test metrics for monitoring cross-dataset behavior.
+
+Overall result:
+
+| Metric | Value |
+| --- | ---: |
+| Classes | 130 |
+| Train split images | 105,514 |
+| Validation top-1 | 87.65% |
+| Validation top-5 | 97.21% |
+| Validation calibrated ECE | 0.0160 |
+| Test top-1 | 88.00% |
+| Test top-5 | 97.43% |
+| Test calibrated ECE | 0.0138 |
+
+Source-level test result:
+
+| Source | Images | Test top-1 |
+| --- | ---: | ---: |
+| Food-101 | 10,099 | 88.26% |
+| Food Image Classification | 1,998 | 88.94% |
+| Foodies AI Challenge | 1,093 | 83.90% |
+
+Weak and overlapping class summary (selected):
+
+- `kaathi_rolls`: precision 0.07 / recall 0.14 / support 28
+- `masala_dosa`: precision 0.15 / recall 0.15 / support 27
+- `butter_naan`: precision 0.24 / recall 0.27 / support 30
+- `dal_makhani`: precision 0.33 / recall 0.66 / support 29
+- `dosa`: precision 0.50 / recall 0.48 / support 52
+
+Decision:
+
+- E2 improves the E1 expanded-taxonomy benchmark by +1.90 top-1 and +0.55 top-5.
+- Calibrated ECE improved materially (0.0181 → 0.0138).
+- E2 should be used as the starting 130-class checkpoint for decision-layer
+  work, while continuing weak-class remediation.

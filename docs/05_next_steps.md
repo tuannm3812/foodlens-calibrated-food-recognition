@@ -69,7 +69,7 @@ The first expanded-taxonomy baseline is now complete:
 | `A3b` | ConvNeXt-Tiny continued fine-tune 224 | best accuracy result so far, but calibration is weaker |
 | `T1` | Expanded taxonomy audit | found 36 raw candidate new classes and a conservative 130-class target |
 | `E1` | Expanded taxonomy v1 baseline | completed head-only 130-class run from the A3b checkpoint |
-| `E2` | Expanded taxonomy fine-tune | in progress: partial-convnext fine-tune from E1 checkpoint |
+| `E2` | Expanded taxonomy fine-tune | completed partial-ConvNeXt fine-tune from E1 checkpoint |
 
 Promotion criteria:
 
@@ -216,9 +216,10 @@ and evidence-driven:
 
 1. **Decision-layer recalibration:** recalibrate around the A3b ConvNeXt
    checkpoint before product promotion.
-2. **Expanded taxonomy E2:** in-progress partial or full fine-tune from the E1 classifier
-   and review weak regional classes such as `kaathi_rolls`, `masala_dosa`,
-   `dosa`, `butter_naan`, and `dal_makhani`.
+2. **Expanded taxonomy E2:** completed partial ConvNeXt fine-tune from the E1
+   classifier. Current 130-class checkpoint now uses partial-unfreezing with lower
+   calibrated ECE and targeted weak-class review for `kaathi_rolls`,
+   `masala_dosa`, `dosa`, `butter_naan`, and `dal_makhani`.
 3. **Final reporting:** turn the model, calibration, decision-layer, and demo
    results into a concise project summary or presentation.
 4. **Demo stress testing:** expand the sample set beyond one example per

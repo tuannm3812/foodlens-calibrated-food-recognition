@@ -124,20 +124,27 @@ ConvNeXt-Tiny checkpoint using Food-101 plus audited public food labels. This
 result is not directly comparable with the 101-class table above because it
 predicts a broader label space.
 
-| Metric | E1 expanded taxonomy baseline |
-| --- | ---: |
-| Classes | 130 |
-| Training images | 131,893 |
-| Test top-1 accuracy | 86.10% |
-| Test top-5 accuracy | 96.88% |
-| Test calibrated ECE | 0.0181 |
-| Food-101 source test top-1 | 86.90% |
-| Public source test top-1 | 85.29% / 80.24% |
+| Metric | E1 baseline | E2 partial fine-tune |
+| --- | ---: | ---: |
+| Classes | 130 | 130 |
+| Training images | 131,893 | 131,893 |
+| Test top-1 accuracy | 86.10% | 88.00% |
+| Test top-5 accuracy | 96.88% | 97.43% |
+| Validation top-1 accuracy | 86.11% | 87.65% |
+| Validation top-5 accuracy | 97.09% | 97.21% |
+| Test calibrated ECE | 0.0181 | 0.0138 |
+| Food-101 source top-1 | 86.90% | 88.26% |
+| Public source top-1 (Food Image / Foodies) | 85.29% / 80.24% | 88.94% / 83.90% |
 
-The validation curve was still improving at epoch 5, so the next model step is
-an in-progress E2 run with partial backbone fine-tuning plus focused
-review of weak regional classes such as `kaathi_rolls`, `masala_dosa`, `dosa`,
-`butter_naan`, and `dal_makhani`.
+E2 is a partial ConvNeXt fine-tune from E1, and it improved broad 130-class
+performance with lower calibration error:
+
+- top-1: +1.90 points (86.10% → 88.00%)
+- top-5: +0.55 points (96.88% → 97.43%)
+- calibrated ECE: 0.0181 → 0.0138
+
+Weak classes still needing focused review include `kaathi_rolls`, `masala_dosa`,
+`butter_naan`, `dal_makhani`, `dosa`, and `rolls`.
 
 ## Repository Structure
 
@@ -288,8 +295,8 @@ Detailed documentation is available in:
 ## Roadmap
 
 - Recalibrate the decision layer around the A3b ConvNeXt-Tiny checkpoint.
-- Run an E2 expanded-taxonomy fine-tuning experiment from the completed
-  130-class baseline (`14_expanded_taxonomy_v2_finetune.ipynb`).
+- Use the completed E2 expanded-taxonomy checkpoint (`14_expanded_taxonomy_v2_finetune.ipynb`)
+  for decision-layer work and product integration.
 - Improve detector quality with food-specific detection or segmentation.
 - Expand live video inference beyond sampled-frame review.
 - Add richer metadata for known confusion pairs and hard classes.
