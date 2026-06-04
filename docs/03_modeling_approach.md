@@ -403,7 +403,15 @@ controlled E2 run with partial or full backbone fine-tuning. The taxonomy also
 needs focused review around weak regional or overlapping labels such as
 `kaathi_rolls`, `masala_dosa`, `dosa`, `butter_naan`, and `dal_makhani`.
 
-## 16. Cross-Notebook Evaluation Contract
+## 16. Notebook 14: Expanded Taxonomy V2 Fine-tune
+
+- Start from `13_expanded_taxonomy_v1_baseline.ipynb` best checkpoint.
+- Keep the same 130-class label set.
+- Unfreeze only late ConvNeXt stages and the classifier head.
+- Use differential learning rates for backbone and head.
+- Track validation/test top-k, calibrated top-k, source-level splits, and weak-class drift.
+
+## 17. Cross-Notebook Evaluation Contract
 
 All notebooks should preserve the same **comparison contract**:
 
@@ -424,7 +432,7 @@ This keeps model changes interpretable. A new experiment should explain **what
 changed**, **why it changed**, and whether the result is strong enough to alter
 the project direction.
 
-## 17. Current Reasoning Conclusion
+## 18. Current Reasoning Conclusion
 
 The current product champion is **ResNet50 FT-V2** because it has the strongest
 calibrated decision-layer evidence. The current accuracy leader is **A3b

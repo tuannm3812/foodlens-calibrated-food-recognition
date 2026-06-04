@@ -23,6 +23,7 @@ Active notebook sequence:
 5. `11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb`
 6. `12_food_taxonomy_expansion_audit.ipynb`
 7. `13_expanded_taxonomy_v1_baseline.ipynb`
+8. `14_expanded_taxonomy_v2_finetune.ipynb`
 
 Archived notebook records:
 

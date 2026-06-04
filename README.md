@@ -135,7 +135,7 @@ predicts a broader label space.
 | Public source test top-1 | 85.29% / 80.24% |
 
 The validation curve was still improving at epoch 5, so the next model step is
-a controlled E2 run with partial or full backbone fine-tuning plus focused
+an in-progress E2 run with partial backbone fine-tuning plus focused
 review of weak regional classes such as `kaathi_rolls`, `masala_dosa`, `dosa`,
 `butter_naan`, and `dal_makhani`.
 
@@ -248,6 +248,7 @@ weights path.
 | `11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb` | Phase 1 continuation run from the A3 ConvNeXt-Tiny checkpoint with lower learning rates. |
 | `12_food_taxonomy_expansion_audit.ipynb` | Audits external food datasets and candidate labels before training a classifier beyond 101 classes. |
 | `13_expanded_taxonomy_v1_baseline.ipynb` | First expanded-taxonomy baseline: 130 classes from Food-101 plus audited public food labels. |
+| `14_expanded_taxonomy_v2_finetune.ipynb` | Controlled partial-backbone fine-tune from E1 with weak-class review and source-level metrics. |
 
 Historical and superseded notebooks are preserved in
 [`notebooks/archive/`](notebooks/archive/).
@@ -288,7 +289,7 @@ Detailed documentation is available in:
 
 - Recalibrate the decision layer around the A3b ConvNeXt-Tiny checkpoint.
 - Run an E2 expanded-taxonomy fine-tuning experiment from the completed
-  130-class baseline.
+  130-class baseline (`14_expanded_taxonomy_v2_finetune.ipynb`).
 - Improve detector quality with food-specific detection or segmentation.
 - Expand live video inference beyond sampled-frame review.
 - Add richer metadata for known confusion pairs and hard classes.

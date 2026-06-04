@@ -472,7 +472,36 @@ Decision:
   expanded baseline.
 - It should not replace the 101-class product champion yet because it has not
   been wired through the decision layer or app artifacts.
-- Validation top-1 improved through epoch 5, so the next run should be E2:
-  partial or full backbone fine-tuning from E1 with the same taxonomy.
+- Validation top-1 improved through epoch 5, so E2 is now running as a partial
+  backbone fine-tune from E1 with the same taxonomy.
 - Weak labels needing review include `kaathi_rolls`, `masala_dosa`, `dosa`,
   `butter_naan`, `dal_makhani`, and other overlapping regional dishes.
+
+## 15. Notebook 14: Expanded Taxonomy V2 Fine-tune
+
+Notebook:
+
+[`../notebooks/14_expanded_taxonomy_v2_finetune.ipynb`](../notebooks/14_expanded_taxonomy_v2_finetune.ipynb)
+
+Kaggle package:
+
+```text
+kaggle/expanded_taxonomy_v2/
+|-- kernel-metadata.json
+|-- expanded_taxonomy_v1.json
+`-- 14_expanded_taxonomy_v2_finetune.ipynb
+```
+
+Run:
+
+```text
+https://www.kaggle.com/code/tuannm3823/foodlens-expanded-taxonomy-v2-finetune
+```
+
+E2 keeps the 130-class label set and starts from the E1 best checkpoint.
+The contract focuses on partial ConvNeXt unfreezing:
+
+- unfreeze the final ConvNeXt stages plus classifier head,
+- track top-1/top-5 on val and test,
+- preserve calibration with temperature scaling,
+- compare source-level behavior for Food-101 vs public datasets.

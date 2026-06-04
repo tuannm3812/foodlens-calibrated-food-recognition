@@ -43,6 +43,7 @@ The project is organized into controlled notebook stages:
 | Accuracy phase | `11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb` plus archived `09`/`10` records | test controlled Food-101 accuracy improvements beyond ResNet50 FT-V2 |
 | Taxonomy expansion | `12_food_taxonomy_expansion_audit.ipynb` | audit external food labels before training beyond 101 classes |
 | Expanded baseline | `13_expanded_taxonomy_v1_baseline.ipynb` | train the first conservative 130-class classifier head |
+| Expanded fine-tune | `14_expanded_taxonomy_v2_finetune.ipynb` | partial-convnext fine-tune from the E1 baseline |
 
 Baseline, refinement, frozen-head comparison, detector exploration, and
 superseded accuracy notebooks are preserved under `notebooks/archive/`.
