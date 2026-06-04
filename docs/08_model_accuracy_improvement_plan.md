@@ -158,6 +158,17 @@ audited. Preferred workflow:
 4. Recalibrate on validation logits.
 5. Evaluate on the unchanged Food-101 test split.
 
+Current access note:
+
+- The official FoodX-251 source is the Kaggle community competition
+  `ifood-2019-fgvc6`.
+- The files are visible through the Kaggle CLI, but `tuannm3823` has not entered
+  the competition yet, so direct downloads return `403`.
+- Enter the competition rules page before running a FoodX-251 training notebook:
+  `https://www.kaggle.com/competitions/ifood-2019-fgvc6`
+- Until that is accepted, Notebook 12 audits public Kaggle food datasets as a
+  fallback and should not be treated as the final expanded taxonomy.
+
 ## 6. Phase 4: Product Accuracy For FoodLens
 
 FoodLens accuracy depends on more than Food-101 classification. The app must
