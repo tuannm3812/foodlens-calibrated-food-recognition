@@ -154,13 +154,21 @@ Recommended stack:
 
 ## 6. Inference Contract
 
-The app should expose one primary endpoint:
+The app exposes a small FastAPI surface for health checks, runtime readiness,
+single-image classification, multi-food image analysis, URL ingestion, and
+legacy video upload fallback:
 
 ```text
+GET  /health
+GET  /runtime/status
 POST /predict/image
+POST /predict/multi-food/image
+POST /predict/multi-food/image-url
+POST /predict/multi-food/youtube-url
+POST /predict/video
 ```
 
-Example response:
+Example single-image response:
 
 ```json
 {
@@ -178,26 +186,36 @@ Example response:
 }
 ```
 
-The API should also return enough metadata for auditability:
+The multi-food endpoints return the Notebook 8 app contract: source metadata,
+detected regions, crop previews, detector status, crop-level FoodLens
+predictions, decision bands, and artifact references. URL endpoints validate
+remote inputs before sending images or sampled frames through that same
+contract.
+
+Every response should return enough metadata for auditability:
 
 - model version;
 - calibration temperature;
 - decision-policy version;
 - preprocessing settings;
 - inference timestamp;
+- fallback reason or detector status when live inference is unavailable;
 - optional user feedback.
 
 ## 7. Video Direction
 
-Video should be a second-phase feature after image mode is stable.
+Video is handled as sampled-frame review rather than a single automatic label.
+This keeps uncertainty visible when camera motion, changing scene content, and
+partial frames make the signal weaker than a still image.
 
-Initial video method:
+Current video method:
 
-1. Accept a short food video.
-2. Sample frames at a fixed interval.
-3. Run the image classifier on each sampled frame.
-4. Aggregate predictions with confidence-weighted voting.
-5. Return a video-level top-k prediction and decision band.
+1. Accept a local video or public YouTube URL.
+2. Sample a small number of representative frames.
+3. Run each frame through the multi-food image pipeline.
+4. Return frame-level crop regions and a compact video summary.
+5. Route video outputs toward confirmation or review instead of blind
+   auto-acceptance.
 
 Example video output:
 
@@ -218,7 +236,8 @@ Video risks:
 - changing camera angle and lighting;
 - higher inference cost.
 
-For that reason, video should not be the MVP.
+For that reason, video should remain a review workflow until the project has a
+stronger detector and a dedicated video evaluation set.
 
 ## 8. Model And Product Limitations
 
@@ -227,11 +246,13 @@ FoodLens should communicate uncertainty honestly.
 Current limitations:
 
 - Food-101 only covers **101 classes**, so out-of-scope dishes may be forced
-  into the closest known class.
+  into the closest known class in the current product champion path.
+- The expanded-taxonomy baseline now covers 130 classes, but it still needs
+  decision-layer recalibration and app artifact packaging before product use.
 - Similar dishes remain hard: steak-like dishes, tartare-style dishes, and
   dessert families.
-- The model classifies the dominant dish but does not detect multiple foods in
-  one image.
+- Generic object detectors can miss plated foods or localize containers instead
+  of dishes.
 - Confidence is calibrated for the Food-101 evaluation setup, not guaranteed
   for every real-world camera image.
 
@@ -242,23 +263,24 @@ suggestions, confirmations, and review states when the model is uncertain.
 
 ### Phase 1: Inference Package
 
-- Move Notebook 6 inference logic into reusable Python functions.
 - Export `class_names.json`, `calibration.json`, and `decision_policy.json`.
-- Add a small CLI or local script for single-image prediction.
+- Keep the ResNet50 FT-V2 checkpoint outside git under `app/artifacts/`.
+- Preserve deterministic fallback responses when artifacts are unavailable.
 
 ### Phase 2: Backend API
 
-- Build a FastAPI `/predict/image` endpoint.
-- Add request and response schemas.
-- Add basic validation for file type and image size.
-- Return top-k predictions, decision band, and recommended action.
+- Maintain FastAPI endpoints for upload, direct image URL, and YouTube URL
+  analysis.
+- Return top-k predictions, decision band, detector status, and fallback reason.
+- Keep `/runtime/status` as the first debugging tool for artifact and detector
+  readiness.
 
 ### Phase 3: Web MVP
 
-- Build image upload UI.
-- Show top-k predictions and decision action.
-- Add user confirmation/correction controls.
-- Save prediction history locally.
+- Use the React/Vite Analyzer Workbench as the primary frontend.
+- Support image upload, direct image URL, local video, and YouTube-style input.
+- Show source context, detected regions, crop-level predictions, and selected
+  crop details.
 
 ### Phase 4: Feedback Loop
 
@@ -266,12 +288,12 @@ suggestions, confirmations, and review states when the model is uncertain.
 - Export feedback examples for future evaluation.
 - Track which classes users correct most often.
 
-### Phase 5: Video Prototype
+### Phase 5: Model Quality
 
-- Add short-video upload.
-- Sample frames.
-- Aggregate frame predictions.
-- Compare video-level output against image-only output.
+- Recalibrate the decision layer for A3b ConvNeXt-Tiny.
+- Run E2 expanded-taxonomy fine-tuning from the completed 130-class baseline.
+- Improve detector quality with a food-specific detection or segmentation
+  dataset.
 
 ## 10. Success Criteria
 
@@ -279,39 +301,39 @@ FoodLens should be judged by product behavior, not only model accuracy.
 
 MVP success metrics:
 
-- image upload works reliably;
+- image upload and URL ingestion work reliably;
 - top-k predictions match Notebook 6 behavior;
 - calibrated confidence is shown consistently;
 - decision bands are applied correctly;
-- users can confirm or correct a prediction;
-- prediction history can be reviewed;
+- crop-level multi-food results preserve the Notebook 8 response contract;
+- sampled video frames are clearly marked as frame-level review;
 - the app clearly handles uncertainty instead of pretending every prediction is
   equally reliable.
 
 ## 11. Recommended Next Step
 
-The first app foundation has started with a static frontend concept and
-artifact-aware FastAPI backend:
+The current app foundation is a React/Vite Analyzer Workbench backed by an
+artifact-aware FastAPI service:
 
 ```text
-app/frontend/index.html
+app/frontend/
 app/backend/api.py
 ```
 
-It is intentionally not Streamlit. The prototype focuses on a polished product
-interface for upload, preview, top-k predictions, calibrated confidence, and the
-four FoodLens decision bands. The backend uses the project ResNet50 FT-V2
-artifacts when they are available and falls back to mock predictions only when
-artifacts or runtime dependencies are missing.
+The prototype focuses on a product-style interface for upload, URL input, video
+review, source preview, detected crop regions, top-k predictions, calibrated
+confidence, and the four FoodLens decision bands. The backend uses the project
+ResNet50 FT-V2 artifacts when they are available and falls back to deterministic
+predictions only when artifacts or runtime dependencies are missing.
 
-The next technical step is to export the project artifacts into app-ready files:
+The next technical steps are:
 
 1. Place model artifacts under `app/artifacts/` outside git.
-2. Export `class_names.json`, `calibration.json`, `decision_policy.json`,
-   `hard_classes.json`, and `confusion_pairs.json`.
-3. Keep Notebook 6 as the experiment/demo record.
-4. Improve the React frontend using the Stitch and AI Studio design exports.
-5. Build the image-upload MVP before starting video.
+2. Recalibrate the decision layer for A3b before product promotion.
+3. Run E2 expanded-taxonomy fine-tuning from the completed 130-class baseline.
+4. Improve detector quality with food-specific detection or segmentation data.
+5. Keep Notebook 6 and Notebook 8 as the single-image and multi-food app
+   contract records.
 
 Notebook 6 now writes the JSON artifacts under:
 

@@ -100,7 +100,7 @@ Each notebook should include:
   size, learning rate, and epochs;
 - Kaggle path constants near the top;
 - deterministic seed setup for reproducibility;
-- Markdown insight cells after important plots or metrics;
+- Markdown takeaway cells after important plots or metrics;
 - artifact-writing cells for checkpoints, histories, figures, and inference
   outputs.
 

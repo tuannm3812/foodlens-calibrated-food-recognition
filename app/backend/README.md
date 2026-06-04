@@ -45,9 +45,12 @@ http://127.0.0.1:8000/health
 ## Endpoints
 
 ```text
+GET /health
 GET /runtime/status
 POST /predict/image
 POST /predict/multi-food/image
+POST /predict/multi-food/image-url
+POST /predict/multi-food/youtube-url
 POST /predict/video
 ```
 
@@ -58,20 +61,25 @@ environment is returning live inference, detector-only classifier fallback, or
 demo fallback responses.
 
 The single-image endpoint uses real artifacts when available and fallback
-predictions when they are not. The video endpoint remains deterministic mock
-output and returns `fallback_reason: video_mock` until live video inference is
-implemented. The multi-food endpoint returns the Notebook 8 app contract with
-detected regions, crop-level predictions, decision bands, and artifact
-references. It uses live YOLO proposals plus crop classification when
+predictions when they are not. The multi-food upload and direct image URL
+endpoints return the Notebook 8 app contract with detected regions, crop-level
+predictions, decision bands, and artifact references. The YouTube URL endpoint
+samples frames server-side and sends those frames through the same multi-food
+image path.
+
+The multi-food path uses live YOLO proposals plus crop classification when
 `ultralytics` and classifier artifacts are available, marking responses with
-`detector_status: live_yolo`. When YOLO is available but classifier artifacts are
-missing, it still returns real uploaded-image crops and marks classifier labels
-with `detector_status: live_yolo_classifier_fallback` and `fallback_reason:
-missing_classifier_artifacts`. It falls back to a deterministic prototype
-response marked with `detector_status: fallback_demo` when image decoding or the
-detector runtime is unavailable. Fallback responses include `fallback_reason` so
-clients can distinguish deterministic demo data, detector-only crops, and live
-inference.
+`detector_status: live_yolo`. When YOLO is available but classifier artifacts
+are missing, it still returns real uploaded-image crops and marks classifier
+labels with `detector_status: live_yolo_classifier_fallback` and
+`fallback_reason: missing_classifier_artifacts`. It falls back to a
+deterministic prototype response marked with `detector_status: fallback_demo`
+when image decoding or the detector runtime is unavailable. Fallback responses
+include `fallback_reason` so clients can distinguish deterministic demo data,
+detector-only crops, and live inference.
+
+The legacy video upload endpoint remains deterministic mock output and returns
+`fallback_reason: video_mock` until live backend video inference is implemented.
 
 The frontend implements video review by sampling key frames client-side and
 calling `POST /predict/multi-food/image` for each extracted frame.

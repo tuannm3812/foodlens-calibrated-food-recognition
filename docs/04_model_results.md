@@ -354,7 +354,7 @@ Decision-band results on the held-out test predictions:
 | Confirm | 18.99% | 29.98% | 66.16% | user confirmation is required |
 | Review | 2.21% | 0.00% | 88.79% | known confusion cases need inspection |
 
-Technical insight:
+Key points:
 
 - The model can automatically accept more than half of test predictions while
   keeping auto-accept top-1 accuracy above **96%**.
@@ -364,7 +364,7 @@ Technical insight:
   not be treated as model failure alone, but as evidence that product behavior
   should change by confidence and ambiguity.
 
-Business insight:
+Product impact:
 
 - The project is now closer to a usable assisted-labeling workflow than a raw
   classifier. A product can accept easy dishes, show choices for ambiguous

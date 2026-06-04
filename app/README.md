@@ -74,17 +74,26 @@ python3 -m pytest tests/backend -v
 Endpoints:
 
 ```text
-GET /health
+GET  /health
+GET  /runtime/status
 POST /predict/image
 POST /predict/multi-food/image
+POST /predict/multi-food/image-url
+POST /predict/multi-food/youtube-url
 POST /predict/video
 ```
+
+`/runtime/status` reports classifier artifact readiness, optional calibration
+and decision-policy files, detector dependency availability, detector weight
+resolution, and the effective multi-food mode.
 
 The backend uses the project ResNet50 FT-V2 artifacts for image classification
 when they are present. If artifacts or runtime dependencies are missing, it
 falls back to deterministic mock predictions so the frontend still works. The
-video API endpoint is explicitly marked as `fallback_reason: video_mock` until
-live video inference is implemented.
+direct image URL and YouTube URL endpoints validate and ingest remote media
+before sending images or sampled frames through the same multi-food contract.
+The legacy video upload endpoint is explicitly marked as
+`fallback_reason: video_mock` until live backend video inference is implemented.
 
 The multi-food endpoint follows the Notebook 8 response contract so the app can
 render detected regions, crop-level FoodLens predictions, decision bands, and
@@ -110,7 +119,7 @@ Real inference needs:
 - `confusion_pairs.json`.
 
 Artifacts should stay out of git and be placed under `app/artifacts/` or a
-local model path when the backend is added.
+local model path when running live inference.
 
 Source:
 
