@@ -441,5 +441,53 @@ Decision:
   accuracy.
 - The slight calibration improvement is useful but not enough to offset the
   accuracy, top-5, and latency results.
-- Continue Phase 1 with `A3`: full fine-tuning ConvNeXt-Tiny under the same
-  split and reporting contract.
+- A3 and A3b followed this result and moved the accuracy lead to
+  ConvNeXt-Tiny, with A3b reaching **83.90%** test top-1.
+
+## 14. Expanded Taxonomy E1 Result
+
+Notebook 13 trains the first classifier beyond Food-101 with a conservative
+130-class taxonomy built from Food-101 plus audited public food labels.
+
+Kaggle run:
+
+```text
+https://www.kaggle.com/code/tuannm3823/foodlens-expanded-taxonomy-v1-baseline
+```
+
+The E1 run starts from the A3b ConvNeXt-Tiny checkpoint, replaces the
+101-class classifier with a 130-class head, freezes the backbone, and trains
+only the new head. This makes it a taxonomy viability baseline rather than a
+final expanded model.
+
+Overall result:
+
+| Metric | Value |
+| --- | ---: |
+| Classes | 130 |
+| Training images | 131,893 |
+| Validation top-1 | 86.11% |
+| Validation top-5 | 97.09% |
+| Validation calibrated ECE | 0.0177 |
+| Test top-1 | 86.10% |
+| Test top-5 | 96.88% |
+| Test calibrated ECE | 0.0181 |
+
+Source-level test result:
+
+| Source | Images | Test top-1 |
+| --- | ---: | ---: |
+| Food-101 | 10,099 | 86.90% |
+| Food Image Classification | 1,998 | 85.29% |
+| Foodies AI Challenge | 1,093 | 80.24% |
+
+Decision:
+
+- Keep E1 as the expanded-taxonomy baseline.
+- Do not promote it to product champion until the 130-class decision layer and
+  app artifacts are rebuilt.
+- Run E2 with partial or full backbone fine-tuning because validation accuracy
+  was still improving through epoch 5.
+- Review weak or overlapping regional labels before broadening the taxonomy
+  further, especially `kaathi_rolls`, `masala_dosa`, `dosa`, `butter_naan`,
+  and `dal_makhani`.

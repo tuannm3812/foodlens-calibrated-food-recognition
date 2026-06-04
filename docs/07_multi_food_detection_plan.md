@@ -37,7 +37,7 @@ as an exploration tool.
 
 | Notebook | Purpose |
 | --- | --- |
-| `07_multi_food_detection_exploration.ipynb` | Explore pretrained YOLO detection/segmentation on food images and videos, export crops and detection metadata. |
+| `archive/07_multi_food_detection_exploration.ipynb` | Historical YOLO detection/segmentation exploration for food images and videos. |
 | `08_detection_to_foodlens_pipeline.ipynb` | Connect detector crops to the existing FoodLens classifier and decision layer, producing per-food predictions. |
 
 ## 5. Success Criteria
@@ -56,4 +56,3 @@ Potential datasets for a stronger detector phase:
 - **FoodSeg103** for food segmentation masks.
 - **Open Images food-related classes** for broader detection pretraining.
 - A custom labelled set for product-specific dishes.
-

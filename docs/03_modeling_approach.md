@@ -37,7 +37,7 @@ cleared when notebook code changes, and model artifacts are kept outside git.
 ## 3. Notebook 1: Build The Baseline
 
 Notebook:
-[`../notebooks/01_food101_baseline_transfer_finetuning.ipynb`](../notebooks/01_food101_baseline_transfer_finetuning.ipynb)
+[`../notebooks/archive/01_food101_baseline_transfer_finetuning.ipynb`](../notebooks/archive/01_food101_baseline_transfer_finetuning.ipynb)
 
 Question:
 
@@ -71,7 +71,7 @@ Notebook 1 establishes **ResNet50 as the baseline family** and proves that
 ## 4. Notebook 2: Improve The Training Recipe
 
 Notebook:
-[`../notebooks/02_resnet50_training_refinements.ipynb`](../notebooks/02_resnet50_training_refinements.ipynb)
+[`../notebooks/archive/02_resnet50_training_refinements.ipynb`](../notebooks/archive/02_resnet50_training_refinements.ipynb)
 
 Question:
 
@@ -102,7 +102,7 @@ without increasing model size or changing the architecture.
 ## 5. Notebook 3: Test Modern Backbones
 
 Notebook:
-[`../notebooks/03_modern_backbone_comparison.ipynb`](../notebooks/03_modern_backbone_comparison.ipynb)
+[`../notebooks/archive/03_modern_backbone_comparison.ipynb`](../notebooks/archive/03_modern_backbone_comparison.ipynb)
 
 Question:
 
@@ -228,7 +228,7 @@ Notebook 6 is the demo layer for the project.
 ## 9. Notebook 7: Explore Multi-Food Detection
 
 Notebook:
-[`../notebooks/07_multi_food_detection_exploration.ipynb`](../notebooks/07_multi_food_detection_exploration.ipynb)
+[`../notebooks/archive/07_multi_food_detection_exploration.ipynb`](../notebooks/archive/07_multi_food_detection_exploration.ipynb)
 
 Question:
 
@@ -270,7 +270,7 @@ workflow.
 ## 11. Notebook 9: Accuracy Phase 1 A1
 
 Notebook:
-[`../notebooks/09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb`](../notebooks/09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb)
+[`../notebooks/archive/09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb`](../notebooks/archive/09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb)
 
 Question:
 
@@ -301,6 +301,9 @@ experiment toward `A3`: fully fine-tuned ConvNeXt-Tiny.
 
 ## 12. Notebook 10: A3 ConvNeXt-Tiny Full Fine-Tuning
 
+Notebook:
+[`../notebooks/archive/10_food101_accuracy_phase1_a3_convnext_tiny.ipynb`](../notebooks/archive/10_food101_accuracy_phase1_a3_convnext_tiny.ipynb)
+
 Question:
 
 > Was the frozen-head ConvNeXt result weak because the backbone was unsuitable,
@@ -327,6 +330,9 @@ weaker than ResNet50 FT-V2.
 
 ## 13. Notebook 11: A3b ConvNeXt-Tiny Continued Fine-Tuning
 
+Notebook:
+[`../notebooks/11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb`](../notebooks/11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb)
+
 Question:
 
 > Does the A3 checkpoint still have useful training headroom after epoch 8?
@@ -341,6 +347,9 @@ Key points:
    hard-class refinement.
 
 ## 14. Notebook 12: Expanded Taxonomy Audit
+
+Notebook:
+[`../notebooks/12_food_taxonomy_expansion_audit.ipynb`](../notebooks/12_food_taxonomy_expansion_audit.ipynb)
 
 Question:
 
@@ -361,6 +370,9 @@ contract needed before expanding prediction coverage beyond 101 classes.
 
 ## 15. Notebook 13: Expanded Taxonomy V1 Baseline
 
+Notebook:
+[`../notebooks/13_expanded_taxonomy_v1_baseline.ipynb`](../notebooks/13_expanded_taxonomy_v1_baseline.ipynb)
+
 Question:
 
 > Can the A3b ConvNeXt-Tiny backbone support a conservative 130-class food
@@ -375,9 +387,21 @@ Key points:
 5. Freeze the backbone for the first baseline so taxonomy quality is tested
    before full fine-tuning.
 
-Notebook 13 is the first trainable step beyond Food-101. Its result should
-decide whether the project should full fine-tune the expanded classifier or
-wait for FoodX-251 access.
+Decision produced:
+
+| Metric | Result |
+| --- | ---: |
+| Classes | 130 |
+| Training images | 131,893 |
+| Test top-1 | 86.10% |
+| Test top-5 | 96.88% |
+| Test calibrated ECE | 0.0181 |
+
+Notebook 13 confirms that the expanded taxonomy is viable. Because validation
+top-1 continued improving through epoch 5, the next model step should be a
+controlled E2 run with partial or full backbone fine-tuning. The taxonomy also
+needs focused review around weak regional or overlapping labels such as
+`kaathi_rolls`, `masala_dosa`, `dosa`, `butter_naan`, and `dal_makhani`.
 
 ## 16. Cross-Notebook Evaluation Contract
 
@@ -415,6 +439,6 @@ decision design**:
 5. Demonstrate the final **user-facing prediction workflow**.
 6. Extend toward **multi-food detection** through detector crops.
 7. Recalibrate the A3b decision layer before product promotion.
-8. Audit external labels before training beyond the 101 Food-101 classes.
-8. Revisit compact models only if **deployment constraints** become more
+8. Improve the expanded 130-class classifier with controlled fine-tuning.
+9. Revisit compact models only if **deployment constraints** become more
    important than accuracy.

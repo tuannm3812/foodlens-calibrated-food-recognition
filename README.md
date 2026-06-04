@@ -17,6 +17,10 @@ The current champion is a refined ResNet50 FT-V2 model with strong top-5
 performance, low calibration error, and a decision layer that routes predictions
 into auto-accept, suggest, confirm, or review workflows.
 
+The strongest 101-class accuracy run is A3b ConvNeXt-Tiny. The first expanded
+taxonomy run now covers 130 classes and validates that the A3b backbone can
+support broader food coverage after replacing the classifier head.
+
 ## Highlights
 
 - Classifies Food-101 images across 101 food categories.
@@ -110,7 +114,30 @@ More interface captures are indexed in
 A3b ConvNeXt-Tiny is the strongest accuracy result so far, improving held-out
 test top-1 by 5.62 percentage points over ResNet50 FT-V2. It is not yet the
 product champion because its calibrated ECE is worse than ResNet50 FT-V2, so
-the next steps are decision-layer recalibration and expanded-taxonomy audit.
+the next steps are decision-layer recalibration and expanded-taxonomy
+fine-tuning.
+
+### Expanded Taxonomy Baseline
+
+The first expanded-taxonomy run trains a 130-class head from the A3b
+ConvNeXt-Tiny checkpoint using Food-101 plus audited public food labels. This
+result is not directly comparable with the 101-class table above because it
+predicts a broader label space.
+
+| Metric | E1 expanded taxonomy baseline |
+| --- | ---: |
+| Classes | 130 |
+| Training images | 131,893 |
+| Test top-1 accuracy | 86.10% |
+| Test top-5 accuracy | 96.88% |
+| Test calibrated ECE | 0.0181 |
+| Food-101 source test top-1 | 86.90% |
+| Public source test top-1 | 85.29% / 80.24% |
+
+The validation curve was still improving at epoch 5, so the next model step is
+a controlled E2 run with partial or full backbone fine-tuning plus focused
+review of weak regional classes such as `kaathi_rolls`, `masala_dosa`, `dosa`,
+`butter_naan`, and `dal_makhani`.
 
 ## Repository Structure
 
@@ -122,7 +149,8 @@ the next steps are decision-layer recalibration and expanded-taxonomy audit.
 |   |-- frontend-static/   # Archived static prototype
 |   `-- artifacts/         # Local model artifacts; kept out of git
 |-- docs/                  # Project documentation, results, and roadmap
-|-- notebooks/             # Reproducible experiment notebooks
+|-- notebooks/             # Active reproducible experiment notebooks
+|   `-- archive/           # Historical and superseded notebooks
 `-- tests/backend/         # Backend API and ingestion tests
 ```
 
@@ -213,19 +241,16 @@ weights path.
 
 | Notebook | Purpose |
 | --- | --- |
-| `01_food101_baseline_transfer_finetuning.ipynb` | Baseline data ingestion, transfer learning, ResNet50 fine-tuning, test evaluation, confusion analysis, and efficiency reporting. |
-| `02_resnet50_training_refinements.ipynb` | Improved ResNet50 training with longer fine-tuning, AdamW, LR scheduling, stronger augmentation, and label smoothing. |
-| `03_modern_backbone_comparison.ipynb` | EfficientNet-B0 and ConvNeXt-Tiny comparison against ResNet50 FT-V2. |
 | `04_resnet50_error_calibration_inference.ipynb` | Champion error analysis, calibration metrics, hard classes, high-confidence errors, and deterministic inference. |
 | `05_confidence_decision_layer.ipynb` | Confidence policy for auto-accept, suggestion, confirmation, and review decisions. |
 | `06_food_recognition_demo_inference.ipynb` | Final single-image demo workflow and lightweight app artifact exports. |
-| `07_multi_food_detection_exploration.ipynb` | Pretrained detector exploration for food images and videos. |
 | `08_detection_to_foodlens_pipeline.ipynb` | Detector-to-classifier pipeline for crop-level FoodLens predictions. |
-| `09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb` | Phase 1 accuracy experiment testing full-backbone ResNet50 continuation from the FT-V2 champion. |
-| `10_food101_accuracy_phase1_a3_convnext_tiny.ipynb` | Phase 1 accuracy experiment testing full-backbone ConvNeXt-Tiny after A1 failed to beat the champion. |
 | `11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb` | Phase 1 continuation run from the A3 ConvNeXt-Tiny checkpoint with lower learning rates. |
 | `12_food_taxonomy_expansion_audit.ipynb` | Audits external food datasets and candidate labels before training a classifier beyond 101 classes. |
 | `13_expanded_taxonomy_v1_baseline.ipynb` | First expanded-taxonomy baseline: 130 classes from Food-101 plus audited public food labels. |
+
+Historical and superseded notebooks are preserved in
+[`notebooks/archive/`](notebooks/archive/).
 
 ## Key Findings
 
@@ -262,8 +287,8 @@ Detailed documentation is available in:
 ## Roadmap
 
 - Recalibrate the decision layer around the A3b ConvNeXt-Tiny checkpoint.
-- Evaluate the running 130-class expanded-taxonomy baseline before broader
-  full-backbone training.
+- Run an E2 expanded-taxonomy fine-tuning experiment from the completed
+  130-class baseline.
 - Improve detector quality with food-specific detection or segmentation.
 - Expand live video inference beyond sampled-frame review.
 - Add richer metadata for known confusion pairs and hard classes.

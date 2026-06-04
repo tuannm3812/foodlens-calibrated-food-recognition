@@ -14,21 +14,24 @@ steps. The root `README.md` stays focused on the high-level project story.
 | [`07_multi_food_detection_plan.md`](07_multi_food_detection_plan.md) | detector-plus-classifier plan for multi-food image and video recognition |
 | [`08_model_accuracy_improvement_plan.md`](08_model_accuracy_improvement_plan.md) | phased plan for improving Food-101 accuracy, calibration, and product-level model quality |
 
-Current notebook sequence:
+Active notebook sequence:
 
-1. `01_food101_baseline_transfer_finetuning.ipynb`
-2. `02_resnet50_training_refinements.ipynb`
-3. `03_modern_backbone_comparison.ipynb`
-4. `04_resnet50_error_calibration_inference.ipynb`
-5. `05_confidence_decision_layer.ipynb`
-6. `06_food_recognition_demo_inference.ipynb`
-7. `07_multi_food_detection_exploration.ipynb`
-8. `08_detection_to_foodlens_pipeline.ipynb`
-9. `09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb`
-10. `10_food101_accuracy_phase1_a3_convnext_tiny.ipynb`
-11. `11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb`
-12. `12_food_taxonomy_expansion_audit.ipynb`
-13. `13_expanded_taxonomy_v1_baseline.ipynb`
+1. `04_resnet50_error_calibration_inference.ipynb`
+2. `05_confidence_decision_layer.ipynb`
+3. `06_food_recognition_demo_inference.ipynb`
+4. `08_detection_to_foodlens_pipeline.ipynb`
+5. `11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb`
+6. `12_food_taxonomy_expansion_audit.ipynb`
+7. `13_expanded_taxonomy_v1_baseline.ipynb`
+
+Archived notebook records:
+
+- `../notebooks/archive/01_food101_baseline_transfer_finetuning.ipynb`
+- `../notebooks/archive/02_resnet50_training_refinements.ipynb`
+- `../notebooks/archive/03_modern_backbone_comparison.ipynb`
+- `../notebooks/archive/07_multi_food_detection_exploration.ipynb`
+- `../notebooks/archive/09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb`
+- `../notebooks/archive/10_food101_accuracy_phase1_a3_convnext_tiny.ipynb`
 
 Current accuracy-improvement execution plan:
 
@@ -40,6 +43,7 @@ Current accuracy-improvement execution plan:
 - audit candidate external datasets before training any classifier beyond the
   current 101 classes;
 - train the first expanded-taxonomy baseline with a conservative 130-class
-  label set;
+  label set, which has now reached **86.10%** test top-1 and **96.88%** test
+  top-5 across 130 classes;
 - use external food datasets later for pretraining, detector training, or crop
   robustness instead of directly mixing labels into the 101-class classifier.

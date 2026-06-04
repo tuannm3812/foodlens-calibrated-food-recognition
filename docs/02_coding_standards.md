@@ -8,7 +8,8 @@ modeling results, and project decisions.
 
 Keep the root small:
 
-- `notebooks/` for Kaggle notebooks.
+- `notebooks/` for active Kaggle notebooks.
+- `notebooks/archive/` for historical or superseded notebooks.
 - `docs/` for standards, instructions, modeling approach, and result summaries.
 - `README.md` for the high-level project overview.
 
@@ -19,22 +20,25 @@ committed.
 
 ## 2. Notebook Naming
 
-Use numbered, stable notebook names that match the workflow:
+Use numbered, stable notebook names that match the workflow. Keep only active
+notebooks in the root of `notebooks/`; move superseded experiment records to
+`notebooks/archive/` with their original filename preserved.
 
-1. `01_food101_baseline_transfer_finetuning.ipynb`
-2. `02_resnet50_training_refinements.ipynb`
-3. `03_modern_backbone_comparison.ipynb`
-4. `04_resnet50_error_calibration_inference.ipynb`
-5. `05_confidence_decision_layer.ipynb`
-6. `06_food_recognition_demo_inference.ipynb`
-7. `07_multi_food_detection_exploration.ipynb`
-8. `08_detection_to_foodlens_pipeline.ipynb`
+Current active notebooks:
 
-Notebook 1 is the stable baseline and evaluation workflow. Later notebooks
-should isolate experiment families, such as ResNet50 recipe changes, modern
-backbone comparisons, calibration analysis, product decision layers, or final
-demo inference. Detection notebooks should separate detector exploration from
-classifier-per-crop integration so results remain attributable.
+1. `04_resnet50_error_calibration_inference.ipynb`
+2. `05_confidence_decision_layer.ipynb`
+3. `06_food_recognition_demo_inference.ipynb`
+4. `08_detection_to_foodlens_pipeline.ipynb`
+5. `11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb`
+6. `12_food_taxonomy_expansion_audit.ipynb`
+7. `13_expanded_taxonomy_v1_baseline.ipynb`
+
+Archived notebooks are still part of the project record, but they should not be
+treated as the recommended execution path. Later notebooks should isolate
+experiment families, such as calibration analysis, product decision layers,
+final demo inference, detector-to-classifier integration, accuracy
+continuation, or expanded-taxonomy training.
 
 Use numbered documentation filenames so the reading order is obvious:
 

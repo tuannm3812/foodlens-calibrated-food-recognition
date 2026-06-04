@@ -267,7 +267,7 @@ compatible PyTorch / torchvision build before training.
 Notebook entry point:
 
 ```text
-notebooks/09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb
+notebooks/archive/09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb
 ```
 
 Kaggle upload package:
@@ -282,7 +282,7 @@ kaggle/accuracy_phase1/
 Active A3 notebook entry point:
 
 ```text
-notebooks/10_food101_accuracy_phase1_a3_convnext_tiny.ipynb
+notebooks/archive/10_food101_accuracy_phase1_a3_convnext_tiny.ipynb
 ```
 
 Active A3 Kaggle upload package:
@@ -362,9 +362,8 @@ Interpretation:
 - A3 latency is effectively tied with ResNet50 FT-V2 in the Kaggle run.
 - A3 calibrated ECE is worse, so product promotion requires recalibrating the
   decision layer and checking auto-accept accuracy.
-- A3 validation accuracy improved every epoch through epoch 8, so the next
-  active run is `A3b`: continue from the A3 checkpoint with lower learning
-  rates.
+- A3 validation accuracy improved every epoch through epoch 8, which justified
+  the completed `A3b` continuation run.
 
 ## 12. A3b Result
 
@@ -387,8 +386,8 @@ Interpretation:
 - A3b improves test top-1 by **0.50 percentage points** over A3.
 - A3b still has weaker calibrated ECE than ResNet50 FT-V2, so product
   promotion requires decision-layer recalibration.
-- The next expansion step is `13_expanded_taxonomy_v1_baseline.ipynb`, which
-  trains a conservative 130-class head from the A3b checkpoint.
+- The next expansion step was `13_expanded_taxonomy_v1_baseline.ipynb`, which
+  validated a conservative 130-class head from the A3b checkpoint.
 
 ## 13. Expanded Taxonomy Audit
 
@@ -445,3 +444,35 @@ https://www.kaggle.com/code/tuannm3823/foodlens-expanded-taxonomy-v1-baseline
 The run starts from the A3b ConvNeXt-Tiny checkpoint, replaces the classifier
 with a 130-class head, freezes the backbone, and trains a first expanded-label
 baseline. This is a taxonomy viability run, not a final product model.
+
+Result:
+
+| Metric | Value |
+| --- | ---: |
+| Classes | 130 |
+| Training images | 131,893 |
+| Validation top-1 | 86.11% |
+| Validation top-5 | 97.09% |
+| Validation calibrated ECE | 0.0177 |
+| Test top-1 | 86.10% |
+| Test top-5 | 96.88% |
+| Test calibrated ECE | 0.0181 |
+
+Source-level test metrics:
+
+| Source | Images | Test top-1 |
+| --- | ---: | ---: |
+| Food-101 | 10,099 | 86.90% |
+| Food Image Classification | 1,998 | 85.29% |
+| Foodies AI Challenge | 1,093 | 80.24% |
+
+Decision:
+
+- E1 validates the conservative 130-class taxonomy and should be kept as the
+  expanded baseline.
+- It should not replace the 101-class product champion yet because it has not
+  been wired through the decision layer or app artifacts.
+- Validation top-1 improved through epoch 5, so the next run should be E2:
+  partial or full backbone fine-tuning from E1 with the same taxonomy.
+- Weak labels needing review include `kaathi_rolls`, `masala_dosa`, `dosa`,
+  `butter_naan`, `dal_makhani`, and other overlapping regional dishes.

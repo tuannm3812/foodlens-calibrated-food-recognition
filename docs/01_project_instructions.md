@@ -2,9 +2,10 @@
 
 ## 1. Objective
 
-This project builds and evaluates a **101-class Food-101 image classifier**.
-The objective is to move from baseline model comparison to a champion model
-that can support practical food-recognition workflows.
+This project builds and evaluates calibrated food-recognition models. The
+primary benchmark remains the **101-class Food-101 classifier**, and the
+expanded-taxonomy track now tests whether the same modeling approach can cover
+more than 100 food classes.
 
 The project tracks four questions:
 
@@ -35,12 +36,16 @@ The project is organized into controlled notebook stages:
 
 | Stage | Notebook | Purpose |
 | --- | --- | --- |
-| Baseline | `01_food101_baseline_transfer_finetuning.ipynb` | compare frozen pretrained backbones and fine-tune ResNet50 |
-| Refinement | `02_resnet50_training_refinements.ipynb` | improve ResNet50 with a stronger training recipe |
-| Backbone comparison | `03_modern_backbone_comparison.ipynb` | test EfficientNet-B0 and ConvNeXt-Tiny against the champion |
 | Calibration and inference | `04_resnet50_error_calibration_inference.ipynb` | calibrate confidence and prepare deterministic inference |
-| Accuracy phase | `09` to `11` notebooks | test controlled Food-101 accuracy improvements beyond ResNet50 FT-V2 |
+| Decision layer | `05_confidence_decision_layer.ipynb` | convert calibrated confidence into product actions |
+| Demo inference | `06_food_recognition_demo_inference.ipynb` | export demo predictions and app artifacts |
+| Multi-food pipeline | `08_detection_to_foodlens_pipeline.ipynb` | classify detected regions with the FoodLens classifier |
+| Accuracy phase | `11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb` plus archived `09`/`10` records | test controlled Food-101 accuracy improvements beyond ResNet50 FT-V2 |
 | Taxonomy expansion | `12_food_taxonomy_expansion_audit.ipynb` | audit external food labels before training beyond 101 classes |
+| Expanded baseline | `13_expanded_taxonomy_v1_baseline.ipynb` | train the first conservative 130-class classifier head |
+
+Baseline, refinement, frozen-head comparison, detector exploration, and
+superseded accuracy notebooks are preserved under `notebooks/archive/`.
 
 The current product champion is **ResNet50 FT-V2**. The current accuracy leader
 is **A3b ConvNeXt-Tiny**, pending decision-layer recalibration.
@@ -78,9 +83,14 @@ repository.
 
 The project has already shown that:
 
-- ResNet50 is the strongest model family tested so far.
+- ResNet50 FT-V2 remains the product champion because it has the strongest
+  calibrated decision-layer evidence.
 - ResNet50 FT-V2 improves held-out test top-1 to **78.28%**.
 - Test top-5 accuracy reaches **92.65%**, supporting ranked suggestions.
 - Temperature scaling improves test ECE from **0.0432** to **0.0265**.
-- The next useful step is a confidence-based decision layer, not another broad
-  architecture search.
+- A3b ConvNeXt-Tiny is the current 101-class accuracy leader with **83.90%**
+  test top-1 and **95.78%** test top-5.
+- The first expanded-taxonomy baseline reaches **86.10%** test top-1 and
+  **96.88%** test top-5 across 130 classes.
+- The next useful step is decision-layer recalibration for A3b and controlled
+  expanded-taxonomy fine-tuning, not another broad architecture search.

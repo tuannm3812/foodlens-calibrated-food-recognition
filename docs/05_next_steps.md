@@ -15,6 +15,8 @@ The project now has a clear champion and a trustworthy evaluation layer.
 | A3 ConvNeXt-Tiny full fine-tune | 95.73% test top-5 |
 | A3b ConvNeXt-Tiny continued fine-tune | 83.90% test top-1 |
 | A3b ConvNeXt-Tiny continued fine-tune | 95.78% test top-5 |
+| E1 expanded taxonomy baseline | 86.10% test top-1 across 130 classes |
+| E1 expanded taxonomy baseline | 96.88% test top-5 across 130 classes |
 | Decision layer | 58.02% auto-accept coverage at 96.47% top-1 |
 
 The current production reference remains **ResNet50 FT-V2** because its
@@ -24,7 +26,8 @@ leader, but it needs decision-layer recalibration before product promotion.
 The active model-improvement direction is now:
 
 > Keep ResNet50 FT-V2 as the product baseline, continue the ConvNeXt-Tiny
-> accuracy phase, and recalibrate the decision layer before promotion.
+> accuracy phase, recalibrate the decision layer before promotion, and improve
+> the expanded 130-class classifier with controlled fine-tuning.
 
 The detailed execution plan is maintained in
 [`08_model_accuracy_improvement_plan.md`](08_model_accuracy_improvement_plan.md).
@@ -50,14 +53,14 @@ Interpretation:
 - The model is strong enough for **ranked suggestions**.
 - The model should not expose raw confidence without the calibrated
   temperature.
-- The next accuracy work should continue from A3 before broad architecture
-  search or direct dataset mixing.
+- The next accuracy work should continue from A3b and E1 before broad
+  architecture search or direct dataset mixing.
 - Product hardening remains important, but the next model step is Phase 1 of
   the accuracy plan.
 
 ## 3. Active Accuracy Phase
 
-The first two accuracy experiments are now complete:
+The first expanded-taxonomy baseline is now complete:
 
 | Run | Model | Why this comes first |
 | --- | --- | --- |
@@ -65,7 +68,8 @@ The first two accuracy experiments are now complete:
 | `A3` | ConvNeXt-Tiny full fine-tune 224 | best accuracy result so far, but calibration is weaker |
 | `A3b` | ConvNeXt-Tiny continued fine-tune 224 | best accuracy result so far, but calibration is weaker |
 | `T1` | Expanded taxonomy audit | found 36 raw candidate new classes and a conservative 130-class target |
-| `E1` | Expanded taxonomy v1 baseline | active 130-class head-training run from the A3b checkpoint |
+| `E1` | Expanded taxonomy v1 baseline | completed head-only 130-class run from the A3b checkpoint |
+| `E2` | Expanded taxonomy fine-tune | recommended next run because E1 validation accuracy was still improving |
 
 Promotion criteria:
 
@@ -75,9 +79,10 @@ Promotion criteria:
 - inspect hard-class F1 and repeated confusion pairs;
 - report latency and model size before replacing the champion.
 
-External datasets should wait until this Food-101-only phase is complete. Their
-first role should be pretraining, detector training, or crop robustness rather
-than direct 101-class label mixing.
+External datasets should remain separated by purpose. Use audited labels for
+the expanded 130-class taxonomy, and keep other external sources focused on
+pretraining, detector training, or crop robustness rather than direct
+101-class label mixing.
 
 ## 4. Implemented Decision-Layer Task
 
@@ -198,7 +203,7 @@ Recommended next implementation:
 
 New notebooks:
 
-- `07_multi_food_detection_exploration.ipynb`
+- `archive/07_multi_food_detection_exploration.ipynb`
 - `08_detection_to_foodlens_pipeline.ipynb`
 
 This should stay in the same repo because it is a direct extension of the
@@ -211,20 +216,20 @@ and evidence-driven:
 
 1. **Decision-layer recalibration:** recalibrate around the A3b ConvNeXt
    checkpoint before product promotion.
-2. **Expanded taxonomy baseline:** evaluate
-   `13_expanded_taxonomy_v1_baseline.ipynb`, then decide whether to full
-   fine-tune the expanded classifier.
-2. **Final reporting:** turn the model, calibration, decision-layer, and demo
+2. **Expanded taxonomy E2:** partial or full fine-tune from the E1 classifier
+   and review weak regional classes such as `kaathi_rolls`, `masala_dosa`,
+   `dosa`, `butter_naan`, and `dal_makhani`.
+3. **Final reporting:** turn the model, calibration, decision-layer, and demo
    results into a concise project summary or presentation.
-3. **Demo stress testing:** expand the sample set beyond one example per
+4. **Demo stress testing:** expand the sample set beyond one example per
    decision band and include non-Food-101 images.
-4. **Hard-class review:** build class-group reports for meat dishes, tartare
+5. **Hard-class review:** build class-group reports for meat dishes, tartare
    dishes, pastry desserts, and chocolate desserts.
-5. **Inference packaging:** create a small reusable inference function or demo
+6. **Inference packaging:** create a small reusable inference function or demo
    notebook for one-image prediction.
-6. **Artifact documentation:** document the final champion checkpoint,
+7. **Artifact documentation:** document the final champion checkpoint,
    calibrated temperature, and expected input preprocessing.
-7. **Compact model revisit:** revisit EfficientNet-B0 or another small model
+8. **Compact model revisit:** revisit EfficientNet-B0 or another small model
    only if deployment size becomes more important than accuracy.
 
 ## 9. Stop Conditions
