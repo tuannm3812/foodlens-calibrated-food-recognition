@@ -387,8 +387,8 @@ Interpretation:
 - A3b improves test top-1 by **0.50 percentage points** over A3.
 - A3b still has weaker calibrated ECE than ResNet50 FT-V2, so product
   promotion requires decision-layer recalibration.
-- The next expansion step is `12_food_taxonomy_expansion_audit.ipynb`, which
-  audits external datasets before training a classifier beyond 101 classes.
+- The next expansion step is `13_expanded_taxonomy_v1_baseline.ipynb`, which
+  trains a conservative 130-class head from the A3b checkpoint.
 
 ## 13. Expanded Taxonomy Audit
 
@@ -411,3 +411,37 @@ The audit exports class counts, Food-101 overlaps, candidate new labels, and a
 candidate expanded taxonomy. Training a broader classifier should use those
 outputs rather than directly mixing external labels into the current 101-class
 target.
+
+Audit result:
+
+- public fallback sources add 36 raw candidate new labels;
+- exact Food-101 overlap is limited, so taxonomy cleanup is required;
+- spelling and singular/plural cleanup produce a conservative 130-class target;
+- FoodX-251 remains preferred after `ifood-2019-fgvc6` access is accepted.
+
+## 14. Expanded Taxonomy V1 Baseline
+
+Notebook 13 trains the first classifier beyond 101 classes.
+
+```text
+notebooks/13_expanded_taxonomy_v1_baseline.ipynb
+```
+
+Kaggle package:
+
+```text
+kaggle/expanded_taxonomy_v1/
+|-- kernel-metadata.json
+|-- expanded_taxonomy_v1.json
+`-- 13_expanded_taxonomy_v1_baseline.ipynb
+```
+
+Run:
+
+```text
+https://www.kaggle.com/code/tuannm3823/foodlens-expanded-taxonomy-v1-baseline
+```
+
+The run starts from the A3b ConvNeXt-Tiny checkpoint, replaces the classifier
+with a 130-class head, freezes the backbone, and trains a first expanded-label
+baseline. This is a taxonomy viability run, not a final product model.

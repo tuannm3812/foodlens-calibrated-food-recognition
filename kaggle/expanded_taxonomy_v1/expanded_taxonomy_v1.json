@@ -1,0 +1,58 @@
+{
+  "name": "foodlens_expanded_taxonomy_v1",
+  "description": "Conservative expanded taxonomy built from Food-101 plus audited public Kaggle food datasets. FoodX-251 remains preferred for the long-term expansion, but it requires Kaggle competition access first.",
+  "baseline": {
+    "product_champion": "ResNet50 FT-V2",
+    "accuracy_leader": "A3b ConvNeXt-Tiny continued fine-tune",
+    "food101_test_top_1": 83.90098810195923,
+    "food101_test_top_5": 95.7821786403656,
+    "food101_ece_calibrated": 0.055595677345991135
+  },
+  "min_images_for_new_class": 100,
+  "raw_label_to_canonical": {
+    "burger": "hamburger",
+    "chapathi": "chapati",
+    "chole_bature": "chole_bhature",
+    "donut": "donuts",
+    "fries": "french_fries",
+    "pakode": "pakoda",
+    "taco": "tacos"
+  },
+  "exclude_raw_labels": {
+    "aloo_matar": "Only 97 images in the audited public dataset; hold until more examples are available."
+  },
+  "candidate_new_classes": [
+    "baked_potato",
+    "besan_cheela",
+    "biryani",
+    "butter_naan",
+    "chai",
+    "chapati",
+    "chole_bhature",
+    "crispy_chicken",
+    "dahl",
+    "dal_makhani",
+    "dhokla",
+    "dosa",
+    "gulab_jamun",
+    "idli",
+    "jalebi",
+    "kaathi_rolls",
+    "kadai_paneer",
+    "kulfi",
+    "masala_dosa",
+    "momos",
+    "naan",
+    "paani_puri",
+    "pakoda",
+    "pav_bhaji",
+    "poha",
+    "rolls",
+    "sandwich",
+    "taquito",
+    "vada_pav"
+  ],
+  "known_access_blockers": {
+    "ifood-2019-fgvc6": "FoodX-251 is visible but not downloadable until the Kaggle account enters the community competition."
+  }
+}

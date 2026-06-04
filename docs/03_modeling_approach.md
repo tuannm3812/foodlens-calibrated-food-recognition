@@ -359,7 +359,27 @@ Key points:
 Notebook 12 deliberately does not train a model. It creates the taxonomy
 contract needed before expanding prediction coverage beyond 101 classes.
 
-## 15. Cross-Notebook Evaluation Contract
+## 15. Notebook 13: Expanded Taxonomy V1 Baseline
+
+Question:
+
+> Can the A3b ConvNeXt-Tiny backbone support a conservative 130-class food
+> taxonomy?
+
+Key points:
+
+1. Use `expanded_taxonomy_v1.json` to clean labels before training.
+2. Map singular public labels back to Food-101 where appropriate.
+3. Merge spelling duplicates such as `chapathi`/`chapati`.
+4. Replace the 101-class classifier with a 130-class head.
+5. Freeze the backbone for the first baseline so taxonomy quality is tested
+   before full fine-tuning.
+
+Notebook 13 is the first trainable step beyond Food-101. Its result should
+decide whether the project should full fine-tune the expanded classifier or
+wait for FoodX-251 access.
+
+## 16. Cross-Notebook Evaluation Contract
 
 All notebooks should preserve the same **comparison contract**:
 
@@ -380,7 +400,7 @@ This keeps model changes interpretable. A new experiment should explain **what
 changed**, **why it changed**, and whether the result is strong enough to alter
 the project direction.
 
-## 16. Current Reasoning Conclusion
+## 17. Current Reasoning Conclusion
 
 The current product champion is **ResNet50 FT-V2** because it has the strongest
 calibrated decision-layer evidence. The current accuracy leader is **A3b

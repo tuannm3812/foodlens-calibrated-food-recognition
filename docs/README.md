@@ -28,6 +28,7 @@ Current notebook sequence:
 10. `10_food101_accuracy_phase1_a3_convnext_tiny.ipynb`
 11. `11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb`
 12. `12_food_taxonomy_expansion_audit.ipynb`
+13. `13_expanded_taxonomy_v1_baseline.ipynb`
 
 Current accuracy-improvement execution plan:
 
@@ -38,5 +39,7 @@ Current accuracy-improvement execution plan:
   blocked until calibration and decision-layer behavior are rechecked;
 - audit candidate external datasets before training any classifier beyond the
   current 101 classes;
+- train the first expanded-taxonomy baseline with a conservative 130-class
+  label set;
 - use external food datasets later for pretraining, detector training, or crop
   robustness instead of directly mixing labels into the 101-class classifier.

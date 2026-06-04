@@ -225,6 +225,7 @@ weights path.
 | `10_food101_accuracy_phase1_a3_convnext_tiny.ipynb` | Phase 1 accuracy experiment testing full-backbone ConvNeXt-Tiny after A1 failed to beat the champion. |
 | `11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb` | Phase 1 continuation run from the A3 ConvNeXt-Tiny checkpoint with lower learning rates. |
 | `12_food_taxonomy_expansion_audit.ipynb` | Audits external food datasets and candidate labels before training a classifier beyond 101 classes. |
+| `13_expanded_taxonomy_v1_baseline.ipynb` | First expanded-taxonomy baseline: 130 classes from Food-101 plus audited public food labels. |
 
 ## Key Findings
 
@@ -261,7 +262,8 @@ Detailed documentation is available in:
 ## Roadmap
 
 - Recalibrate the decision layer around the A3b ConvNeXt-Tiny checkpoint.
-- Audit external food datasets before training a classifier beyond 101 classes.
+- Evaluate the running 130-class expanded-taxonomy baseline before broader
+  full-backbone training.
 - Improve detector quality with food-specific detection or segmentation.
 - Expand live video inference beyond sampled-frame review.
 - Add richer metadata for known confusion pairs and hard classes.

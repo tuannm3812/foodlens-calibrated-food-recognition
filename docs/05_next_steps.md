@@ -64,7 +64,8 @@ The first two accuracy experiments are now complete:
 | `A1` | ResNet50 FT-V3 full-backbone 224 | did not beat ResNet50 FT-V2 |
 | `A3` | ConvNeXt-Tiny full fine-tune 224 | best accuracy result so far, but calibration is weaker |
 | `A3b` | ConvNeXt-Tiny continued fine-tune 224 | best accuracy result so far, but calibration is weaker |
-| `T1` | Expanded taxonomy audit | active step before training beyond 101 classes |
+| `T1` | Expanded taxonomy audit | found 36 raw candidate new classes and a conservative 130-class target |
+| `E1` | Expanded taxonomy v1 baseline | active 130-class head-training run from the A3b checkpoint |
 
 Promotion criteria:
 
@@ -210,8 +211,9 @@ and evidence-driven:
 
 1. **Decision-layer recalibration:** recalibrate around the A3b ConvNeXt
    checkpoint before product promotion.
-2. **Expanded taxonomy audit:** run `12_food_taxonomy_expansion_audit.ipynb`
-   before training beyond 101 classes.
+2. **Expanded taxonomy baseline:** evaluate
+   `13_expanded_taxonomy_v1_baseline.ipynb`, then decide whether to full
+   fine-tune the expanded classifier.
 2. **Final reporting:** turn the model, calibration, decision-layer, and demo
    results into a concise project summary or presentation.
 3. **Demo stress testing:** expand the sample set beyond one example per

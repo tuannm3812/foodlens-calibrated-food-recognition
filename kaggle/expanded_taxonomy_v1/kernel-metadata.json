@@ -1,0 +1,21 @@
+{
+  "id": "tuannm3823/foodlens-expanded-taxonomy-v1-baseline",
+  "title": "FoodLens Expanded Taxonomy V1 Baseline",
+  "code_file": "13_expanded_taxonomy_v1_baseline.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [
+    "kmader/food41",
+    "harishkumardatalab/food-image-classification-dataset",
+    "jvageesh11/foodies-ai-food-image-classification-challenge"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "tuannm3823/foodlens-a3b-convnext-tiny-continued"
+  ],
+  "model_sources": []
+}
