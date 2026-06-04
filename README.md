@@ -256,6 +256,7 @@ weights path.
 | `12_food_taxonomy_expansion_audit.ipynb` | Audits external food datasets and candidate labels before training a classifier beyond 101 classes. |
 | `13_expanded_taxonomy_v1_baseline.ipynb` | First expanded-taxonomy baseline: 130 classes from Food-101 plus audited public food labels. |
 | `14_expanded_taxonomy_v2_finetune.ipynb` | Controlled partial-backbone fine-tune from E1 with weak-class review and source-level metrics. |
+| `15_expanded_taxonomy_v2_decision_layer.ipynb` | Expanded-taxonomy decision bands (auto-accept/suggest/confirm/review) and policy export for app integration. |
 
 Historical and superseded notebooks are preserved in
 [`notebooks/archive/`](notebooks/archive/).
@@ -295,8 +296,8 @@ Detailed documentation is available in:
 ## Roadmap
 
 - Recalibrate the decision layer around the A3b ConvNeXt-Tiny checkpoint.
-- Use the completed E2 expanded-taxonomy checkpoint (`14_expanded_taxonomy_v2_finetune.ipynb`)
-  for decision-layer work and product integration.
+- Build decision policy on the E2 expanded-taxonomy checkpoint (`14_expanded_taxonomy_v2_finetune.ipynb`)
+  using `15_expanded_taxonomy_v2_decision_layer.ipynb`, then push policy artifacts.
 - Improve detector quality with food-specific detection or segmentation.
 - Expand live video inference beyond sampled-frame review.
 - Add richer metadata for known confusion pairs and hard classes.

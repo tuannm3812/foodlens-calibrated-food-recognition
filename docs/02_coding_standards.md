@@ -34,6 +34,7 @@ Current active notebooks:
 6. `12_food_taxonomy_expansion_audit.ipynb`
 7. `13_expanded_taxonomy_v1_baseline.ipynb`
 8. `14_expanded_taxonomy_v2_finetune.ipynb`
+9. `15_expanded_taxonomy_v2_decision_layer.ipynb`
 
 Archived notebooks are still part of the project record, but they should not be
 treated as the recommended execution path. Later notebooks should isolate

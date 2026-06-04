@@ -98,9 +98,11 @@ Suggested decision bands:
 | Confirm | low confidence, hard class, or small top-1/top-2 margin | ask the user to confirm |
 | Review | repeated business-critical confusion pair | flag for manual or rule-based review |
 
-The exact thresholds are learned from Notebook 4 outputs rather than chosen
-manually. The notebook analyzes calibrated confidence, correctness,
-top-1/top-2 margin, and hard-class membership together.
+The exact thresholds are learned from each notebook's corresponding outputs
+rather than chosen manually. The flow analyzes confidence, correctness, top-1/top-2
+margin (when available), hard-class membership, and frequent confusion patterns.
+
+For the 130-class path, Notebook 15 uses the same workflow on E2 outputs.
 
 ## 5. Notebook 5
 
@@ -147,16 +149,45 @@ If you prefer a Kaggle Dataset upload, upload that zip once. Notebook 5 can
 extract `resnet50_error_calibration_artifacts.zip` automatically and read the
 same CSV files from it.
 
+## 5b. Notebook 15 (Expanded Taxonomy Decision Layer)
+
+File:
+
+```text
+notebooks/15_expanded_taxonomy_v2_decision_layer.ipynb
+```
+
+Purpose:
+
+> Convert E2 expanded-taxonomy outputs into a reusable product policy.
+
+Required Notebook 15 input:
+
+```text
+/kaggle/input/notebooks/tuannm3823/foodlens-expanded-taxonomy-v2-finetune/results/expanded_taxonomy/e2_expanded_taxonomy_v2_finetune_224
+```
+
+Expected inputs:
+
+- `test_predictions.csv`
+- `weak_class_report.csv`
+- `expanded_metrics.csv`
+- optional confusion pairs (or built from the predictions)
+
 Expected outputs:
 
 - `decision_policy.csv`
+- `decision_policy_search.csv`
 - `decision_band_metrics.csv`
 - `decision_examples_auto_accept.csv`
 - `decision_examples_suggest.csv`
 - `decision_examples_confirm.csv`
 - `decision_examples_review.csv`
+- `weak_classes.json`
+- `top_confusion_pairs.json`
+- `expanded_taxonomy_v2_decision_layer_artifacts.zip`
 
-## 6. Next After Notebook 5
+## 6. Next After Decision-Layer Work
 
 Notebook 5 has produced the selected decision thresholds and band metrics:
 

@@ -24,6 +24,7 @@ Active notebook sequence:
 6. `12_food_taxonomy_expansion_audit.ipynb`
 7. `13_expanded_taxonomy_v1_baseline.ipynb`
 8. `14_expanded_taxonomy_v2_finetune.ipynb`
+9. `15_expanded_taxonomy_v2_decision_layer.ipynb`
 
 Archived notebook records:
 

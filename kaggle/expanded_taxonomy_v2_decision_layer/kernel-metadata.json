@@ -1,0 +1,21 @@
+{
+  "id": "tuannm3823/foodlens-expanded-taxonomy-v2-decision-layer",
+  "title": "FoodLens Expanded Taxonomy V2 Decision Layer",
+  "code_file": "15_expanded_taxonomy_v2_decision_layer.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [
+    "kmader/food41",
+    "harishkumardatalab/food-image-classification-dataset",
+    "jvageesh11/foodies-ai-food-image-classification-challenge"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "tuannm3823/foodlens-expanded-taxonomy-v2-finetune"
+  ],
+  "model_sources": []
+}

@@ -196,6 +196,36 @@ Decision expected:
 
 Notebook 5 turns calibrated model output into **product behavior**.
 
+## 7b. Notebook 15: E2 Expanded-Taxonomy Decision Bands
+
+Notebook:
+[`../notebooks/15_expanded_taxonomy_v2_decision_layer.ipynb`](../notebooks/15_expanded_taxonomy_v2_decision_layer.ipynb)
+
+Question:
+
+> How should the 130-class E2 pipeline convert errors, confusion patterns,
+> and confidence into a safe product policy?
+
+Key points:
+
+1. Load E2 test predictions (`test_predictions.csv`), weak classes (`weak_class_report.csv`), and expanded taxonomy metrics (`expanded_metrics.csv`).
+2. Normalize prediction fields to a shared decision schema (`actual`, `predicted`, `top_1_confidence`, `top_5_labels`).
+3. Build decision features using hard-class and frequent confusion-pair flags.
+4. Search thresholds for four bands: `auto_accept`, `suggest`, `confirm`, `review`.
+5. Export policy, band metrics, and per-band examples for downstream app packaging.
+
+Decision expected:
+
+| Band | Meaning |
+| --- | --- |
+| Auto-accept | high-confidence and low-risk predictions |
+| Suggest | ranked alternatives are shown |
+| Confirm | user confirmation required |
+| Review | known high-risk confusion should be inspected |
+
+Notebook 15 creates a reusable decision baseline for the expanded taxonomy before
+final product integration.
+
 ## 8. Notebook 6: Demonstrate Final Inference
 
 Notebook:
