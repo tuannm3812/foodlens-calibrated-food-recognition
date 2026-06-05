@@ -30,11 +30,10 @@ Current active notebooks:
 2. `05_confidence_decision_layer.ipynb`
 3. `06_food_recognition_demo_inference.ipynb`
 4. `08_detection_to_foodlens_pipeline.ipynb`
-5. `11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb`
-6. `12_food_taxonomy_expansion_audit.ipynb`
-7. `13_expanded_taxonomy_v1_baseline.ipynb`
-8. `14_expanded_taxonomy_v2_finetune.ipynb`
-9. `15_expanded_taxonomy_v2_decision_layer.ipynb`
+5. `16_food101_accuracy_phase1_a4_convnext_tiny_full_finetune_320.ipynb`
+
+Archived notebook records remain available under `notebooks/archive/` for traceability
+of the earlier A3b, taxonomy-audit, and expanded-taxonomy workflow.
 
 Archived notebooks are still part of the project record, but they should not be
 treated as the recommended execution path. Later notebooks should isolate
@@ -171,3 +170,12 @@ Do not commit:
 - ad hoc experiment dumps.
 
 Commit lightweight documentation and cleared notebooks only.
+
+When handing work to the next agent, follow this sequence:
+
+1. Re-run `git status` and confirm no accidental test artifacts are present.
+2. Stage all intentional changes in one logical commit.
+3. Use a clear commit message that states the scope and intent, for example:
+   `chore: archive superseded notebooks and align active notebook references`.
+4. Record in `docs` any structural change (for example new archive rules) so the
+   next agent can continue with the same standards.

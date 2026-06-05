@@ -252,13 +252,9 @@ weights path.
 | `05_confidence_decision_layer.ipynb` | Confidence policy for auto-accept, suggestion, confirmation, and review decisions. |
 | `06_food_recognition_demo_inference.ipynb` | Final single-image demo workflow and lightweight app artifact exports. |
 | `08_detection_to_foodlens_pipeline.ipynb` | Detector-to-classifier pipeline for crop-level FoodLens predictions. |
-| `11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb` | Phase 1 continuation run from the A3 ConvNeXt-Tiny checkpoint with lower learning rates. |
-| `12_food_taxonomy_expansion_audit.ipynb` | Audits external food datasets and candidate labels before training a classifier beyond 101 classes. |
-| `13_expanded_taxonomy_v1_baseline.ipynb` | First expanded-taxonomy baseline: 130 classes from Food-101 plus audited public food labels. |
-| `14_expanded_taxonomy_v2_finetune.ipynb` | Controlled partial-backbone fine-tune from E1 with weak-class review and source-level metrics. |
-| `15_expanded_taxonomy_v2_decision_layer.ipynb` | Expanded-taxonomy decision bands (auto-accept/suggest/confirm/review) and policy export for app integration. |
+| `16_food101_accuracy_phase1_a4_convnext_tiny_full_finetune_320.ipynb` | A4 high-resolution ConvNeXt-Tiny full fine-tune with 320px input and continuation from frozen-head initialization. |
 
-Historical and superseded notebooks are preserved in
+Historical and superseded notebooks (including A3b continuation, taxonomy audit/baselines, and the expanded-taxonomy decision-layer runs) are preserved in
 [`notebooks/archive/`](notebooks/archive/).
 
 ## Key Findings
@@ -296,8 +292,8 @@ Detailed documentation is available in:
 ## Roadmap
 
 - Recalibrate the decision layer around the A3b ConvNeXt-Tiny checkpoint.
-- Build decision policy on the E2 expanded-taxonomy checkpoint (`14_expanded_taxonomy_v2_finetune.ipynb`)
-  using `15_expanded_taxonomy_v2_decision_layer.ipynb`, then push policy artifacts.
+- Build decision policy on the E2 expanded-taxonomy checkpoint (`notebooks/archive/14_expanded_taxonomy_v2_finetune.ipynb`)
+  using `notebooks/archive/15_expanded_taxonomy_v2_decision_layer.ipynb`, then push policy artifacts.
 - Improve detector quality with food-specific detection or segmentation.
 - Expand live video inference beyond sampled-frame review.
 - Add richer metadata for known confusion pairs and hard classes.

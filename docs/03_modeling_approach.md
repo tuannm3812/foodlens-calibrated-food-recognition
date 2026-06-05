@@ -199,7 +199,7 @@ Notebook 5 turns calibrated model output into **product behavior**.
 ## 7b. Notebook 15: E2 Expanded-Taxonomy Decision Bands
 
 Notebook:
-[`../notebooks/15_expanded_taxonomy_v2_decision_layer.ipynb`](../notebooks/15_expanded_taxonomy_v2_decision_layer.ipynb)
+[`../notebooks/archive/15_expanded_taxonomy_v2_decision_layer.ipynb`](../notebooks/archive/15_expanded_taxonomy_v2_decision_layer.ipynb)
 
 Question:
 
@@ -361,7 +361,7 @@ weaker than ResNet50 FT-V2.
 ## 13. Notebook 11: A3b ConvNeXt-Tiny Continued Fine-Tuning
 
 Notebook:
-[`../notebooks/11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb`](../notebooks/11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb)
+[`../notebooks/archive/11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb`](../notebooks/archive/11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb)
 
 Question:
 
@@ -379,7 +379,7 @@ Key points:
 ## 14. Notebook 12: Expanded Taxonomy Audit
 
 Notebook:
-[`../notebooks/12_food_taxonomy_expansion_audit.ipynb`](../notebooks/12_food_taxonomy_expansion_audit.ipynb)
+[`../notebooks/archive/12_food_taxonomy_expansion_audit.ipynb`](../notebooks/archive/12_food_taxonomy_expansion_audit.ipynb)
 
 Question:
 
@@ -401,7 +401,7 @@ contract needed before expanding prediction coverage beyond 101 classes.
 ## 15. Notebook 13: Expanded Taxonomy V1 Baseline
 
 Notebook:
-[`../notebooks/13_expanded_taxonomy_v1_baseline.ipynb`](../notebooks/13_expanded_taxonomy_v1_baseline.ipynb)
+[`../notebooks/archive/13_expanded_taxonomy_v1_baseline.ipynb`](../notebooks/archive/13_expanded_taxonomy_v1_baseline.ipynb)
 
 Question:
 

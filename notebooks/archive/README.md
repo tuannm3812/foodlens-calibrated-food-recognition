@@ -13,3 +13,8 @@ runs that informed the current direction.
 | `07_multi_food_detection_exploration.ipynb` | Detector exploration precursor to the current detector-to-classifier pipeline. |
 | `09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb` | Non-promotion ResNet50 continuation result. |
 | `10_food101_accuracy_phase1_a3_convnext_tiny.ipynb` | Intermediate ConvNeXt result superseded by A3b continuation. |
+| `11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb` | Transitioned from frozen-head ConvNeXt to continued full fine-tuning and was superseded by A4 full fine-tune at 320px. |
+| `12_food_taxonomy_expansion_audit.ipynb` | Historical taxonomy expansion audit baseline; no longer directly active after v2. |
+| `13_expanded_taxonomy_v1_baseline.ipynb` | Version-1 expanded taxonomy baseline before v2 refinements. |
+| `14_expanded_taxonomy_v2_finetune.ipynb` | ConvNeXt v2 finetune predecessor to later calibration/decision-layer runs. |
+| `15_expanded_taxonomy_v2_decision_layer.ipynb` | Decision-layer tuning stage before confidence-optimized demo inference path. |

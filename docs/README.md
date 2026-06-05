@@ -20,11 +20,7 @@ Active notebook sequence:
 2. `05_confidence_decision_layer.ipynb`
 3. `06_food_recognition_demo_inference.ipynb`
 4. `08_detection_to_foodlens_pipeline.ipynb`
-5. `11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb`
-6. `12_food_taxonomy_expansion_audit.ipynb`
-7. `13_expanded_taxonomy_v1_baseline.ipynb`
-8. `14_expanded_taxonomy_v2_finetune.ipynb`
-9. `15_expanded_taxonomy_v2_decision_layer.ipynb`
+5. `16_food101_accuracy_phase1_a4_convnext_tiny_full_finetune_320.ipynb`
 
 Archived notebook records:
 
@@ -34,6 +30,11 @@ Archived notebook records:
 - `../notebooks/archive/07_multi_food_detection_exploration.ipynb`
 - `../notebooks/archive/09_food101_accuracy_phase1_a1_resnet50_ft_v3.ipynb`
 - `../notebooks/archive/10_food101_accuracy_phase1_a3_convnext_tiny.ipynb`
+- `../notebooks/archive/11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb`
+- `../notebooks/archive/12_food_taxonomy_expansion_audit.ipynb`
+- `../notebooks/archive/13_expanded_taxonomy_v1_baseline.ipynb`
+- `../notebooks/archive/14_expanded_taxonomy_v2_finetune.ipynb`
+- `../notebooks/archive/15_expanded_taxonomy_v2_decision_layer.ipynb`
 
 Current accuracy-improvement execution plan:
 

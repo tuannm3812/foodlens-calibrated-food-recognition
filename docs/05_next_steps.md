@@ -155,7 +155,7 @@ same CSV files from it.
 File:
 
 ```text
-notebooks/15_expanded_taxonomy_v2_decision_layer.ipynb
+notebooks/archive/15_expanded_taxonomy_v2_decision_layer.ipynb
 ```
 
 Purpose:

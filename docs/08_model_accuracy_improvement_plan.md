@@ -329,7 +329,7 @@ The notebook keeps each section focused on the key decisions behind the training
 Active A3b notebook entry point:
 
 ```text
-notebooks/11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb
+notebooks/archive/11_food101_accuracy_phase1_a3b_convnext_tiny_continued.ipynb
 ```
 
 Active A3b Kaggle upload package:
@@ -412,7 +412,7 @@ Notebook 12 audits Food-101 plus candidate external food-classification
 datasets before any labels are merged.
 
 ```text
-notebooks/12_food_taxonomy_expansion_audit.ipynb
+notebooks/archive/12_food_taxonomy_expansion_audit.ipynb
 ```
 
 Kaggle package:
@@ -440,7 +440,7 @@ Audit result:
 Notebook 13 trains the first classifier beyond 101 classes.
 
 ```text
-notebooks/13_expanded_taxonomy_v1_baseline.ipynb
+notebooks/archive/13_expanded_taxonomy_v1_baseline.ipynb
 ```
 
 Kaggle package:
@@ -498,7 +498,7 @@ Decision:
 
 Notebook:
 
-[`../notebooks/14_expanded_taxonomy_v2_finetune.ipynb`](../notebooks/14_expanded_taxonomy_v2_finetune.ipynb)
+[`../notebooks/archive/14_expanded_taxonomy_v2_finetune.ipynb`](../notebooks/archive/14_expanded_taxonomy_v2_finetune.ipynb)
 
 Kaggle package:
 
