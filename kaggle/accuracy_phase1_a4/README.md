@@ -4,6 +4,8 @@ This folder contains the A4 experiment scaffold.
 
 - `kernel-metadata.json`: Kaggle kernel metadata for `tuannm3823`.
 - `foodlens_accuracy_phase1_a4.py`: Script-backed run entrypoint.
+- Bootstrap installation in this run is intentionally lightweight: no forced `pip
+  install` of torch is performed at startup.
 
 ## Intended run
 - Run ID: `a4_convnext_tiny_full_finetune_320`

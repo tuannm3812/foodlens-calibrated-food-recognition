@@ -1,8 +1,6 @@
 import json
-import os
 import random
 import subprocess
-import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,9 +12,17 @@ from PIL import Image
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
 
+import torch
+import torch.nn.functional as F
+from torch import nn, optim
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.utils.data import DataLoader, Dataset
+from torchvision import models, transforms
+from tqdm.auto import tqdm
+
 
 def ensure_cuda_compatible_torch() -> None:
-    """Install a PyTorch build that supports Kaggle P100 GPUs when necessary."""
+    """Log runtime context to help diagnose startup issues."""
     try:
         result = subprocess.run(
             [
@@ -29,45 +35,17 @@ def ensure_cuda_compatible_torch() -> None:
             text=True,
         )
     except FileNotFoundError:
-        return
+        result = None
 
-    compute_capability = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
-    if compute_capability != "6.0":
-        return
+    compute_capability = result.stdout.strip().splitlines()[0] if result else ""
+    if compute_capability:
+        print(f"CUDA compute capability: {compute_capability}")
 
-    if os.getenv("FOODLENS_TORCH_BOOTSTRAPPED") == "1":
-        return
-
-    print(
-        "Detected CUDA compute capability 6.0. "
-        "Installing torch==2.5.1 and torchvision==0.20.1 for broader CUDA support."
-    )
-    subprocess.check_call(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--no-cache-dir",
-            "--upgrade",
-            "torch==2.5.1",
-            "torchvision==0.20.1",
-            "--index-url",
-            "https://download.pytorch.org/whl/cu121",
-        ]
-    )
-    os.environ["FOODLENS_TORCH_BOOTSTRAPPED"] = "1"
+    print(f"Torch version: {torch.__version__}")
+    print(f"CUDA available: {torch.cuda.is_available()}")
 
 
 ensure_cuda_compatible_torch()
-
-import torch
-import torch.nn.functional as F
-from torch import nn, optim
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch.utils.data import DataLoader, Dataset
-from torchvision import models, transforms
-from tqdm.auto import tqdm
 
 
 @dataclass(frozen=True)
