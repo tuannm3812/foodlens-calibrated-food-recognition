@@ -463,6 +463,7 @@ def collect_logits_and_predictions(
             for row_index, true_idx in enumerate(labels_cpu.tolist()):
                 pred_idx = top_indices[row_index, 0].cpu().item()
                 manifest_row = manifest.iloc[seen + row_index]
+                top_5_confidences = top_probs[row_index].cpu().tolist()
                 rows.append(
                     {
                         "path": manifest_row["path"],
@@ -473,6 +474,9 @@ def collect_logits_and_predictions(
                         "top_5": "|".join(
                             class_names[idx]
                             for idx in top_indices[row_index].cpu().tolist()
+                        ),
+                        "top_5_confidence": "|".join(
+                            f"{score:.8f}" for score in top_5_confidences
                         ),
                     }
                 )

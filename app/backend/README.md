@@ -78,6 +78,16 @@ when image decoding or the detector runtime is unavailable. Fallback responses
 include `fallback_reason` so clients can distinguish deterministic demo data,
 detector-only crops, and live inference.
 
+You can switch the detector label acceptance policy with
+`FOODLENS_DETECTOR_LABELS`:
+
+- unset: use the default COCO-aware food labels (`apple`, `banana`, `bowl`, ...).
+- `FOODLENS_DETECTOR_LABELS="*"`: accept every detector label.
+- `FOODLENS_DETECTOR_LABELS="label1,label2,label3"`: accept only the listed labels.
+
+This is useful when you start using a food-tuned detector with class names that are
+outside the default list.
+
 The legacy video upload endpoint remains deterministic mock output and returns
 `fallback_reason: video_mock` until live backend video inference is implemented.
 
