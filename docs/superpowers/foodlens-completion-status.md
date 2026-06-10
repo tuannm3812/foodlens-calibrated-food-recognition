@@ -42,3 +42,5 @@
 - Runbook: `docs/superpowers/foodlens-completion-runbook.md`
 - Runtime contract: `docs/superpowers/foodlens-runtime-contract.md`
 - README integration: `README.md`, `docs/05_next_steps.md`
+- PR handoff branch opened: 2026-06-11 (submission ready).
+- Delivery note: PR #1 was created for traceability; full work is already merged into `main` and this file confirms handoff readiness.
