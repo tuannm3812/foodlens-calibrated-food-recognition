@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from .schemas import Decision, Prediction
 
 
@@ -23,9 +25,9 @@ DEFAULT_POLICY = {
 def build_decision(
     mode: str,
     predictions: list[Prediction],
-    policy: dict[str, float] | None = None,
-    hard_classes: set[str] | None = None,
-    confusion_pairs: set[tuple[str, str]] | None = None,
+    policy: Optional[dict[str, float]] = None,
+    hard_classes: Optional[set[str]] = None,
+    confusion_pairs: Optional[set[tuple[str, str]]] = None,
 ) -> Decision:
     """Build a FoodLens decision output from ranked predictions."""
     active_policy = DEFAULT_POLICY if policy is None else policy

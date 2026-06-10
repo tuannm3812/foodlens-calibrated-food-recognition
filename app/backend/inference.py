@@ -210,6 +210,61 @@ def artifact_file_status(path: Path) -> dict[str, Any]:
     }
 
 
+def detector_label_filter_config() -> tuple[str, set[str]]:
+    """Resolve detector label filtering from environment overrides."""
+    configured_filter = os.getenv("FOODLENS_DETECTOR_LABELS")
+    if configured_filter is None:
+        return "default", set()
+
+    normalized = configured_filter.strip()
+    if not normalized or normalized == "*":
+        return "all", set()
+
+    labels = {
+        label.strip()
+        for label in normalized.replace(";", ",").split(",")
+        if label.strip()
+    }
+    return "configured", labels
+
+
+def detector_region_role(
+    detector_label: str,
+    filter_mode: str = "default",
+    configured_labels: Optional[set[str]] = None,
+) -> str:
+    """Map a detector label to its FoodLens proposal role."""
+    if detector_label == "bowl":
+        return "serving_container"
+    if detector_label == "whole_image":
+        return "fallback_region"
+
+    if filter_mode == "all":
+        return "direct_food"
+    if filter_mode == "configured" and configured_labels is not None:
+        return "direct_food" if detector_label in configured_labels else "context_object"
+
+    return "direct_food" if detector_label in DIRECT_FOOD_LABELS else "context_object"
+
+
+def should_export_detection(
+    detector_label: str,
+    area_ratio: float,
+    filter_mode: str = "default",
+    configured_labels: Optional[set[str]] = None,
+) -> bool:
+    """Return whether a detector box is useful as a classifier crop."""
+    if not (MIN_CROP_AREA_RATIO <= area_ratio <= MAX_CROP_AREA_RATIO):
+        return False
+
+    if filter_mode == "all":
+        return True
+    if filter_mode == "configured" and configured_labels is not None:
+        return detector_label in configured_labels
+
+    return detector_label in CANDIDATE_REGION_LABELS
+
+
 def runtime_status() -> dict[str, Any]:
     """Return runtime readiness details for backend diagnostics."""
     resolved_artifact_dir = artifact_dir_path()
@@ -223,6 +278,7 @@ def runtime_status() -> dict[str, Any]:
     weights_path = detector_weights_path()
     weights_found = Path(weights_path).exists()
     detector_dependency_available = importlib.util.find_spec("ultralytics") is not None
+    detector_filter_mode, configured_labels = detector_label_filter_config()
 
     if classifier_ready and detector_dependency_available:
         multi_food_mode = "live_yolo_classifier"
@@ -251,6 +307,10 @@ def runtime_status() -> dict[str, Any]:
             "dependency_available": detector_dependency_available,
             "weights_path": weights_path,
             "weights_found": weights_found,
+            "label_filter": {
+                "mode": detector_filter_mode,
+                "labels": sorted(configured_labels) if detector_filter_mode == "configured" else [],
+            },
             "weights_source": (
                 "environment"
                 if os.getenv("FOODLENS_DETECTOR_WEIGHTS")
@@ -350,25 +410,6 @@ def build_predictions(raw_predictions: tuple[tuple[str, float], ...]) -> list[Pr
         Prediction(rank=index + 1, class_name=class_name, confidence=confidence)
         for index, (class_name, confidence) in enumerate(raw_predictions)
     ]
-
-
-def detector_region_role(detector_label: str) -> str:
-    """Map a generic detector label to its FoodLens proposal role."""
-    if detector_label in DIRECT_FOOD_LABELS:
-        return "direct_food"
-    if detector_label == "bowl":
-        return "serving_container"
-    if detector_label == "whole_image":
-        return "fallback_region"
-    return "context_object"
-
-
-def should_export_detection(detector_label: str, area_ratio: float) -> bool:
-    """Return whether a detector box is useful as a classifier crop."""
-    return (
-        detector_label in CANDIDATE_REGION_LABELS
-        and MIN_CROP_AREA_RATIO <= area_ratio <= MAX_CROP_AREA_RATIO
-    )
 
 
 def classify_pil_image(image: Any, runtime: dict[str, Any]) -> list[Prediction]:
@@ -471,6 +512,7 @@ def build_multi_food_mock(
 
 def detect_candidate_regions(image: Any) -> list[dict[str, Any]]:
     """Detect candidate food regions with YOLO when Ultralytics is available."""
+    detector_filter_mode, configured_labels = detector_label_filter_config()
     try:
         from ultralytics import YOLO
     except ImportError as exc:
@@ -505,14 +547,23 @@ def detect_candidate_regions(image: Any) -> list[dict[str, Any]]:
         detector_class_id = int(box.cls[0])
         detector_label = str(result.names.get(detector_class_id, detector_class_id))
         crop_area_ratio = ((x2 - x1) * (y2 - y1)) / source_area
-        if not should_export_detection(detector_label, crop_area_ratio):
+        if not should_export_detection(
+            detector_label=detector_label,
+            area_ratio=crop_area_ratio,
+            filter_mode=detector_filter_mode,
+            configured_labels=configured_labels,
+        ):
             continue
 
         rows.append(
             {
                 "detection_index": detection_index,
                 "detector_label": detector_label,
-                "proposal_role": detector_region_role(detector_label),
+                "proposal_role": detector_region_role(
+                    detector_label=detector_label,
+                    filter_mode=detector_filter_mode,
+                    configured_labels=configured_labels,
+                ),
                 "detector_confidence": float(box.conf[0]),
                 "crop_area_ratio": crop_area_ratio,
                 "x1": x1,
@@ -566,7 +617,7 @@ def open_rgb_image(image_bytes: bytes) -> Any:
 def build_classifier_fallback_predictions(row: dict[str, Any]) -> list[Prediction]:
     """Build honest crop labels when detector works but classifier artifacts are absent."""
     detector_label = str(row["detector_label"])
-    if detector_label in DIRECT_FOOD_LABELS:
+    if row["proposal_role"] == "direct_food":
         top_label = detector_label
     elif detector_label == "bowl":
         top_label = "food_in_container"

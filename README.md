@@ -77,6 +77,16 @@ so the user can review the strongest food predictions across time.
 More interface captures are indexed in
 [docs/ui-snapshots/README.md](docs/ui-snapshots/README.md).
 
+## Multi-Agent Completion Drive
+
+- Board: [docs/superpowers/plans/2026-06-11-foodlens-subagent-execution-board.md](docs/superpowers/plans/2026-06-11-foodlens-subagent-execution-board.md)
+- Evidence bundle: [docs/superpowers/foodlens-subagent-evidence-bundle.md](docs/superpowers/foodlens-subagent-evidence-bundle.md)
+- Runbook: [docs/superpowers/foodlens-completion-runbook.md](docs/superpowers/foodlens-completion-runbook.md)
+- Runtime contract: [docs/superpowers/foodlens-runtime-contract.md](docs/superpowers/foodlens-runtime-contract.md)
+
+Use this during coordinated completion runs to keep work split across independent
+agents with shared acceptance criteria.
+
 ## Results
 
 | Item | Value |

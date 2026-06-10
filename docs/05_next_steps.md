@@ -2,6 +2,17 @@
 
 ## 1. Current Position
 
+### Champion and production baseline (current)
+
+**Product baseline remains `ResNet50 FT-V2`** for the current application runtime.
+The production gate is calibrated behavior, not raw top-1 alone:
+
+- strong top-5 behavior supports ranked suggestions;
+- stable calibration keeps post-decision confidence reliable;
+- current decision policy balances auto-accept/suggest/confirm/review safely;
+- ConvNeXt-Tiny is strong on accuracy but remains blocked from promotion until E2
+  recalibration and coverage/accuracy checks are completed.
+
 The project now has a clear champion and a trustworthy evaluation layer.
 
 | Stage | Best result |
@@ -217,6 +228,171 @@ Next action:
 
 > Package the final project story: champion model, calibration, decision layer,
 > and four-band demo behavior.
+
+### Immediate execution checklist
+
+After any completed ConvNeXt run directory (for example
+`results/accuracy_phase1/a3b_convnext_tiny_continued_224`), run:
+
+```bash
+python3 kaggle/accuracy_phase1/recalibrate_decision_layer.py \
+  --results-dir results/accuracy_phase1/a3b_convnext_tiny_continued_224 \
+  --split test
+```
+
+This generates:
+
+- `decision_policy.csv`
+- `decision_policy_search.csv`
+- `decision_policy.json`
+- `hard_classes.json`
+- `confusion_pairs.json`
+- per-band examples (`decision_examples_*.csv`)
+- `decision_layer_artifacts.zip`
+
+Promote only if:
+
+- test top-1 is not lower than the current champion, and
+- recalibrated top-1/top-5 and ECE keep product behavior at least as good as
+  current defaults, and
+- auto/suggest band behavior aligns with prior quality constraints.
+
+### Kaggle notebook path for tuannm3823
+
+If you want this to run inside Kaggle (no local shell), run this in a notebook cell:
+
+1) Resolve the run directory:
+
+```python
+from pathlib import Path
+
+# If opening the same run folder source, recalibrate_decision_layer.py is available in
+# /kaggle/working for the notebook upload that includes it.
+RUN_ID = "<RUN_ID>"
+RUN_NOTEBOOK_SLUG = "<RUN_NOTEBOOK_SLUG>"
+
+results_dir = Path(f"/kaggle/input/notebooks/tuannm3823/{RUN_NOTEBOOK_SLUG}/results/accuracy_phase1/{RUN_ID}")
+if not results_dir.exists():
+    # Fallback to current notebook working outputs.
+    alt_results_dir = Path(f"/kaggle/working/results/accuracy_phase1/{RUN_ID}")
+    if alt_results_dir.exists():
+        results_dir = alt_results_dir
+    else:
+        raise FileNotFoundError(f"Could not find run outputs for {RUN_ID}")
+
+print(f"Using run directory: {results_dir}")
+```
+
+2) Run the recalibration:
+
+```python
+results_dir_path = str(results_dir)
+!python /kaggle/working/recalibrate_decision_layer.py \
+  --results-dir "{results_dir_path}" \
+  --split test
+```
+
+3) Confirm outputs in `/kaggle/working/results/<split>_decision_layer/`.
+
+For your A3b and A4 runs, replace:
+- `<RUN_ID>` with `a3b_convnext_tiny_continued_224` or `a4_convnext_tiny_full_finetune_320`
+- `<RUN_NOTEBOOK_SLUG>` with the Kaggle notebook title you used for that run.
+
+### Scheduled polling with Codex CLI
+
+Use this when you want Codex CLI to keep checking until Kaggle outputs are ready:
+
+```bash
+nohup bash ./scripts/watch_kaggle_run_outputs.sh \
+  a4_convnext_tiny_full_finetune_320 \
+  /tmp/kaggle_a4_check/results/accuracy_phase1/a4_convnext_tiny_full_finetune_320 \
+  120 \
+  0 \
+  > /tmp/kaggle_a4_watch.log 2>&1 &
+echo $! > /tmp/kaggle_a4_watch.pid
+```
+
+For Kaggle mode (if `kaggle` CLI is installed and authenticated), swap in env vars:
+
+```bash
+WATCH_MODE=kaggle \
+KAGGLE_KERNEL_SLUG=tuannm3823/foodlens-a4-convnext-tiny-ft-hr-320 \
+KAGGLE_WORK_DIR=/tmp/kaggle_a4_check \
+nohup ./scripts/watch_kaggle_run_outputs.sh \
+  a4_convnext_tiny_full_finetune_320 \
+  /tmp/kaggle_a4_check/results/accuracy_phase1/a4_convnext_tiny_full_finetune_320 \
+  120 \
+  0 \
+  > /tmp/kaggle_a4_watch.log 2>&1 &
+```
+
+Then:
+
+- `tail -f /tmp/kaggle_a4_watch.log`
+- `cat /tmp/kaggle_a4_watch.pid` to stop later with `kill $(cat /tmp/kaggle_a4_watch.pid)`
+
+If you specifically want to track just the Kaggle kernel state (running / completed / failed), run:
+
+```bash
+python3 scripts/watch_kaggle_kernel_status.py tuannm3823/foodlens-a4-convnext-tiny-ft-hr-320 \
+  --interval-seconds 120 \
+  --max-attempts 0 \
+  --output-dir /tmp/kaggle_a4_check \
+  --download-on-complete
+```
+
+To keep it running in the background:
+
+```bash
+nohup python3 scripts/watch_kaggle_kernel_status.py \
+  tuannm3823/foodlens-a4-convnext-tiny-ft-hr-320 \
+  --interval-seconds 120 \
+  --max-attempts 0 \
+  --output-dir /tmp/kaggle_a4_check \
+  --download-on-complete \
+  > /tmp/kaggle_a4_status.log 2>&1 &
+echo $! > /tmp/kaggle_a4_status.pid
+```
+
+Monitor:
+
+- `tail -f /tmp/kaggle_a4_status.log`
+- `kill $(cat /tmp/kaggle_a4_status.pid)` when done or cancel.
+
+### One-shot: wait → download outputs → recalibrate
+
+After you have the kernel slug and run ID configured, this runs the full handoff automatically:
+
+```bash
+nohup python3 scripts/watch_kaggle_kernel_and_recalibrate.py \
+  --kernel-slug tuannm3823/foodlens-a4-convnext-tiny-ft-hr-320 \
+  --run-id a4_convnext_tiny_full_finetune_320 \
+  --split test \
+  --interval-seconds 120 \
+  --output-dir /tmp/kaggle_a4_check \
+  --recalibration-script kaggle/accuracy_phase1/recalibrate_decision_layer.py \
+  > /tmp/kaggle_a4_pipeline.log 2>&1 &
+echo $! > /tmp/kaggle_a4_pipeline.pid
+```
+
+Expected automatic behavior:
+
+- Poll kernel status until it is done.
+- Download kernel outputs into `--output-dir`.
+- Resolve `/tmp/kaggle_a4_check/results/accuracy_phase1/a4_convnext_tiny_full_finetune_320` (or a close equivalent).
+- Run recalibration for `--split test`.
+
+You can tail the live output with:
+
+```bash
+tail -f /tmp/kaggle_a4_pipeline.log
+```
+
+Stop later if needed:
+
+```bash
+kill $(cat /tmp/kaggle_a4_pipeline.pid)
+```
 
 ## 7. Multi-Food Detection Phase
 
