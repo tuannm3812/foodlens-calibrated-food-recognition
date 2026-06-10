@@ -5,7 +5,7 @@
 - A — Modeling + Decision-Readiness
   - Status: **DONE**
   - Evidence:
-    - Backend defaults still point to `resnet50_ft_v2` via `MODEL_NAME` and decision policy loader remains file-driven.
+    - Backend defaults still point to `MODEL_NAME` and decision policy loader remains file-driven.
     - Champion rationale reinforced in `README` and `docs/05_next_steps.md`.
 - B — API + Runtime Hardening
   - Status: **DONE**
@@ -42,3 +42,4 @@
 - Runbook: `docs/superpowers/foodlens-completion-runbook.md`
 - Runtime contract: `docs/superpowers/foodlens-runtime-contract.md`
 - README integration: `README.md`, `docs/05_next_steps.md`
+- PR handoff branch opened: 2026-06-11 (submission ready).
