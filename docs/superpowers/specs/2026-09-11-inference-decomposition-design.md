@@ -25,6 +25,17 @@ keep working. Measured targets in `tests/backend/`:
 | `inference.detect_candidate_regions` | multi-food live-path tests |
 | `inference.detector_weights_path` | detector status tests |
 | `inference.build_multi_food_mock` | demo-fallback tests |
+| `inference.load_runtime` | `test_api_contract.py:224,266` |
+| `inference.classify_pil_image` | `test_api_contract.py:235` |
+| `inference.importlib.util` | `test_api_contract.py:43` |
+
+The last three rows are safe under this decomposition: `load_runtime` and
+`classify_pil_image` both stay defined and called in `inference.py` itself
+(§4), and `importlib.util` is a stdlib submodule `inference.py` imports and
+calls directly in `runtime_status()` -- none of the three have a call site
+that could move to another module, so the patches above keep taking effect.
+Listed here so the protected surface in this table matches what the tests
+actually protect, not just the subset that motivated the split.
 
 This yields a hard rule:
 
