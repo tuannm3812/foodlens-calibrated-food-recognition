@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .url_security import UrlValidationError, validate_public_http_url
-
 
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 DOWNLOAD_TIMEOUT_SECONDS = 12
@@ -49,7 +47,7 @@ def _content_type(response: object) -> str:
     return raw_content_type.split(";")[0].strip().lower()
 
 
-def _content_length(response: object) -> Optional[int]:
+def _content_length(response: object) -> int | None:
     raw_content_length = response.headers.get("Content-Length")
     if not raw_content_length:
         return None

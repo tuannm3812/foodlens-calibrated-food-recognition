@@ -5,15 +5,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import subprocess
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Optional
-import shutil
-import os
-
 
 DONE_STATES = {
     "completed",
@@ -232,7 +231,7 @@ def download_kernel_outputs(kernel_slug: str, output_dir: Path) -> str:
     return run_command([resolve_kaggle_command(), "kernels", "output", kernel_slug, "-p", str(output_dir)])
 
 
-def expected_run_dir(output_dir: Path, run_id: str, split: str) -> Optional[Path]:
+def expected_run_dir(output_dir: Path, run_id: str, split: str) -> Path | None:
     candidates = [
         output_dir / "results" / "accuracy_phase1" / run_id,
         output_dir / "results" / run_id,

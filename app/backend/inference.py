@@ -2,11 +2,11 @@
 
 import base64
 import importlib.util
-from io import BytesIO
 import json
 import os
+from io import BytesIO
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .decision import DEFAULT_HARD_CLASSES, DEFAULT_POLICY, build_decision
 from .schemas import (
@@ -19,7 +19,6 @@ from .schemas import (
     PredictionResponse,
     RegionArtifacts,
 )
-
 
 ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "artifacts"
 REQUIRED_CLASSIFIER_ARTIFACTS = (
@@ -114,7 +113,7 @@ MOCK_MULTI_FOOD_REGIONS: tuple[dict[str, Any], ...] = (
     },
 )
 
-_RUNTIME: Optional[dict[str, Any]] = None
+_RUNTIME: dict[str, Any] | None = None
 
 
 def artifact_status() -> str:
@@ -231,7 +230,7 @@ def detector_label_filter_config() -> tuple[str, set[str]]:
 def detector_region_role(
     detector_label: str,
     filter_mode: str = "default",
-    configured_labels: Optional[set[str]] = None,
+    configured_labels: set[str] | None = None,
 ) -> str:
     """Map a detector label to its FoodLens proposal role."""
     if detector_label == "bowl":
@@ -251,7 +250,7 @@ def should_export_detection(
     detector_label: str,
     area_ratio: float,
     filter_mode: str = "default",
-    configured_labels: Optional[set[str]] = None,
+    configured_labels: set[str] | None = None,
 ) -> bool:
     """Return whether a detector box is useful as a classifier crop."""
     if not (MIN_CROP_AREA_RATIO <= area_ratio <= MAX_CROP_AREA_RATIO):
@@ -437,7 +436,7 @@ def classify_pil_image(image: Any, runtime: dict[str, Any]) -> list[Prediction]:
 
 def predict_mock(
     mode: str = "image",
-    fallback_reason: Optional[str] = None,
+    fallback_reason: str | None = None,
 ) -> PredictionResponse:
     """Return a deterministic mock prediction response."""
     raw_predictions = MOCK_VIDEO_PREDICTIONS if mode == "video" else MOCK_IMAGE_PREDICTIONS
@@ -710,7 +709,7 @@ def build_multi_food_response(
     detection_rows: list[dict[str, Any]],
     runtime: dict[str, Any],
     detector_status: str = "live_yolo",
-    fallback_reason: Optional[str] = None,
+    fallback_reason: str | None = None,
 ) -> MultiFoodPredictionResponse:
     """Classify detected regions and return the app-ready multi-food response."""
     predictions: list[MultiFoodPrediction] = []

@@ -1,20 +1,18 @@
 import json
-import random
 import os
+import random
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
+import torch
+import torch.nn.functional as F
 from PIL import Image
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
-
-import torch
-import torch.nn.functional as F
 from torch import nn, optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader, Dataset
@@ -54,7 +52,7 @@ def running_on_kaggle() -> bool:
     return Path("/kaggle").exists()
 
 
-def normalize_path(value: Optional[str]) -> Optional[Path]:
+def normalize_path(value: str | None) -> Path | None:
     """Convert an environment path to `Path` only when present."""
     if not value:
         return None
@@ -132,7 +130,7 @@ print(f"Run: {CFG.RUN_ID}")
 print(f"Device: {device}")
 
 
-def resolve_image_dir(data_dir: Path) -> Optional[Path]:
+def resolve_image_dir(data_dir: Path) -> Path | None:
     """Resolve the Food-101 image directory from a dataset mount candidate."""
     candidate_dirs = [
         data_dir if container == "" else data_dir / container
@@ -314,7 +312,7 @@ class FoodDataset(Dataset):
         self,
         dataframe: pd.DataFrame,
         class_to_idx: dict[str, int],
-        transform: Optional[transforms.Compose] = None,
+        transform: transforms.Compose | None = None,
     ) -> None:
         self.df = dataframe.reset_index(drop=True)
         self.class_to_idx = class_to_idx
@@ -369,7 +367,7 @@ def build_convnext_tiny(pretrained: bool = False) -> nn.Module:
     return model
 
 
-def resolve_frozen_head_checkpoint() -> Optional[Path]:
+def resolve_frozen_head_checkpoint() -> Path | None:
     candidates = [
         CFG.CHALLENGER_ARTIFACT_DIR / CFG.FROZEN_HEAD_CHECKPOINT_NAME,
         CFG.CHALLENGER_ARTIFACT_DIR
@@ -429,7 +427,7 @@ print(
 def run_epoch(
     model: nn.Module,
     loader: DataLoader,
-    optimizer: Optional[optim.Optimizer] = None,
+    optimizer: optim.Optimizer | None = None,
 ) -> dict[str, float]:
     is_train = optimizer is not None
     model.train(is_train)

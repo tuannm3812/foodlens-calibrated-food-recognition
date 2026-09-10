@@ -24,7 +24,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-
 AUTO_HARD_CLASSES = {
     "chocolate_mousse",
     "steak",
