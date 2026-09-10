@@ -1148,10 +1148,53 @@ git status --short
 
 Expected: only `.github/workflows/ci.yml` as untracked (plus `package-lock.json` if Step 3 required it). `.worktrees/` was gitignored, so its removal produces no diff.
 
+- [ ] **Step 7a: Append the completion entry to the agent log**
+
+Task 2's `docs/9_agent_log.md` entry deliberately recorded only Tasks 1-2 and
+promised a second entry for the rest. Honour that promise — the log is
+append-only, so **add a new entry at the bottom; do not edit the existing one.**
+
+```markdown
+
+---
+
+## 2026-09-10 — S0 standards alignment (Tasks 3-5)
+
+Completes the pass the entry above left in progress.
+
+**Changed:** pinned Python 3.11.9 (`runtime.txt`, `pyproject.toml`); consolidated
+three scattered `app/backend/requirements*.txt` into root `requirements.txt`,
+`-dev`, `-detector` and a frozen `requirements-lock.txt`; cleared the ruff
+findings and restored PEP 604 annotations; documented the `yolo11n.pt` runtime
+dependency; added `.github/workflows/ci.yml` covering both stacks.
+
+**Verified by running:** `ruff check .`, `pytest -q`,
+`python -m compileall app scripts tests`, `python scripts/check_doc_links.py`,
+and `npm run typecheck && npm run build && npm test` in `app/frontend`. Record
+the CI run result on the pull request as well — a workflow that has never run
+is not verified.
+
+**Judgement calls worth keeping:** `E402` in `kaggle/**` and `B008` in
+`app/backend/api.py` are per-file-ignores, not fixes. The first is intended
+Kaggle notebook cell order; the second is how FastAPI declares request
+parameters, so "fixing" it would break the framework contract.
+
+**Still open:** S1 (`kaggle/` deduplication), S2 (`inference.py` decomposition),
+S3 (frontend consolidation).
+```
+
+Fill in the verification results with the real output you recorded, not the
+placeholder phrasing — if a command was not run, do not list it.
+
+- [ ] **Step 7b: Confirm the log still passes the link gate**
+
+Run: `python3 scripts/check_doc_links.py; echo "exit=$?"`
+Expected: `exit=0`.
+
 - [ ] **Step 8: Commit**
 
 ```bash
-git add .github/workflows/ci.yml
+git add .github/workflows/ci.yml docs/9_agent_log.md
 git status --short
 git commit -m "ci(github): add backend and frontend workflow
 
