@@ -256,16 +256,21 @@ def test_read_policy_returns_defaults_when_file_absent(
     }
 
 
-def test_read_policy_raises_on_malformed_json(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_read_policy_falls_back_to_default_and_warns_on_malformed_json(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # read_json has no try/except around json.loads: a malformed artifact
-    # file crashes the caller rather than degrading to defaults.
+    # decision_policy.json has a well-defined default: a malformed file
+    # degrades to it rather than crashing the caller, and the degradation is
+    # logged at warning level so it isn't silently wrong.
     _point_artifact_dir(monkeypatch, tmp_path)
-    (tmp_path / "decision_policy.json").write_text("{not valid json")
+    policy_path = tmp_path / "decision_policy.json"
+    policy_path.write_text("{not valid json")
 
-    with pytest.raises(json.JSONDecodeError):
-        inference.read_policy(inference.artifact_dir_path())
+    with caplog.at_level("WARNING"):
+        policy = inference.read_policy(inference.artifact_dir_path())
+
+    assert policy == inference.DEFAULT_POLICY
+    assert any(str(policy_path) in record.message for record in caplog.records)
 
 
 def test_read_hard_classes_uses_file_values_when_present(
@@ -289,14 +294,18 @@ def test_read_hard_classes_returns_defaults_when_file_absent(
     assert hard_classes == set(inference.DEFAULT_HARD_CLASSES)
 
 
-def test_read_hard_classes_raises_on_malformed_json(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_read_hard_classes_falls_back_to_default_and_warns_on_malformed_json(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     _point_artifact_dir(monkeypatch, tmp_path)
-    (tmp_path / "hard_classes.json").write_text("[not valid")
+    hard_classes_path = tmp_path / "hard_classes.json"
+    hard_classes_path.write_text("[not valid")
 
-    with pytest.raises(json.JSONDecodeError):
-        inference.read_hard_classes(inference.artifact_dir_path())
+    with caplog.at_level("WARNING"):
+        hard_classes = inference.read_hard_classes(inference.artifact_dir_path())
+
+    assert hard_classes == set(inference.DEFAULT_HARD_CLASSES)
+    assert any(str(hard_classes_path) in record.message for record in caplog.records)
 
 
 def test_read_confusion_pairs_accepts_dict_and_list_entries_and_skips_invalid(
@@ -329,14 +338,18 @@ def test_read_confusion_pairs_returns_empty_set_when_file_absent(
     assert pairs == set()
 
 
-def test_read_confusion_pairs_raises_on_malformed_json(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_read_confusion_pairs_falls_back_to_default_and_warns_on_malformed_json(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     _point_artifact_dir(monkeypatch, tmp_path)
-    (tmp_path / "confusion_pairs.json").write_text("{bad")
+    confusion_pairs_path = tmp_path / "confusion_pairs.json"
+    confusion_pairs_path.write_text("{bad")
 
-    with pytest.raises(json.JSONDecodeError):
-        inference.read_confusion_pairs(inference.artifact_dir_path())
+    with caplog.at_level("WARNING"):
+        confusion_pairs = inference.read_confusion_pairs(inference.artifact_dir_path())
+
+    assert confusion_pairs == set()
+    assert any(str(confusion_pairs_path) in record.message for record in caplog.records)
 
 
 # ---------------------------------------------------------------------------
