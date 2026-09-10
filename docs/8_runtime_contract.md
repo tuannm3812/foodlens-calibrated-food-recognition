@@ -1,4 +1,4 @@
-# FoodLens Runtime Contract
+# 8. Runtime Contract
 
 ## `/runtime/status`
 

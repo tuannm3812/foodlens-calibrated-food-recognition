@@ -20,9 +20,9 @@ FoodLens completion handoff release.
 - `CHANGELOG.md`
 - `docs/releases/2026-06-11-foodlens-v1-release-notes.md`
 - `docs/ops/foodlens-ops-deployment-runbook.md`
-- `docs/superpowers/foodlens-completion-runbook.md`
-- `docs/superpowers/foodlens-runtime-contract.md`
-- `docs/superpowers/foodlens-subagent-evidence-bundle.md`
+- `docs/9_agent_log.md`
+- `docs/8_runtime_contract.md`
+- `docs/9_agent_log.md`
 
 ## Git References
 - Tag: `v1.0.0-foodlens-completion`

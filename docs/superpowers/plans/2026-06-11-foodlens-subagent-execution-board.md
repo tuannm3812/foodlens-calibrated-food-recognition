@@ -31,7 +31,7 @@
   - `[ ]` Validate runtime response field semantics (`status`, `artifact_status`, `multi_food.mode`, `multi_food.detector_status`) in docs.
   - `[ ]` Confirm all non-2xx API paths return stable fallback reasons or 4xx/5xx details.
   - `[ ]` Document local-demo and dependency-driven fallback behavior in one page.
-- Documentation target: [docs/superpowers/foodlens-runtime-contract.md](docs/superpowers/foodlens-runtime-contract.md)
+- Documentation target: [docs/8_runtime_contract.md](../../8_runtime_contract.md)
 
 ### Agent C — Multi-Food Product Pipeline
 - Owner: `Detection Agent`
@@ -73,8 +73,8 @@
   - `[ ]` Add packaging checklist for artifacts + detector weights.
 - Documentation targets:
   - [README.md](../../README.md)
-  - [docs/05_next_steps.md](../05_next_steps.md)
-  - [docs/superpowers/foodlens-completion-runbook.md](foodlens-completion-runbook.md)
+  - [docs/4_next_steps.md](../../4_next_steps.md)
+  - [docs/9_agent_log.md](../../9_agent_log.md)
 
 ---
 
@@ -100,7 +100,7 @@
 
 ### Live completion status page
 
-- [foodlens-completion-status.md](foodlens-completion-status.md)
+- [docs/9_agent_log.md](../../9_agent_log.md)
 
 ---
 
