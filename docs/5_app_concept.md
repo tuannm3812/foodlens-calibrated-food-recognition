@@ -1,4 +1,4 @@
-# 6. FoodLens App Concept
+# 5. FoodLens App Concept
 
 ## 1. Product Vision
 

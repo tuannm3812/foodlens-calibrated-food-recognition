@@ -1,4 +1,4 @@
-# Multi-Food Detection Plan
+# 6. Multi-Food Detection Plan
 
 ## 1. Objective
 

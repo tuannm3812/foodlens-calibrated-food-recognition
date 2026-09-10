@@ -15,11 +15,14 @@ the centre of gravity.
 
 ## Root directories beyond master §1
 
-Master §1 asks for a small root. Two additions are deliberate:
+Master §1 asks for a small root. Three additions are deliberate:
 
 - `app/` — the product runtime (FastAPI backend, React frontend, artifacts).
 - `kaggle/` — the Kaggle run records. Each directory is one training run's
   script plus its notebook, kept so a result traces to the code that produced it.
+- `configs/` — one tracked file, `expanded_taxonomy_v1.json`, the canonical
+  label mapping for the 130-class expanded taxonomy. Notebooks read it, so the
+  taxonomy work is not reproducible without it.
 
 `data/`, `results/`, and `models/` remain untracked, per master §1 and §8.
 
@@ -29,6 +32,19 @@ Scripts under `kaggle/` mirror notebook cell order, where imports follow the
 configuration block so the config is visible at the top of the run log. This is
 the intended Kaggle style, not debt. Enforced as a `per-file-ignores` entry in
 `pyproject.toml` rather than being "fixed".
+
+`E501` is ignored in the same directory for the same reason — those scripts
+keep long configuration and metric-printing lines that mirror the notebook
+cells they came from.
+
+Jupyter notebooks are excluded from ruff altogether (`extend-exclude` in
+`pyproject.toml`). Cell-based code inherently trips `E402`, `F821` (a name
+bound in an earlier cell) and `F404`, and notebooks here are execution
+records rather than maintained source.
+
+`B008` is ignored in `app/backend/api.py`. A call in an argument default —
+`File(...)`, `Form(...)`, `Depends(...)` — is how FastAPI declares request
+parameters, so "fixing" it would break request parsing.
 
 ## Seven notebooks retain outputs
 

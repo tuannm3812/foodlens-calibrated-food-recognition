@@ -177,15 +177,15 @@ Weak classes still needing focused review include `kaathi_rolls`, `masala_dosa`,
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r app/backend/requirements.txt
-pip install -r app/backend/requirements-dev.txt
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
 uvicorn app.backend.api:app --reload --port 8000
 ```
 
 Optional detector runtime for live multi-food proposals:
 
 ```bash
-pip install -r app/backend/requirements-detector.txt
+pip install -r requirements-detector.txt
 ```
 
 Backend checks:

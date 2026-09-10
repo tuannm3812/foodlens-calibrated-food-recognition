@@ -36,28 +36,46 @@ def tracked_markdown_files() -> list[Path]:
     return [Path(line) for line in output.splitlines() if line]
 
 
-def strip_code_fences(text: str) -> str:
+def strip_code_fences(text: str, label: str = "<text>") -> str:
     """Blank out fenced code blocks, preserving line numbering.
 
     A fence closes only on a marker at least as long as the one that
     opened it, so a ```bash block nested inside a ````markdown block does
     not close the outer fence.
+
+    A fence that is never closed is a real false-negative risk: naively
+    blanking to end-of-file would silently disable link checking for the
+    rest of the document. To stay fail-open, an unclosed trailing fence is
+    treated as NOT a fence at all -- the lines from its opening marker to
+    end of file are returned intact so their links still get checked, and
+    a warning naming `label` is printed to stderr so the malformed fence is
+    visible rather than silently swallowed.
     """
     lines = text.splitlines()
     kept: list[str] = []
     fence: str | None = None
-    for line in lines:
+    open_index: int | None = None
+    for index, line in enumerate(lines):
         match = FENCE_PATTERN.match(line)
         if fence is None:
             if match:
                 fence = match.group(1)
+                open_index = index
                 kept.append("")
                 continue
             kept.append(line)
         else:
             if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence):
                 fence = None
+                open_index = None
             kept.append("")
+    if fence is not None and open_index is not None:
+        print(
+            f"warning: {label}: unclosed code fence at line {open_index + 1}; "
+            "checking its links anyway",
+            file=sys.stderr,
+        )
+        kept[open_index:] = lines[open_index:]
     return "\n".join(kept)
 
 
@@ -118,7 +136,7 @@ def strip_inline_code(text: str) -> str:
 def broken_links(path: Path) -> list[str]:
     """Return relative links in `path` that do not resolve to a real file."""
     problems = []
-    body = strip_code_fences(path.read_text(encoding="utf-8"))
+    body = strip_code_fences(path.read_text(encoding="utf-8"), label=str(path))
     body = strip_inline_code(body)
     for target in LINK_PATTERN.findall(body):
         target = target.split("#", 1)[0].strip()

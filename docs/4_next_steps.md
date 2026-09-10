@@ -1,4 +1,4 @@
-# 5. Next Steps
+# 4. Next Steps
 
 ## 1. Current Position
 

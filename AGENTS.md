@@ -41,11 +41,11 @@ decision-layer recalibration. Do not promote it without redoing calibration.
 
 ## Open risks
 
-- `app/backend/inference.py` is 883 lines doing artifact loading, detection,
+- `app/backend/inference.py` is 886 lines doing artifact loading, detection,
   classification, and response assembly. Decomposition is planned as S2 — don't
   bolt more onto it.
-- `kaggle/recalibrate_decision_layer.py` exists as three byte-identical copies,
-  and the four training scripts are near-duplicates — 46 to 285 changed lines
+- `kaggle/*/recalibrate_decision_layer.py` exists as three byte-identical copies,
+  and the four training scripts are near-duplicates — 46 to 282 changed lines
   between any pair of files that are each about 700 lines long. Fixing this is S1.
 - `yolo11n.pt` (5.6 MB, repo root) is gitignored and required at runtime for
   live detection. A fresh clone will not have it — see `app/backend/README.md`.
