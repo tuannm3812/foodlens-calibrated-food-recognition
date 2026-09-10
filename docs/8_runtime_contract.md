@@ -63,6 +63,21 @@ Common fallback reasons:
 - `"classifier_inference_error"`
 - `"video_mock"`
 
+## Tuning-artifact resilience
+
+`calibration.json`, `decision_policy.json`, `hard_classes.json`, and
+`confusion_pairs.json` each have a documented default. If one of them is
+missing, or present but unreadable (truncated write, invalid JSON, undecodable
+bytes), the runtime degrades to that default rather than failing the request.
+Degradation is logged at warning level, naming the file and the read error —
+serving default thresholds while an operator believes their tuned policy is
+live is a failure mode of its own, so it is never silent.
+
+`class_names.json` is the exception: it has no safe default, since serving it
+empty would build a classifier head with zero classes. A missing or unreadable
+`class_names.json` still fails `load_runtime()` outright, which callers catch
+and turn into the `"classifier_load_error"` demo fallback above.
+
 ## URL ingestion behavior
 
 - Image URL endpoint requires public direct image URLs and validates host/IP safety.
