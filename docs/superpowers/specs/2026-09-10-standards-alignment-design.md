@@ -49,7 +49,7 @@ Measured on 2026-09-10.
 | §2 | Single-digit numbering, declared shape | Two-digit `01_`–`08_`, plus a parallel `docs/superpowers/` tree |
 | §13 | Append-only agent collaboration log | Four overlapping, rewritable status docs, already stale |
 | §9 | `<type>(<scope>)` conventional commits | Types present, scopes missing |
-| §4/§8 | Clear notebook outputs when code changes | Four archived notebooks retain outputs (deliberate — see §5.5) |
+| §4/§8 | Clear notebook outputs when code changes | Seven notebooks retain outputs, three of them active (deliberate — see §4.6) |
 | — | Siblings pin Python 3.11 | README claims 3.11; local interpreter is 3.9 |
 
 ### Lint debt
@@ -151,8 +151,8 @@ lines of restated master to only these genuine differences:
    home in git.
 3. `E402` is intended in Kaggle-mirrored scripts and notebooks; imports
    follow the configuration block by design.
-4. Four archived notebooks deliberately retain outputs as evidence, which
-   master §4 permits but does not default to.
+4. Seven notebooks deliberately retain outputs as evidence — three active,
+   four archived — which master §4 permits but does not default to.
 
 ### 4.3 Cross-reference integrity
 
@@ -256,7 +256,7 @@ keeping it out holds CI fast and avoids a large download.
   Safe to remove: the `foodlens-react-vite-refinement` branch is already
   merged into `main` and `git log main..foodlens-react-vite-refinement`
   is empty, so no unique commits are lost. The branch itself is then deleted.
-- **Notebook outputs** — the four archived notebooks keep theirs. This is
+- **Notebook outputs** — the seven notebooks that have them keep them. This is
   permitted by §4 as intentionally preserved evidence; the reason is written
   into `0_coding_standards.md` so a future audit reads it as a decision
   rather than an oversight.
