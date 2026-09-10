@@ -9,6 +9,7 @@ import {
   toLocalDemoResult,
 } from "../api/foodlensClient";
 import type { AnalyzerResult } from "../api/types";
+import { createPreviewUrl, sourceHost, videoSampleTimes, waitForEvent } from "./analyzerHelpers";
 
 export type AnalyzerMode = "image" | "video";
 export type AnalyzerStatus = "idle" | "loading" | "ready" | "error";
@@ -33,14 +34,6 @@ type AnalyzerState = {
   analyzeYoutubeUrl: (url: string) => Promise<void>;
 };
 
-function createPreviewUrl(file: File): string | null {
-  if (typeof URL.createObjectURL !== "function") {
-    return null;
-  }
-
-  return URL.createObjectURL(file);
-}
-
 async function fetchDemoVideoFile(): Promise<File> {
   const response = await fetch(DEMO_VIDEO_PATH);
   if (!response.ok) {
@@ -50,28 +43,6 @@ async function fetchDemoVideoFile(): Promise<File> {
   const blob = await response.blob();
   return new File([blob], DEMO_VIDEO_NAME, {
     type: blob.type || "video/mp4",
-  });
-}
-
-function waitForEvent(target: EventTarget, eventName: string): Promise<Event> {
-  return new Promise((resolve, reject) => {
-    function cleanup() {
-      target.removeEventListener(eventName, handleEvent);
-      target.removeEventListener("error", handleError);
-    }
-
-    function handleEvent(event: Event) {
-      cleanup();
-      resolve(event);
-    }
-
-    function handleError() {
-      cleanup();
-      reject(new Error(`Video failed while waiting for ${eventName}.`));
-    }
-
-    target.addEventListener(eventName, handleEvent, { once: true });
-    target.addEventListener("error", handleError, { once: true });
   });
 }
 
@@ -122,24 +93,6 @@ async function frameToFile(
   return new File([blob], `video-frame-${frameIndex + 1}.jpg`, {
     type: "image/jpeg",
   });
-}
-
-function videoSampleTimes(duration: number): number[] {
-  if (!Number.isFinite(duration) || duration <= 0) {
-    return [0];
-  }
-
-  return [0.2, 0.5, 0.8].map((position) =>
-    Math.min(Math.max(duration * position, 0), Math.max(duration - 0.05, 0)),
-  );
-}
-
-function sourceHost(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
 }
 
 export function useAnalyzer(): AnalyzerState {
