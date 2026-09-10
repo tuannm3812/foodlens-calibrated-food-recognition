@@ -748,11 +748,13 @@ git rm app/backend/requirements.txt app/backend/requirements-dev.txt app/backend
 
 ```bash
 rm -rf .venv
-uv venv --python 3.11.9
+uv venv --python 3.11.9 --seed
 .venv/bin/python --version
 ```
 
 Expected: `Python 3.11.9`.
+
+`--seed` is required: current `uv` does not install `pip` into a new venv by default, and Step 7 calls `python -m pip`. Without it the next step fails on a pip-less environment.
 
 - [ ] **Step 7: Install dev dependencies**
 
