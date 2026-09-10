@@ -40,7 +40,7 @@ CANCEL_STATES = {
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 DEFAULT_RECALIBRATION_SCRIPT = (
-    REPO_ROOT / "kaggle" / "accuracy_phase1" / "recalibrate_decision_layer.py"
+    REPO_ROOT / "scripts" / "recalibrate_decision_layer.py"
 )
 
 
