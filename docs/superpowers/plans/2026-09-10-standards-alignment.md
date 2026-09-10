@@ -538,7 +538,7 @@ Apply these four exact replacements to that file:
 | 103 | `(foodlens-completion-status.md)` | `(../../9_agent_log.md)` |
 
 Update each link's visible text to match its new target as well — for example
-line 76's `[docs/05_next_steps.md] (../05_next_steps.md)` becomes
+line 76's `[docs/05_next_steps.md](../05_next_steps.md)` becomes
 `[docs/4_next_steps.md](../../4_next_steps.md)`. Line 75's
 `[README.md](../../README.md)` is already correct; leave it alone.
 

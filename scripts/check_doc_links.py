@@ -15,6 +15,7 @@ from pathlib import Path
 
 LINK_PATTERN = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 FENCE_PATTERN = re.compile(r"^\s*(`{3,}|~{3,})")
+INLINE_CODE_PATTERN = re.compile(r"(`+)(?:(?!\1).)*?\1", re.DOTALL)
 
 
 def tracked_markdown_files() -> list[Path]:
@@ -53,10 +54,25 @@ def strip_code_fences(text: str) -> str:
     return "\n".join(kept)
 
 
+def strip_inline_code(text: str) -> str:
+    """Blank out inline code spans (single- or multi-backtick).
+
+    A link shown inside backticks, like `[label](target)`, is displayed to
+    the reader as literal text, not asserted as a real target -- e.g. a
+    plan document quoting "the link used to read `[a](b.md)`". Treating it
+    as live produces false positives, so it must be stripped just like a
+    fenced block. An opening run of N backticks closes at the next run of
+    exactly N backticks, so multi-backtick delimiters (e.g. ``a `b` c``)
+    are handled correctly.
+    """
+    return INLINE_CODE_PATTERN.sub("", text)
+
+
 def broken_links(path: Path) -> list[str]:
     """Return relative links in `path` that do not resolve to a real file."""
     problems = []
     body = strip_code_fences(path.read_text(encoding="utf-8"))
+    body = strip_inline_code(body)
     for target in LINK_PATTERN.findall(body):
         target = target.split("#", 1)[0].strip()
         if not target or target.startswith(("http://", "https://", "mailto:")):
