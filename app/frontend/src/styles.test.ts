@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
@@ -54,16 +53,25 @@ function extractSelectorSequence(css: string): string[] {
   return selectors;
 }
 
-const PRE_SPLIT_STYLES_COMMIT = "e729880";
+// The pre-split selector order lives in a checked-in fixture rather than
+// being read from history via the version control CLI: CI runners use a
+// shallow clone (actions/checkout) and do not have the pre-split commit in
+// their object store, so invoking the VCS to read that historical blob
+// passed on every developer machine (full history) and failed only in CI.
+// Reading a fixture from the working tree makes the test hermetic instead.
+//
+// If this test fails, it means the split partials were reordered or a rule
+// was dropped when src/styles.css was divided into src/styles/*.css. Fix
+// the CSS split to match the fixture -- do NOT regenerate the fixture to
+// make a failing test pass.
+function originalSelectorOrder(): string[] {
+  const fixturePath = resolve(__dirname, "styles/__fixtures__/pre-split-selector-order.txt");
+  const contents = readFileSync(fixturePath, "utf8");
 
-function originalStylesheet(): string {
-  const repoRoot = resolve(__dirname, "../../..");
-
-  return execFileSync(
-    "git",
-    ["show", `${PRE_SPLIT_STYLES_COMMIT}:app/frontend/src/styles.css`],
-    { cwd: repoRoot, encoding: "utf8" },
-  );
+  return contents
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"));
 }
 
 describe("decision card visual density", () => {
@@ -155,7 +163,7 @@ describe("workbench layout alignment", () => {
 
 describe("styles.css split", () => {
   it("reproduces the pre-split stylesheet's rule order when its partials are concatenated", () => {
-    const originalSelectors = extractSelectorSequence(originalStylesheet());
+    const originalSelectors = originalSelectorOrder();
     const splitSelectors = extractSelectorSequence(concatenatedStylesheet());
 
     expect(splitSelectors).toEqual(originalSelectors);
