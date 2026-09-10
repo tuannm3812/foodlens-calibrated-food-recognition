@@ -877,7 +877,22 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - [ ] **Step 1: Capture the baseline from the real config**
 
 Run: `.venv/bin/python -m ruff check . --statistics`
-Expected: roughly 135 findings — lower than the raw 191, because `pyproject.toml`'s `per-file-ignores` now suppresses the 56 intended `E402` hits and the `kaggle/**` `E501` hits. Record the exact number before changing anything.
+
+Expected: **63 findings, 44 auto-fixable**, broken down as:
+
+```
+27  UP045  non-pep604-annotation-optional   [auto-fixable]
+15  I001   unsorted-imports                 [auto-fixable]
+ 8  E501   line-too-long
+ 8  B905   zip-without-explicit-strict
+ 3  B008   function-call-in-default-argument
+ 1  UP035  deprecated-import                [auto-fixable]
+ 1  F401   unused-import                    [auto-fixable]
+```
+
+This is lower than the 191 measured during design for two reasons: `pyproject.toml`'s `per-file-ignores` suppresses the intended `E402` and `E501` hits in `kaggle/**`, and `extend-exclude = ["*.ipynb"]` drops Jupyter notebooks. Notebooks accounted for 197 of 260 findings under an earlier config — they are execution records whose cell structure inherently trips `E402`, `F821` and `F404`, and `docs/0_coding_standards.md` forbids re-executing them to satisfy a linter.
+
+Record the exact number before changing anything. If you see `F821` or `F404`, the notebook exclusion is not in effect — stop and check `pyproject.toml`.
 
 - [ ] **Step 2: Apply the safe automatic fixes**
 
