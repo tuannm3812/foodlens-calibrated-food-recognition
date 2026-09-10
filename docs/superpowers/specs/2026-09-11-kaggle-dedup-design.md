@@ -39,7 +39,7 @@ removed. They are the record of what differed between experiments.
 
 | # | Duplication | Lines | Verdict |
 | --- | --- | ---: | --- |
-| 1 | `recalibrate_decision_layer.py` in three directories, byte-identical (md5 `17b5133111a33b21d7b62d0a65ba3c89`) | 1,872 total, 1,248 redundant | **Remove.** Not a run record and not a Kaggle `code_file`. |
+| 1 | `recalibrate_decision_layer.py` in three directories, byte-identical (md5 `a7d78a72fc14849fbcac384ccdda9365`) | 1,872 total, 1,248 redundant | **Remove.** Not a run record and not a Kaggle `code_file`. |
 | 2 | Each `.py` training script duplicates its own `.ipynb` code cells at 97.8-98.1% similarity | ~2,900 | **Keep, but expose.** See §5. |
 | 3 | Run scripts differ from each other by 46-282 lines | — | **Not duplication.** Immutable run records. |
 
@@ -51,6 +51,12 @@ removed. They are the record of what differed between experiments.
 `accuracy_phase1` copy as its default, and `docs/4_next_steps.md:238` invokes
 that same path. The copies under `accuracy_phase1_a3b/` and
 `accuracy_phase1_a4/` are referenced by nothing.
+
+The md5 above is the post-S0 value. An earlier draft of this design cited
+`17b5133111a33b21d7b62d0a65ba3c89`, measured before S0's ruff sweep rewrote all
+three copies identically. The copies stayed byte-identical to each other
+throughout, so the dedup argument is unaffected — but the stale hash is worth
+recording as another instance of a claim outliving the thing it described.
 
 Nothing about it is specific to the A1 run, so living under
 `kaggle/accuracy_phase1/` is itself misleading. It moves to `scripts/`.
