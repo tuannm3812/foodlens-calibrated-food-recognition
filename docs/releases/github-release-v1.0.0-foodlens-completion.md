@@ -22,7 +22,6 @@ FoodLens completion handoff release.
 - `docs/ops/foodlens-ops-deployment-runbook.md`
 - `docs/9_agent_log.md`
 - `docs/8_runtime_contract.md`
-- `docs/9_agent_log.md`
 
 ## Git References
 - Tag: `v1.0.0-foodlens-completion`

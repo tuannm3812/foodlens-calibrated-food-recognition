@@ -6,6 +6,13 @@ points at a file that does not exist.
 Fenced code blocks are skipped. Spec and plan documents quote example
 markdown inside fences, and those examples describe files that may not
 exist yet -- treating them as live links produces false positives.
+
+Inline-code stripping fails open: it only ever removes a balanced span
+that opens and closes on the same line, and any line with an unbalanced
+or unclosed backtick run is left intact rather than guessed at. This
+script is the CI gate for every future doc move, so a missed broken
+link (false negative) is worse than a spurious one (false positive) --
+when in doubt, the link gets checked.
 """
 
 import re
@@ -15,7 +22,7 @@ from pathlib import Path
 
 LINK_PATTERN = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 FENCE_PATTERN = re.compile(r"^\s*(`{3,}|~{3,})")
-INLINE_CODE_PATTERN = re.compile(r"(`+)(?:(?!\1).)*?\1", re.DOTALL)
+BACKTICK_RUN_PATTERN = re.compile(r"`+")
 
 
 def tracked_markdown_files() -> list[Path]:
@@ -54,18 +61,58 @@ def strip_code_fences(text: str) -> str:
     return "\n".join(kept)
 
 
-def strip_inline_code(text: str) -> str:
-    """Blank out inline code spans (single- or multi-backtick).
+def _strip_inline_code_from_line(line: str) -> str:
+    """Blank out balanced inline-code spans on a single line.
 
     A link shown inside backticks, like `[label](target)`, is displayed to
     the reader as literal text, not asserted as a real target -- e.g. a
     plan document quoting "the link used to read `[a](b.md)`". Treating it
     as live produces false positives, so it must be stripped just like a
     fenced block. An opening run of N backticks closes at the next run of
-    exactly N backticks, so multi-backtick delimiters (e.g. ``a `b` c``)
-    are handled correctly.
+    exactly N backticks on the same line, so multi-backtick delimiters
+    (e.g. ``a `b` c``) are handled correctly.
+
+    This never spans a newline, and it only strips a span once every
+    opening run on this line has found a matching closing run. If any
+    backtick run on the line can't be paired, the line is fail-open: it is
+    returned unchanged so its links still get checked, rather than risking
+    a guess that swallows real content.
     """
-    return INLINE_CODE_PATTERN.sub("", text)
+    runs = list(BACKTICK_RUN_PATTERN.finditer(line))
+    if not runs:
+        return line
+
+    spans: list[tuple[int, int]] = []
+    i = 0
+    while i < len(runs):
+        opener = runs[i]
+        length = len(opener.group(0))
+        closer_index = None
+        for j in range(i + 1, len(runs)):
+            if len(runs[j].group(0)) == length:
+                closer_index = j
+                break
+        if closer_index is None:
+            # Unbalanced/unclosed backtick run: fail open for this whole
+            # line rather than guess which text was "meant" as code.
+            return line
+        spans.append((opener.start(), runs[closer_index].end()))
+        i = closer_index + 1
+
+    result = line
+    for start, end in sorted(spans, reverse=True):
+        result = result[:start] + result[end:]
+    return result
+
+
+def strip_inline_code(text: str) -> str:
+    """Blank out balanced inline code spans, line by line.
+
+    Operates after fence-stripping. Each line is handled independently so a
+    span can never cross a newline; see `_strip_inline_code_from_line` for
+    the fail-open pairing rule.
+    """
+    return "\n".join(_strip_inline_code_from_line(line) for line in text.splitlines())
 
 
 def broken_links(path: Path) -> list[str]:

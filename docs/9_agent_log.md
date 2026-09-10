@@ -48,10 +48,15 @@ Aligned the repo to the master standard at `~/Documents/GitHub/coding-standards/
 Design: [`superpowers/specs/2026-09-10-standards-alignment-design.md`](superpowers/specs/2026-09-10-standards-alignment-design.md)
 Plan: [`superpowers/plans/2026-09-10-standards-alignment.md`](superpowers/plans/2026-09-10-standards-alignment.md)
 
-**Changed:** added `AGENTS.md` + `CLAUDE.md`; cut `0_coding_standards.md` from a
-~160-line master copy to four deltas; renumbered docs to Shape A; promoted the
-runtime contract to `8_runtime_contract.md`; started this log; pinned Python
-3.11.9; added `pyproject.toml`, consolidated requirements, and CI.
+**Changed so far (Tasks 1-2):** added `AGENTS.md` + `CLAUDE.md`; cut
+`0_coding_standards.md` from a ~160-line copy of the master to four deltas;
+renumbered the docs to Shape A; promoted the runtime contract to
+`8_runtime_contract.md`; started this log; and added
+`scripts/check_doc_links.py` as the gate for doc moves.
+
+**Still in progress:** pinning Python 3.11.9, `pyproject.toml`, consolidated
+requirements, the ruff sweep, and CI. A second entry will record those when
+they land, per this log's append-only rule.
 
 **Measured, not assumed:** ruff reported 191 findings repo-wide, but only 38 (26
 auto-fixable) were real debt in `app/`, `tests/`, `scripts/`. Of the remainder,
