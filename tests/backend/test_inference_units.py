@@ -220,7 +220,7 @@ def test_read_policy_uses_file_values_when_present(
         json.dumps({"auto_confidence": 0.9, "suggest_confidence": 0.6, "margin_threshold": 0.3})
     )
 
-    policy = inference.read_policy()
+    policy = inference.read_policy(inference.artifact_dir_path())
 
     assert policy == {
         "auto_confidence": 0.9,
@@ -235,7 +235,7 @@ def test_read_policy_fills_missing_keys_from_defaults(
     _point_artifact_dir(monkeypatch, tmp_path)
     (tmp_path / "decision_policy.json").write_text(json.dumps({"auto_confidence": 0.9}))
 
-    policy = inference.read_policy()
+    policy = inference.read_policy(inference.artifact_dir_path())
 
     assert policy["auto_confidence"] == 0.9
     assert policy["suggest_confidence"] == inference.DEFAULT_POLICY["suggest_confidence"]
@@ -247,7 +247,7 @@ def test_read_policy_returns_defaults_when_file_absent(
 ) -> None:
     _point_artifact_dir(monkeypatch, tmp_path)
 
-    policy = inference.read_policy()
+    policy = inference.read_policy(inference.artifact_dir_path())
 
     assert policy == {
         "auto_confidence": inference.DEFAULT_POLICY["auto_confidence"],
@@ -265,7 +265,7 @@ def test_read_policy_raises_on_malformed_json(
     (tmp_path / "decision_policy.json").write_text("{not valid json")
 
     with pytest.raises(json.JSONDecodeError):
-        inference.read_policy()
+        inference.read_policy(inference.artifact_dir_path())
 
 
 def test_read_hard_classes_uses_file_values_when_present(
@@ -274,7 +274,7 @@ def test_read_hard_classes_uses_file_values_when_present(
     _point_artifact_dir(monkeypatch, tmp_path)
     (tmp_path / "hard_classes.json").write_text(json.dumps(["ramen", "pho"]))
 
-    hard_classes = inference.read_hard_classes()
+    hard_classes = inference.read_hard_classes(inference.artifact_dir_path())
 
     assert hard_classes == {"ramen", "pho"}
 
@@ -284,7 +284,7 @@ def test_read_hard_classes_returns_defaults_when_file_absent(
 ) -> None:
     _point_artifact_dir(monkeypatch, tmp_path)
 
-    hard_classes = inference.read_hard_classes()
+    hard_classes = inference.read_hard_classes(inference.artifact_dir_path())
 
     assert hard_classes == set(inference.DEFAULT_HARD_CLASSES)
 
@@ -296,7 +296,7 @@ def test_read_hard_classes_raises_on_malformed_json(
     (tmp_path / "hard_classes.json").write_text("[not valid")
 
     with pytest.raises(json.JSONDecodeError):
-        inference.read_hard_classes()
+        inference.read_hard_classes(inference.artifact_dir_path())
 
 
 def test_read_confusion_pairs_accepts_dict_and_list_entries_and_skips_invalid(
@@ -314,7 +314,7 @@ def test_read_confusion_pairs_accepts_dict_and_list_entries_and_skips_invalid(
         )
     )
 
-    pairs = inference.read_confusion_pairs()
+    pairs = inference.read_confusion_pairs(inference.artifact_dir_path())
 
     assert pairs == {("ramen", "pho"), ("steak", "prime_rib")}
 
@@ -324,7 +324,7 @@ def test_read_confusion_pairs_returns_empty_set_when_file_absent(
 ) -> None:
     _point_artifact_dir(monkeypatch, tmp_path)
 
-    pairs = inference.read_confusion_pairs()
+    pairs = inference.read_confusion_pairs(inference.artifact_dir_path())
 
     assert pairs == set()
 
@@ -336,7 +336,7 @@ def test_read_confusion_pairs_raises_on_malformed_json(
     (tmp_path / "confusion_pairs.json").write_text("{bad")
 
     with pytest.raises(json.JSONDecodeError):
-        inference.read_confusion_pairs()
+        inference.read_confusion_pairs(inference.artifact_dir_path())
 
 
 # ---------------------------------------------------------------------------
