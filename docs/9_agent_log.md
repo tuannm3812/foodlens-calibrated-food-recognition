@@ -286,3 +286,77 @@ renumbering and the stale `AGENTS.md` line counts survived to the final review.
 
 **Agreed with Codex, no action:** no evidence supports promoting A3b; the
 champion and the recalibration restriction stand unchanged.
+
+---
+
+## 2026-09-11 — S1, S2 and S3 executed; program complete
+
+All three remaining sub-projects landed as stacked pull requests based on this
+branch: [#4](https://github.com/tuannm3812/foodlens-calibrated-food-recognition/pull/4) (S1),
+[#5](https://github.com/tuannm3812/foodlens-calibrated-food-recognition/pull/5) (S2),
+[#6](https://github.com/tuannm3812/foodlens-calibrated-food-recognition/pull/6) (S3).
+All four PRs have both CI jobs green.
+
+**Two of the three sub-projects had their scope corrected by investigation, and
+the corrections matter more than the code.**
+
+S1 was supposed to merge four ~700-line training scripts into a parameterised
+runner. It must not. Every `kaggle/*/kernel-metadata.json` names the `.ipynb` as
+`code_file` with `kernel_sources` empty, so Kaggle runs the notebook
+self-contained and cannot import a shared module — master §4 says so directly.
+And the scripts are run records: the 46-282 lines between them are the record of
+what differed between experiments, so merging them would break the property that
+a figure in `3_model_results.md` traces to the code that produced it. What was
+real: three byte-identical copies of `recalibrate_decision_layer.py`, now one,
+1,248 redundant lines removed.
+
+S3 was supposed to "resolve the duplicate `frontend-static/`". It is not a
+duplicate — it is an archive, created deliberately by the 2026-05-31 plan and
+documented as such in two READMEs. Left untouched; the delete-or-keep decision
+is raised in #6 rather than taken.
+
+**S2 was staged because the code was too dark to restructure safely.**
+`inference.py` sat at 59% statement coverage, so Phase 1 added 39
+characterization tests before anything moved and Phase 2 did the split.
+886 → 521 lines across six modules; backend coverage 68% → 83%; suite 36 → 92.
+The three original backend test files pass unmodified, which is the proof. A
+review verified the "moved verbatim" claim by AST-extracting every function and
+constant and byte-comparing: 21 of 28 functions byte-identical, all 18 constants
+unchanged.
+
+**Three findings recorded against earlier work, none of which changed a
+published result:**
+
+- S0's ruff sweep widened the drift between each Kaggle `.py` and the notebook
+  it mirrors, from 98.4-99.2% to 97.8-98.1%, by modernising the `.py` while
+  `extend-exclude` left notebooks alone. It modernised a record of what ran
+  until it no longer matched what ran. Notebooks are the `code_file` and are
+  unchanged. Reconciling or deleting the mirrors is an open decision; the drift
+  is now measurable via `scripts/check_kaggle_mirrors.py`.
+- `read_json` does not guard `json.loads`, so a truncated artifact file takes
+  the API down with an uncaught `JSONDecodeError` instead of degrading to the
+  demo fallback. Pinned as current behaviour by a Phase 1 test, deliberately not
+  fixed inside a no-behaviour-change refactor. **Worth fixing next.**
+- `detection.py`'s `run_yolo_detection` had zero regression evidence — a review
+  mutation-tested it and found the degenerate-bbox guard could be loosened from
+  `<=` to `<` with all 82 tests still passing. Now at 100% coverage with a fake
+  YOLO, and the mutation verified to fail.
+
+**Two failures CI found that local runs structurally could not.**
+
+The workflow filtered `pull_request` to `branches: [main]`, so all three stacked
+PRs reported *no checks at all* rather than any failure — a gap that looks like
+nothing is wrong. Trigger broadened.
+
+Then S3's stylesheet order-guard test sourced its baseline with
+`git show <sha>:...`, which fails on the runner because `actions/checkout` does a
+shallow clone. It passed on every developer machine and failed only in CI. The
+baseline is now a committed fixture, so the test depends on nothing outside the
+working tree. Both are the same lesson as the earlier `python3` 3.9 near-miss:
+a check is only worth what its environment differences let it catch.
+
+**Still open, in priority order:** the unguarded `json.loads`; the `.py`/`.ipynb`
+mirror decision; `demo.py`'s cohesion (it holds `MODEL_NAME` and
+`MULTI_FOOD_POLICY`, which the *live* paths import, and a degraded-live fallback
+that is not a demo); the link checker's blindness to HTML `<img src>` targets;
+and the absence of any gate on the doc-structure rules themselves.
