@@ -34,7 +34,7 @@ jobs:
         run: python scripts/check_doc_links.py
 
       - name: Run tests
-        run: pytest -q
+        run: python -m pytest -q
 
   frontend:
     runs-on: ubuntu-latest
