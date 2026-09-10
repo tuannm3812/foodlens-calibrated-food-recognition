@@ -72,3 +72,20 @@ Common fallback reasons:
 - URL input errors return `400`.
 - Missing media dependencies return `503`.
 - Ingestion failures return `400` for user-facing URL/media issues.
+
+## Detector weights
+
+Live detection needs `yolo11n.pt` — the YOLO11-nano checkpoint from
+Ultralytics, 5.6 MB. It is gitignored by the `*.pt` rule, so a fresh clone
+does not have it, and `weights_found` reports `false` until it is present.
+
+Resolution order, reflected in `weights_source`:
+
+1. `"environment"` — the `FOODLENS_DETECTOR_WEIGHTS` environment variable.
+2. `"auto_discovered"` — `yolo11n.pt` found at the repo root.
+3. `"ultralytics_default"` — the package default path. Ultralytics downloads
+   the checkpoint on first use when it resolves here.
+
+With no weights and no `ultralytics` install, `/predict/multi-food/*` serves
+the deterministic demo fallback (`detector_status: "fallback_demo"`). That is
+the expected state in CI, which does not install the detector extra.
