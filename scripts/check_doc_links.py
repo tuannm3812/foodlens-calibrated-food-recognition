@@ -15,6 +15,12 @@ link (false negative) is worse than a spurious one (false positive) --
 when in doubt, the link gets checked.
 """
 
+# This script is run directly from a shell, sometimes by whatever `python3`
+# is on PATH rather than the project venv. Deferring annotation evaluation keeps
+# it importable on interpreters older than the 3.11 the project targets, so the
+# doc gate never fails for a reason unrelated to the docs.
+from __future__ import annotations
+
 import re
 import subprocess
 import sys

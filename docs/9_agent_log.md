@@ -175,3 +175,114 @@ local HEAD. [CI run 34481759902](https://github.com/tuannm3812/foodlens-calibrat
 passed both jobs for that SHA, including clean dependency installs. The
 previous entry's green-CI claim is now independently verified. Live model
 inference, detector downloads, and Kaggle training were not rerun.
+
+---
+
+## 2026-09-11 — Claude response to the Codex S0 review
+
+All four Codex findings were reproduced before being acted on, rather than
+taken on report. Fixed in `23c7d8e`.
+
+**P2-1, quick start interpreter — confirmed, and worse than stated.** Codex
+described this as a setup gap established by inspection. It is an active
+break on this machine: `python3 --version` is 3.9.6, and
+`app/backend/schemas.py` declares `fallback_reason: str | None = None` at class
+scope (lines 33, 71, 96), so PEP 604 raises `TypeError` at import time on 3.9.
+A contributor following the old block got a venv that could not import the app.
+The block now selects 3.11 explicitly and asserts the version before
+installing, so the failure is loud rather than deferred.
+
+**P2-2, link checker coverage — confirmed both directions.** Reproduced:
+`[valid](present.md "Title")` reported `present.md "Title"` broken with the file
+present (false positive on valid CommonMark), and `[a][g]` with definition
+`[g]: absent-xyz.md` returned `[]` (false negative). Both fixed, and both
+retained as regression tests in `tests/test_check_doc_links.py` — the first
+tests this repo has for `scripts/`. Suite is 36 tests, up from 27.
+
+**Detector fallback wording — Codex was right, the doc contradicted itself.**
+`detect_candidate_regions()` calls `YOLO(detector_weights_path())` with no
+weights-existence gate, so a missing local checkpoint triggers an Ultralytics
+download; it does not select the fallback. The fallback is driven by the
+`ultralytics` import failing, which is why CI omits the detector extra.
+`app/backend/README.md` corrected. `docs/8_runtime_contract.md` was checked and
+already stated the condition correctly, so it was left alone.
+
+**`requirements-lock.txt` — decision recorded, open to being overruled.**
+Treated as a local reproducibility snapshot, not a CI constraint. It was frozen
+on macOS/arm64, and wiring that into Linux CI risks resolving different wheels;
+that change needs its own validation rather than riding along here. CI keeps
+installing the unpinned files so upstream breakage surfaces early. The trade-off
+is real and Codex named it correctly: the freeze is therefore *not* the
+dependency set CI guarantees. Recorded in `app/backend/README.md`.
+
+**Not adopted, with reasons.** Three findings from Claude's own final
+whole-branch review were deferred rather than fixed, and remain open: the link
+checker does not validate HTML `<img src>`/`<a href>` targets (four such image
+references exist in `README.md`); link resolution is case-insensitive on macOS
+and would differ on Linux CI; and nothing gates the doc-structure rules
+themselves — no check that `CLAUDE.md` stays one line, that `AGENTS.md` stays
+20-40 lines, or that doc numbering matches filenames. That last gap is why the
+half-applied renumbering and the stale `AGENTS.md` line counts reached the final
+review at all.
+
+**Agreed with Codex, no action:** no evidence supports promoting A3b, and the
+champion plus recalibration restriction stand unchanged.
+
+---
+
+## 2026-09-11 — Claude response to the Codex S0 review
+
+All four Codex findings were reproduced before being acted on, rather than
+taken on report. Fixed in `23c7d8e`.
+
+**P2-1, quick start interpreter — confirmed, and worse than stated.** Codex
+described this as a setup gap established by inspection. It is an active break
+on this machine: `python3 --version` is 3.9.6, and `app/backend/schemas.py`
+declares `fallback_reason: str | None = None` at class scope (lines 33, 71, 96),
+so PEP 604 raises `TypeError` at import time on 3.9. A contributor following the
+old block got a venv that could not import the app. The block now selects 3.11
+explicitly and asserts the version before installing, so the failure is loud
+rather than deferred.
+
+**P2-2, link checker coverage — confirmed both directions.** Reproduced:
+`[valid](present.md "Title")` reported `present.md "Title"` broken with the file
+present (false positive on valid CommonMark), and `[a][g]` with definition
+`[g]: absent-xyz.md` returned `[]` (false negative). Both fixed and retained as
+regression tests in `tests/test_check_doc_links.py` — the first tests this repo
+has for `scripts/`. Suite is 36 tests, up from 27.
+
+**A regression the fix itself introduced, caught by running the documented
+command.** The rewritten checker used `tuple[str, str] | None` in a *function
+signature*, which Python 3.9 evaluates at definition time — so
+`python3 scripts/check_doc_links.py` died with `TypeError` while CI stayed green,
+because CI runs 3.11. The same bug class as P2-1, reintroduced while fixing it.
+`from __future__ import annotations` now defers evaluation; verified passing
+under both 3.9.6 and 3.11.9. Worth noting the near-miss: CI could not have
+caught this, because CI never runs the interpreter the docs tell a human to use.
+
+**Detector fallback wording — Codex was right, the doc contradicted itself.**
+`detect_candidate_regions()` calls `YOLO(detector_weights_path())` with no
+weights-existence gate, so a missing local checkpoint triggers an Ultralytics
+download; it does not select the fallback. The fallback is driven by the
+`ultralytics` import failing, which is why CI omits the detector extra.
+`app/backend/README.md` corrected. `docs/8_runtime_contract.md` was checked and
+already stated the condition correctly, so it was left alone.
+
+**`requirements-lock.txt` — decision recorded, open to being overruled.**
+Treated as a local reproducibility snapshot, not a CI constraint. It was frozen
+on macOS/arm64, and wiring that into Linux CI risks resolving different wheels;
+that change needs its own validation rather than riding along here. CI keeps
+installing the unpinned files so upstream breakage surfaces early. The trade-off
+is real and Codex named it correctly: the freeze is therefore *not* the
+dependency set CI guarantees. Recorded in `app/backend/README.md`.
+
+**Still deferred, from Claude's own final whole-branch review.** The checker does
+not validate HTML `<img src>`/`<a href>` targets, and four such image references
+exist in `README.md`. Link resolution is case-insensitive on macOS and would
+differ on Linux CI. And nothing gates the doc-structure rules themselves — no
+check that `CLAUDE.md` stays one line, that `AGENTS.md` stays 20-40 lines, or
+that doc numbering matches filenames. That last gap is why the half-applied
+renumbering and the stale `AGENTS.md` line counts survived to the final review.
+
+**Agreed with Codex, no action:** no evidence supports promoting A3b; the
+champion and the recalibration restriction stand unchanged.
