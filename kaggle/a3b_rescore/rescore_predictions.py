@@ -16,11 +16,20 @@ new CSV in the documented schema -- leaving the original
 `<split>_predictions.csv` untouched (it is an immutable run record; see
 `docs/0_coding_standards.md`, "kaggle/*/ holds immutable run records").
 
-Softmax is applied to the **raw, un-temperature-scaled** logits. Temperature
-scaling is the calibration step's job (`fit_temperature` in the A3b training
-script, run against the *val* split), not this script's, and top-1/top-5
-accuracy are invariant to temperature scaling anyway (it is a monotonic
-rescaling of the logits, so argmax and rank order are unchanged).
+Confidences are **temperature-scaled** to match what `app/backend/inference.py`
+actually serves in production (`softmax(logits / temperature, dim=1)`, with
+`temperature` read from `calibration.json`). `scripts/recalibrate_decision_layer.py`
+does not apply temperature itself -- it fits decision thresholds directly on
+whatever confidences the predictions CSV already contains -- so if this script
+emitted raw, un-scaled softmax, those thresholds would be fitted on a
+different distribution than the one the backend serves, and would be
+systematically wrong once deployed. By default the temperature is read from
+`calibration.json` in `--results-dir`; it can be overridden with
+`--temperature` (pass `1.0` to deliberately opt out of scaling). Top-1/top-5
+accuracy are unaffected by which temperature is used, because temperature
+scaling is a monotonic rescaling of the logits, so argmax and rank order are
+unchanged -- the self-check below still reproduces the run's recorded
+metrics regardless of temperature.
 
 Because a mismatched preprocessing pipeline or class ordering would silently
 produce confidences for a *different* model, this script always ends with a
@@ -66,6 +75,7 @@ REQUIRED_OUTPUT_COLUMNS = [
     "is_correct",
     "top_5",
     "top_5_confidence",
+    "temperature",
 ]
 
 EVAL_TRANSFORMS = transforms.Compose(
@@ -79,6 +89,10 @@ EVAL_TRANSFORMS = transforms.Compose(
 
 class AccuracyMismatchError(RuntimeError):
     """Raised when achieved accuracy does not match the run's recorded metrics."""
+
+
+class MissingTemperatureError(RuntimeError):
+    """Raised when no temperature is available and none was requested explicitly."""
 
 
 # --------------------------------------------------------------------------
@@ -169,6 +183,56 @@ def load_class_names(results_dir: Path) -> list[str]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def resolve_temperature(results_dir: Path, explicit: float | None) -> tuple[float, str]:
+    """Resolve the temperature to divide logits by before softmax.
+
+    This must match `app/backend/inference.py`'s `softmax(logits / temperature,
+    dim=1)` exactly, because `scripts/recalibrate_decision_layer.py` fits
+    decision thresholds directly on whatever confidences this script emits --
+    it does not apply temperature itself. A threshold fitted on raw softmax
+    would be systematically wrong against the temperature-scaled confidences
+    production actually serves.
+
+    Args:
+        results_dir: Run directory that should contain `calibration.json`.
+        explicit: An explicit `--temperature` override, or None to read
+            `calibration.json`.
+
+    Returns:
+        A `(temperature, source)` pair, where `source` is either
+        `"--temperature flag"` or the path to `calibration.json`, for
+        logging provenance.
+
+    Raises:
+        MissingTemperatureError: If `explicit` is None and `calibration.json`
+            is absent or lacks a `temperature` key. This never silently
+            falls back to 1.0 -- a silent 1.0 is exactly the bug this
+            argument exists to fix.
+    """
+    if explicit is not None:
+        return explicit, "--temperature flag"
+
+    calibration_path = results_dir / "calibration.json"
+    if not calibration_path.exists():
+        raise MissingTemperatureError(
+            f"calibration.json not found in {results_dir} and no --temperature "
+            "was given. Confidences must be scaled by the same temperature "
+            "app/backend/inference.py serves in production, so this refuses to "
+            "silently default to 1.0. Pass --temperature explicitly (use 1.0 "
+            "to deliberately opt out of scaling), or restore calibration.json."
+        )
+
+    calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
+    if "temperature" not in calibration:
+        raise MissingTemperatureError(
+            f"{calibration_path} has no 'temperature' key and no --temperature "
+            "was given. Refusing to silently default to 1.0 -- pass "
+            "--temperature explicitly (use 1.0 to deliberately opt out of "
+            "scaling), or restore the key in calibration.json."
+        )
+    return float(calibration["temperature"]), str(calibration_path)
+
+
 def format_topk_columns(top_labels: Sequence[str], top_scores: Sequence[float]) -> tuple[str, str]:
     """Format rank-aligned top-k labels and scores as pipe-separated strings.
 
@@ -198,6 +262,7 @@ def build_prediction_row(
     true_label: str,
     top_labels: Sequence[str],
     top_scores: Sequence[float],
+    temperature: float = 1.0,
 ) -> dict[str, object]:
     """Build one output row in the documented predictions-CSV schema.
 
@@ -206,6 +271,10 @@ def build_prediction_row(
         true_label: Ground-truth class name.
         top_labels: Top-k predicted class names, most confident first.
         top_scores: Top-k per-class confidences, rank-aligned with `top_labels`.
+        temperature: The temperature `top_scores` were already scaled by
+            (i.e. computed as `softmax(logits / temperature)`), recorded
+            per row so the CSV is self-describing about which scaling
+            produced it.
 
     Returns:
         A dict with exactly the keys in `REQUIRED_OUTPUT_COLUMNS`.
@@ -220,6 +289,7 @@ def build_prediction_row(
         "is_correct": pred_label == true_label,
         "top_5": top_5,
         "top_5_confidence": top_5_confidence,
+        "temperature": float(temperature),
     }
 
 
@@ -415,6 +485,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "Must not equal <split>_predictions.csv -- that file is an immutable run record."
         ),
     )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help=(
+            "Temperature to divide logits by before softmax, matching "
+            "app/backend/inference.py's softmax(logits / temperature, dim=1). "
+            "Defaults to the 'temperature' key in <results-dir>/calibration.json; "
+            "pass 1.0 explicitly to deliberately opt out of scaling. There is "
+            "no silent default -- if calibration.json is missing or lacks the "
+            "key and this flag is not given, the script fails with a clear error."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -440,6 +523,9 @@ def rescore(args: argparse.Namespace) -> int:
         )
 
     class_names = load_class_names(results_dir)
+
+    temperature, temperature_source = resolve_temperature(results_dir, args.temperature)
+    print(f"Temperature: {temperature} (source: {temperature_source})")
 
     data_dir = resolve_data_dir(args.data_dir)
     resolved_paths = resolve_manifest_paths(manifest, data_dir)
@@ -477,7 +563,7 @@ def rescore(args: argparse.Namespace) -> int:
         for batch in loader:
             images = batch.to(device, non_blocking=True)
             logits = model(images)
-            probabilities = torch.softmax(logits, dim=1)
+            probabilities = torch.softmax(logits / temperature, dim=1)
             top_scores, top_indices = torch.topk(probabilities, TOP_K, dim=1)
 
             for row_offset in range(images.size(0)):
@@ -490,6 +576,7 @@ def rescore(args: argparse.Namespace) -> int:
                         true_label=str(manifest_row["label"]),
                         top_labels=top_labels,
                         top_scores=top_scores_list,
+                        temperature=temperature,
                     )
                 )
             seen += images.size(0)
@@ -514,7 +601,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
         return rescore(args)
-    except (FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, ValueError, MissingTemperatureError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     except AccuracyMismatchError as exc:

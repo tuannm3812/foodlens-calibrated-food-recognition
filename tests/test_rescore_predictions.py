@@ -8,10 +8,11 @@ trained A3b checkpoint to add them.
 
 Food-101 is ~5GB and not available in this environment, so these tests only
 exercise the pure helpers that do not need a model or real images: manifest
-path remapping, top-5 row formatting, the class-ordering rule, and the
-accuracy self-check. The model-construction/checkpoint-loading and full
-scoring-loop paths are exercised separately, by hand, against the real
-checkpoint (see the task report) rather than in this suite.
+path remapping, top-5 row formatting, the class-ordering rule, temperature
+resolution/application, and the accuracy self-check. The
+model-construction/checkpoint-loading and full scoring-loop paths are
+exercised separately, by hand, against the real checkpoint (see the task
+report) rather than in this suite.
 
 The module lives in kaggle/, not a package, so it is loaded by file path
 rather than imported normally (see tests/test_check_doc_links.py).
@@ -24,6 +25,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import torch
 
 SCRIPT_PATH = (
     Path(__file__).resolve().parent.parent / "kaggle" / "a3b_rescore" / "rescore_predictions.py"
@@ -38,6 +40,7 @@ remap_manifest_path = rescore_predictions.remap_manifest_path
 find_missing_paths = rescore_predictions.find_missing_paths
 ensure_paths_exist = rescore_predictions.ensure_paths_exist
 load_class_names = rescore_predictions.load_class_names
+resolve_temperature = rescore_predictions.resolve_temperature
 format_topk_columns = rescore_predictions.format_topk_columns
 build_prediction_row = rescore_predictions.build_prediction_row
 accuracy_from_rows = rescore_predictions.accuracy_from_rows
@@ -47,6 +50,7 @@ resolve_manifest_paths = rescore_predictions.resolve_manifest_paths
 resolve_data_dir = rescore_predictions.resolve_data_dir
 REQUIRED_OUTPUT_COLUMNS = rescore_predictions.REQUIRED_OUTPUT_COLUMNS
 AccuracyMismatchError = rescore_predictions.AccuracyMismatchError
+MissingTemperatureError = rescore_predictions.MissingTemperatureError
 
 
 # --------------------------------------------------------------------------
@@ -165,6 +169,103 @@ def test_load_class_names_missing_file_fails_clearly(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------
+# Temperature resolution
+#
+# `app/backend/inference.py:426` serves `softmax(logits / temperature, dim=1)`
+# with temperature read from calibration.json, and
+# `scripts/recalibrate_decision_layer.py` never applies temperature itself --
+# it fits thresholds directly on whatever confidences this script emits. So
+# this script must default to the same calibration.json temperature, accept
+# an explicit override, and never silently fall back to 1.0.
+# --------------------------------------------------------------------------
+
+
+def test_resolve_temperature_reads_calibration_json(tmp_path: Path) -> None:
+    (tmp_path / "calibration.json").write_text(
+        '{"temperature": 0.88435298204422}', encoding="utf-8"
+    )
+
+    temperature, source = resolve_temperature(tmp_path, explicit=None)
+
+    assert temperature == pytest.approx(0.88435298204422)
+    assert str(tmp_path / "calibration.json") == source
+
+
+def test_resolve_temperature_explicit_overrides_calibration_json(tmp_path: Path) -> None:
+    (tmp_path / "calibration.json").write_text('{"temperature": 0.5}', encoding="utf-8")
+
+    temperature, source = resolve_temperature(tmp_path, explicit=1.0)
+
+    assert temperature == 1.0
+    assert source == "--temperature flag"
+
+
+def test_resolve_temperature_missing_file_fails_clearly_not_silently(tmp_path: Path) -> None:
+    with pytest.raises(MissingTemperatureError, match="calibration.json"):
+        resolve_temperature(tmp_path, explicit=None)
+
+
+def test_resolve_temperature_missing_key_fails_clearly_not_silently(tmp_path: Path) -> None:
+    (tmp_path / "calibration.json").write_text('{"other_key": 1.0}', encoding="utf-8")
+
+    with pytest.raises(MissingTemperatureError, match="temperature"):
+        resolve_temperature(tmp_path, explicit=None)
+
+
+def test_resolve_temperature_explicit_one_point_zero_bypasses_missing_file(
+    tmp_path: Path,
+) -> None:
+    """`--temperature 1.0` must work even with no calibration.json, as a
+    deliberate opt-out of scaling -- distinct from the silent-default bug."""
+    temperature, source = resolve_temperature(tmp_path, explicit=1.0)
+
+    assert temperature == 1.0
+    assert source == "--temperature flag"
+
+
+# --------------------------------------------------------------------------
+# Temperature scaling direction
+#
+# Softmax(logits / T) must be applied in the same direction as
+# app/backend/inference.py: T < 1 sharpens (higher top-1 confidence than
+# raw), T > 1 flattens (lower), T == 1 is a no-op.
+# --------------------------------------------------------------------------
+
+
+def _top1_confidence(logits: list[float], temperature: float) -> float:
+    tensor = torch.tensor([logits])
+    probabilities = torch.softmax(tensor / temperature, dim=1)
+    return float(probabilities.max().item())
+
+
+def test_temperature_below_one_sharpens_top1_confidence_above_raw() -> None:
+    logits = [4.0, 1.0, 0.5, 0.1, -1.0]
+
+    raw = _top1_confidence(logits, temperature=1.0)
+    scaled = _top1_confidence(logits, temperature=0.88435298204422)
+
+    assert scaled > raw
+
+
+def test_temperature_above_one_flattens_top1_confidence_below_raw() -> None:
+    logits = [4.0, 1.0, 0.5, 0.1, -1.0]
+
+    raw = _top1_confidence(logits, temperature=1.0)
+    scaled = _top1_confidence(logits, temperature=2.0)
+
+    assert scaled < raw
+
+
+def test_temperature_of_one_leaves_top1_confidence_unchanged() -> None:
+    logits = [4.0, 1.0, 0.5, 0.1, -1.0]
+
+    raw = _top1_confidence(logits, temperature=1.0)
+    scaled = _top1_confidence(logits, temperature=1.0)
+
+    assert scaled == pytest.approx(raw)
+
+
+# --------------------------------------------------------------------------
 # Top-5 row formatting
 # --------------------------------------------------------------------------
 
@@ -189,6 +290,7 @@ def test_build_prediction_row_emits_exactly_the_documented_columns() -> None:
         true_label="pho",
         top_labels=["pho", "ramen", "miso_soup", "sushi", "tacos"],
         top_scores=[0.7, 0.1, 0.08, 0.07, 0.05],
+        temperature=0.88435298204422,
     )
 
     assert set(row.keys()) == set(REQUIRED_OUTPUT_COLUMNS)
@@ -196,6 +298,7 @@ def test_build_prediction_row_emits_exactly_the_documented_columns() -> None:
     assert row["confidence"] == pytest.approx(0.7)
     assert row["is_correct"] is True
     assert row["top_5"] == "pho|ramen|miso_soup|sushi|tacos"
+    assert row["temperature"] == pytest.approx(0.88435298204422)
 
 
 def test_build_prediction_row_marks_incorrect_when_top1_differs() -> None:
