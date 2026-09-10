@@ -1,181 +1,43 @@
-# 2. Coding Standards
+# 0. Coding Standards
 
-## 1. Repository Scope
+The baseline for this repo is the master standard at
+`~/Documents/GitHub/coding-standards/coding_standards.md`. This file records
+**only** where this project deliberately differs. Anything not listed here
+follows the master.
 
-This repository uses a notebook-led experiment workflow. Kaggle notebooks are
-the executable source of truth, while `docs/` captures project instructions,
-modeling results, and project decisions.
+## Doc shape: A
 
-Keep the root small:
+Master §2 asks a repo that is both a modelling project and a product to pick a
+centre of gravity and declare it. This repo picks **Shape A**. Six of the ten
+numbered docs are modelling docs, and the README leads with the champion model
+and its metrics. The FastAPI + React app in `app/` is the product surface, not
+the centre of gravity.
 
-- `notebooks/` for active Kaggle notebooks.
-- `notebooks/archive/` for historical or superseded notebooks.
-- `docs/` for standards, instructions, modeling approach, and result summaries.
-- `README.md` for the high-level project overview.
+## Root directories beyond master §1
 
-Avoid adding local-only folders such as `data/`, `models/`, `outputs/`,
-`configs/`, or `scripts/` unless the project moves away from Kaggle execution.
-Food-101 data, Kaggle working directories, and model checkpoints should not be
-committed.
+Master §1 asks for a small root. Two additions are deliberate:
 
-## 2. Notebook Naming
+- `app/` — the product runtime (FastAPI backend, React frontend, artifacts).
+- `kaggle/` — the Kaggle run records. Each directory is one training run's
+  script plus its notebook, kept so a result traces to the code that produced it.
 
-Use numbered, stable notebook names that match the workflow. Keep only active
-notebooks in the root of `notebooks/`; move superseded experiment records to
-`notebooks/archive/` with their original filename preserved.
+`data/`, `results/`, and `models/` remain untracked, per master §1 and §8.
 
-Current active notebooks:
+## `E402` is intended in `kaggle/`
 
-1. `04_resnet50_error_calibration_inference.ipynb`
-2. `05_confidence_decision_layer.ipynb`
-3. `06_food_recognition_demo_inference.ipynb`
-4. `08_detection_to_foodlens_pipeline.ipynb`
-5. `16_food101_accuracy_phase1_a4_convnext_tiny_full_finetune_320.ipynb`
+Scripts under `kaggle/` mirror notebook cell order, where imports follow the
+configuration block so the config is visible at the top of the run log. This is
+the intended Kaggle style, not debt. Enforced as a `per-file-ignores` entry in
+`pyproject.toml` rather than being "fixed".
 
-Archived notebook records remain available under `notebooks/archive/` for traceability
-of the earlier A3b, taxonomy-audit, and expanded-taxonomy workflow.
+## Four archived notebooks retain outputs
 
-Archived notebooks are still part of the project record, but they should not be
-treated as the recommended execution path. Later notebooks should isolate
-experiment families, such as calibration analysis, product decision layers,
-final demo inference, detector-to-classifier integration, accuracy
-continuation, or expanded-taxonomy training.
+Master §4 permits keeping notebook outputs when they are intentionally preserved
+as evidence. These four are, and their outputs must not be cleared:
 
-Use numbered documentation filenames so the reading order is obvious:
+- `notebooks/05_confidence_decision_layer.ipynb`
+- `notebooks/06_food_recognition_demo_inference.ipynb`
+- `notebooks/08_detection_to_foodlens_pipeline.ipynb`
+- `notebooks/archive/03_modern_backbone_comparison.ipynb`
 
-1. `01_project_instructions.md`
-2. `02_coding_standards.md`
-3. `03_modeling_approach.md`
-4. `04_model_results.md`
-5. `05_next_steps.md`
-6. `06_foodlens_app_concept.md`
-7. `07_multi_food_detection_plan.md`
-
-## 3. Code Style
-
-Follow PEP 8 for Python code:
-
-- Use 4 spaces for indentation.
-- Keep lines to 79 characters or fewer where practical.
-- Prefer f-strings, list comprehensions, and small helper functions when they
-  improve readability.
-- Add type hints for reusable functions when the type is clear.
-- Use `UPPER_SNAKE_CASE` for constants, fixed paths, and configuration fields
-  inside `CFG`. Use `snake_case` for ordinary variables, function arguments,
-  DataFrames, model instances, dataloaders, and metric outputs.
-- Group imports in this order:
-  1. Standard library
-  2. Third-party libraries
-  3. Local modules, if the project later adds them
-- Separate import groups with a blank line.
-
-Use Google-style docstrings for reusable functions and classes:
-
-```python
-def predict_food(
-    image_path: str,
-    model: torch.nn.Module,
-    class_names: list[str],
-    device: torch.device,
-) -> None:
-    """Display top-3 class predictions for one food image.
-
-    Args:
-        image_path: Path to a Food-101 image.
-        model: Trained classification model.
-        class_names: Class names ordered by model index.
-        device: PyTorch execution device.
-    """
-```
-
-Add short inline comments only when they explain why a decision was made.
-Avoid comments that restate what the code already says.
-
-## 4. Notebook Style
-
-Each notebook should include:
-
-- a clear title and short purpose statement;
-- numbered Markdown sections;
-- a configuration section for tunable values such as seed, batch size, image
-  size, learning rate, and epochs;
-- Kaggle path constants near the top;
-- deterministic seed setup for reproducibility;
-- Markdown takeaway cells after important plots or metrics;
-- artifact-writing cells for checkpoints, histories, figures, and inference
-  outputs.
-
-Prefer readable, self-contained notebook code over imports from local project
-modules. Kaggle should be able to run the notebook after attaching the required
-dataset.
-
-When notebook code changes, clear outputs before committing. When only Markdown,
-documentation, or result commentary changes, existing notebook outputs may be
-kept if they are intentionally preserved as evidence. Kaggle remains the trusted
-execution record for regenerated outputs.
-
-## 5. Deep Learning Standards
-
-Modeling code should make the experimental contract explicit:
-
-- freeze pretrained layers during transfer-learning comparison;
-- replace each classifier with the required 3-layer head;
-- use consistent image preprocessing across models;
-- record training and validation loss and accuracy per epoch;
-- save the best checkpoint per model or fine-tuning experiment;
-- keep fine-tuning learning rates lower than classifier-head training rates;
-- load saved weights before final error analysis or inference.
-
-Avoid leakage and accidental evaluation drift:
-
-- keep train, validation, and test splits stratified;
-- fit label mappings from the training dataset contract and reuse them;
-- use validation transforms for validation, test, and inference;
-- do not report test performance unless the notebook explicitly evaluates the
-  held-out test split.
-
-## 6. Plot Style
-
-Use clear comparison plots for model selection:
-
-- line charts for validation accuracy and loss across epochs;
-- compact tables for architecture and result comparisons;
-- per-class F1 summaries for error analysis;
-- readable titles that state the analytical purpose.
-
-Prefer Viridis or other accessible palettes when adding new charts. Avoid
-decorative plots that do not support a decision.
-
-## 7. Documentation Style
-
-Documentation should be written for a future reviewer or teammate who wants the
-reasoning quickly:
-
-- use numbered sections;
-- lead with findings and implications;
-- include exact metrics when available;
-- link notebooks and docs with relative paths;
-- keep broad narrative in the root `README.md`;
-- keep detailed evidence in focused docs.
-
-## 8. Git Hygiene
-
-Do not commit:
-
-- raw Food-101 images or archives;
-- Kaggle working directories;
-- model checkpoints such as `.pth` files;
-- local cache folders;
-- notebook checkpoints;
-- ad hoc experiment dumps.
-
-Commit lightweight documentation and cleared notebooks only.
-
-When handing work to the next agent, follow this sequence:
-
-1. Re-run `git status` and confirm no accidental test artifacts are present.
-2. Stage all intentional changes in one logical commit.
-3. Use a clear commit message that states the scope and intent, for example:
-   `chore: archive superseded notebooks and align active notebook references`.
-4. Record in `docs` any structural change (for example new archive rules) so the
-   next agent can continue with the same standards.
+Every other notebook follows the master rule: clear outputs when code changes.
