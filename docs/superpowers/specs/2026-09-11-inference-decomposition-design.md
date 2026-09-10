@@ -109,7 +109,11 @@ rest distributed across six focused modules.
 
 1. `pytest` green, with the three original backend test files unmodified
    (`git diff --stat` shows no change to them).
-2. `inference.py` under 500 lines.
+2. `inference.py` under 500 lines. **Missed: it is 521.** The split reached
+   489, then restoring three `MOCK_*` re-exports that the split had dropped
+   (design §5 requires them) added the difference. Keeping the public surface
+   intact matters more than an arbitrary line target, so the criterion is
+   recorded as missed rather than met by trimming re-exports.
 3. Coverage of `app/backend/` **higher than the 59%/68% baseline**, reported
    before and after.
 4. Every patched name in §2 still resolves via `app.backend.inference`, and a
