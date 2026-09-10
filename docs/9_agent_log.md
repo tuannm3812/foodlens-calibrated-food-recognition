@@ -66,3 +66,33 @@ a Python 3.9 interpreter — pinning 3.11 reverted them rather than fixing them.
 
 **Deliberately left open:** S1 (`kaggle/` deduplication), S2 (`inference.py`
 decomposition), S3 (frontend consolidation).
+
+---
+
+## 2026-09-10 — S0 standards alignment (Tasks 3-5)
+
+Completes the pass the entry above left in progress.
+
+**Changed:** pinned Python 3.11.9 (`runtime.txt`, `pyproject.toml`); consolidated
+three scattered `app/backend/requirements*.txt` into root `requirements.txt`,
+`-dev`, `-detector` and a frozen `requirements-lock.txt`; cleared the ruff
+findings and restored PEP 604 annotations; documented the `yolo11n.pt` runtime
+dependency; added `.github/workflows/ci.yml` covering both stacks.
+
+**Verified by running:** `.venv/bin/python -m ruff check .` (`All checks
+passed!`), `.venv/bin/python -m compileall -q app scripts tests`,
+`.venv/bin/python scripts/check_doc_links.py` (`All relative markdown links
+resolve.`), and `.venv/bin/python -m pytest -q` (27 passed); and, in
+`app/frontend`, `npm ci` (clean install, no lock-file drift), `npm run
+typecheck` (passed), `npm run build` (Vite build succeeded), and `npm test`
+(53 passed across 4 files). These commands run locally as the `backend` and
+`frontend` jobs in `.github/workflows/ci.yml`; the CI run itself is recorded
+on the pull request via `gh pr checks`.
+
+**Judgement calls worth keeping:** `E402` in `kaggle/**` and `B008` in
+`app/backend/api.py` are per-file-ignores, not fixes. The first is intended
+Kaggle notebook cell order; the second is how FastAPI declares request
+parameters, so "fixing" it would break the framework contract.
+
+**Still open:** S1 (`kaggle/` deduplication), S2 (`inference.py` decomposition),
+S3 (frontend consolidation).
