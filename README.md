@@ -174,11 +174,20 @@ Weak classes still needing focused review include `kaathi_rolls`, `masala_dosa`,
 
 ### Backend
 
+The project supports Python 3.11-3.12 (pinned in `runtime.txt`); on many
+systems plain `python3` resolves to an older interpreter, so name the version
+explicitly when creating the venv.
+
 ```bash
-python3 -m venv .venv
+# Requires Python 3.11-3.12 (pinned in runtime.txt). uv is the supported path:
+uv venv --python 3.11.9 --seed
 source .venv/bin/activate
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
+
+# No uv? Name an explicit 3.11 interpreter -- plain `python3` may be older:
+#   python3.11 -m venv .venv && source .venv/bin/activate
+
+python -c "import sys; assert sys.version_info[:2] >= (3, 11), sys.version; print(sys.version)"
+pip install -r requirements.txt -r requirements-dev.txt
 uvicorn app.backend.api:app --reload --port 8000
 ```
 

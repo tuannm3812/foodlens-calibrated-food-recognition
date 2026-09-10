@@ -96,3 +96,82 @@ parameters, so "fixing" it would break the framework contract.
 
 **Still open:** S1 (`kaggle/` deduplication), S2 (`inference.py` decomposition),
 S3 (frontend consolidation).
+
+---
+
+## 2026-09-11 — Codex review of Claude's S0 implementation
+
+**Scope:** reviewed the standards-alignment implementation from `50e1743`
+through `bad5603`, including the follow-up documentation repairs, against the
+S0 design, implementation plan, and master standard. The working tree was clean
+at review start. This entry records review feedback; implementation fixes are
+still open.
+
+**Assessment:** the app changes are predominantly import ordering, annotations,
+and formatting. The added `zip(..., strict=True)` calls pair arrays derived
+from the same tensor or dataframe, so inspection found no unequal-length
+regression in those paths. The current backend and frontend gates pass. Two
+S0 follow-ups should be addressed before treating the setup and documentation
+gate as complete:
+
+1. **P2 — Make the quick start select the supported Python version.**
+   `README.md:178-181` still creates the environment with arbitrary `python3`
+   and installs requirements directly. Neither that venv command nor those
+   requirements installs enforce this project's `requires-python` or read
+   `runtime.txt`. On the Python 3.9 environment that motivated S0, this path
+   can still create a 3.9 environment, while `app/backend/schemas.py` now
+   evaluates PEP 604 annotations requiring 3.10 or later and the project
+   explicitly supports 3.11–3.12. Use the plan's explicit
+   `uv venv --python 3.11.9 --seed` setup (with its prerequisite) or document
+   an explicit supported interpreter and version check. This is a setup
+   gap established by command/code inspection; no separate 3.9 install was
+   attempted during this review.
+
+2. **P2 — Correct the link checker's Markdown coverage.**
+   `scripts/check_doc_links.py:136-146` only recognises inline links and
+   interprets the optional link title as part of the filename. In temporary
+   files, calling `broken_links()` on a reference-style link with definition
+   `[target]: absent.md` returned `[]`; calling it on
+   `[valid](present.md "Title")` reported a broken target even though
+   `present.md` existed. The CI gate can therefore silently miss a future
+   broken reference or reject valid Markdown. Support these forms and retain
+   the reproductions as regression tests. The current repository link check
+   passes; these findings concern the new gate's advertised coverage, not a
+   claim that current docs contain broken reference-style links.
+
+**Discussion for Claude:**
+
+- The new `app/backend/README.md:26-30` says absence of weights causes demo
+  fallback, but the preceding sentence and runtime contract describe automatic
+  download. `detect_candidate_regions()` calls `YOLO(detector_weights_path())`
+  without a weights-existence gate. Qualify the fallback statement: missing
+  detector dependency or failed loading/inference causes fallback; absence of
+  a local checkpoint alone does not guarantee it. This is a documentation
+  correction, not a request to change runtime behaviour.
+- `requirements-lock.txt` captures versions, but CI installs the unpinned
+  `requirements-dev.txt` and the quick start installs unpinned requirements.
+  The exact freeze is therefore not the dependency set guaranteed by CI.
+  This follows the approved plan, so it is a design follow-up rather than an
+  implementation deviation. Decide whether the freeze is merely a documented
+  local snapshot or should constrain supported installs and CI; validate
+  platform compatibility before wiring a macOS freeze into Linux CI.
+- No evidence warrants promoting A3b or pulling S1–S3 into this review.
+  The champion and recalibration restriction remain unchanged.
+
+**Fresh verification:** Python 3.11.9; `.venv/bin/python -m ruff check .`
+passed; `.venv/bin/python -m compileall -q app scripts tests` passed;
+`.venv/bin/python -m pytest -q` passed all 27 tests;
+`.venv/bin/python -m pip check` reported no broken requirements; and
+`.venv/bin/python scripts/check_doc_links.py` passed. Backend tests emitted
+Starlette/httpx and AnyIO deprecation warnings, not the older LibreSSL warning
+mentioned in the June entry. After locating Node under
+`~/.nvm/versions/node/v24.18.0/bin`, frontend `npm run typecheck`,
+`npm run build`, and `npm test` passed (53 tests across four files).
+Local frontend checks used existing dependencies; `npm ci` was not rerun.
+
+**Remote evidence:** [PR #3](https://github.com/tuannm3812/foodlens-calibrated-food-recognition/pull/3)
+has head `bad560358a7a99b1b7bb8de5424fba4779ba12fa`, matching the reviewed
+local HEAD. [CI run 34481759902](https://github.com/tuannm3812/foodlens-calibrated-food-recognition/actions/runs/34481759902)
+passed both jobs for that SHA, including clean dependency installs. The
+previous entry's green-CI claim is now independently verified. Live model
+inference, detector downloads, and Kaggle training were not rerun.

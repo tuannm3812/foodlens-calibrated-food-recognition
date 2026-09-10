@@ -21,8 +21,65 @@ import sys
 from pathlib import Path
 
 LINK_PATTERN = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+REFERENCE_DEFINITION_START_PATTERN = re.compile(r"^[ \t]{0,3}\[([^\]]+)\]:\s*(.+)$")
 FENCE_PATTERN = re.compile(r"^\s*(`{3,}|~{3,})")
 BACKTICK_RUN_PATTERN = re.compile(r"`+")
+TITLE_SUFFIX_PATTERN = re.compile(r"^(\S+)\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\))\s*$")
+
+
+def _parse_destination(raw: str) -> str:
+    """Strip an optional link title from a raw inline-link destination.
+
+    Handles three CommonMark destination forms: a bare path (`path`), an
+    angle-bracket path (`<path>`), and a titled path where the title is a
+    whitespace-separated suffix in double quotes, single quotes, or
+    parentheses (`path "Title"`, `path 'Title'`, `path (Title)`).
+    """
+    raw = raw.strip()
+    if raw.startswith("<"):
+        end = raw.find(">")
+        if end != -1:
+            return raw[1:end].strip()
+        return raw[1:].strip()
+    match = TITLE_SUFFIX_PATTERN.match(raw)
+    if match:
+        return match.group(1)
+    return raw
+
+
+def _parse_reference_definition(line: str) -> tuple[str, str] | None:
+    """Return (label, destination) if `line` is a link reference definition.
+
+    A link reference definition is `[label]: destination` optionally followed
+    by a title (`"Title"`, `'Title'`, or `(Title)`). Unlike an inline link
+    destination, an unbracketed reference destination cannot contain spaces --
+    so a prose line that merely starts with `[word]: ...` but whose remainder
+    isn't a bare destination plus a validly-delimited title is not a
+    definition at all, and must not be misread as one.
+    """
+    match = REFERENCE_DEFINITION_START_PATTERN.match(line)
+    if not match:
+        return None
+    label, rest = match.group(1), match.group(2).strip()
+    if not rest:
+        return None
+    if rest.startswith("<"):
+        end = rest.find(">")
+        if end == -1:
+            return None
+        destination = rest[1:end].strip()
+        remainder = rest[end + 1 :].strip()
+    else:
+        parts = rest.split(None, 1)
+        destination = parts[0]
+        remainder = parts[1].strip() if len(parts) > 1 else ""
+    if remainder and not (
+        (remainder.startswith('"') and remainder.endswith('"'))
+        or (remainder.startswith("'") and remainder.endswith("'"))
+        or (remainder.startswith("(") and remainder.endswith(")"))
+    ):
+        return None
+    return label, destination
 
 
 def tracked_markdown_files() -> list[Path]:
@@ -133,17 +190,41 @@ def strip_inline_code(text: str) -> str:
     return "\n".join(_strip_inline_code_from_line(line) for line in text.splitlines())
 
 
+def _is_checkable(target: str) -> bool:
+    """Whether `target` (already anchor-stripped) should be resolved on disk."""
+    return bool(target) and not target.startswith(("http://", "https://", "mailto:"))
+
+
 def broken_links(path: Path) -> list[str]:
-    """Return relative links in `path` that do not resolve to a real file."""
+    """Return relative links in `path` that do not resolve to a real file.
+
+    Covers both inline links (`[a](path)`, including the angle-bracket and
+    titled destination forms) and reference-style links, whose destinations
+    live on separate `[label]: destination` definition lines rather than at
+    the link site itself.
+    """
     problems = []
     body = strip_code_fences(path.read_text(encoding="utf-8"), label=str(path))
     body = strip_inline_code(body)
-    for target in LINK_PATTERN.findall(body):
-        target = target.split("#", 1)[0].strip()
-        if not target or target.startswith(("http://", "https://", "mailto:")):
+
+    for raw_target in LINK_PATTERN.findall(body):
+        target = _parse_destination(raw_target).split("#", 1)[0].strip()
+        if not _is_checkable(target):
             continue
         if not (path.parent / target).resolve().exists():
             problems.append(target)
+
+    for line in body.splitlines():
+        definition = _parse_reference_definition(line)
+        if definition is None:
+            continue
+        label, raw_target = definition
+        target = raw_target.split("#", 1)[0].strip()
+        if not _is_checkable(target):
+            continue
+        if not (path.parent / target).resolve().exists():
+            problems.append(f"{target} (reference [{label}])")
+
     return problems
 
 
