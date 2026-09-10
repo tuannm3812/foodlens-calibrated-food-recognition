@@ -1,14 +1,69 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+// styles.css is an entry file of `@import` statements (see src/styles/*.css).
+// This resolves those imports, in order, and concatenates the partials back
+// into one stylesheet so cssRule() can keep matching against the full text.
+function readImportOrder(entryPath: string): string[] {
+  const entry = readFileSync(entryPath, "utf8");
+  const importPattern = /@import\s+["']([^"']+)["']\s*;/g;
+  const importPaths: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = importPattern.exec(entry)) !== null) {
+    importPaths.push(match[1]);
+  }
+
+  return importPaths;
+}
+
+function concatenatedStylesheet(): string {
+  const entryPath = resolve(__dirname, "styles.css");
+  const baseDir = dirname(entryPath);
+
+  return readImportOrder(entryPath)
+    .map((importPath) => readFileSync(resolve(baseDir, importPath), "utf8"))
+    .join("\n");
+}
+
 function cssRule(selector: string): string {
-  const css = readFileSync(resolve(__dirname, "styles.css"), "utf8");
+  const css = concatenatedStylesheet();
   const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = css.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`));
 
   return match?.[1] ?? "";
+}
+
+// Extracts the ordered sequence of selectors (and at-rules like `@media`)
+// from a stylesheet, so the split can be checked for a faithful reordering
+// rather than just spot-checked rule by rule.
+function extractSelectorSequence(css: string): string[] {
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const selectorPattern = /([^{}]+)\{/g;
+  const selectors: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = selectorPattern.exec(withoutComments)) !== null) {
+    const selector = match[1].replace(/\s+/g, " ").trim();
+    if (selector) {
+      selectors.push(selector);
+    }
+  }
+
+  return selectors;
+}
+
+const PRE_SPLIT_STYLES_COMMIT = "e729880";
+
+function originalStylesheet(): string {
+  const repoRoot = resolve(__dirname, "../../..");
+
+  return execFileSync(
+    "git",
+    ["show", `${PRE_SPLIT_STYLES_COMMIT}:app/frontend/src/styles.css`],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
 }
 
 describe("decision card visual density", () => {
@@ -95,5 +150,14 @@ describe("workbench layout alignment", () => {
     expect(cssRule(".source-context")).toContain("width: fit-content");
     expect(cssRule(".source-context strong")).toContain("text-overflow: ellipsis");
     expect(cssRule(".source-context strong")).toContain("white-space: nowrap");
+  });
+});
+
+describe("styles.css split", () => {
+  it("reproduces the pre-split stylesheet's rule order when its partials are concatenated", () => {
+    const originalSelectors = extractSelectorSequence(originalStylesheet());
+    const splitSelectors = extractSelectorSequence(concatenatedStylesheet());
+
+    expect(splitSelectors).toEqual(originalSelectors);
   });
 });
