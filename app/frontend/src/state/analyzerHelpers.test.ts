@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createPreviewUrl, sourceHost, videoSampleTimes, waitForEvent } from "./analyzerHelpers";
+import {
+  DEMO_VIDEO_NAME,
+  createPreviewUrl,
+  fetchDemoVideoFile,
+  frameToFile,
+  seekVideo,
+  sourceHost,
+  videoSampleTimes,
+  waitForEvent,
+} from "./analyzerHelpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -113,5 +122,101 @@ describe("waitForEvent", () => {
     target.dispatchEvent(new Event("error"));
 
     await expect(pending).rejects.toThrow("Video failed while waiting for seeked.");
+  });
+});
+
+describe("fetchDemoVideoFile", () => {
+  it("fetches the bundled demo video and wraps it as a File", async () => {
+    const blob = new Blob(["demo-bytes"], { type: "video/mp4" });
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, blob: async () => blob }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const file = await fetchDemoVideoFile();
+
+    expect(fetchMock).toHaveBeenCalledWith("/demo/burger-making-demo.mp4");
+    expect(file.name).toBe(DEMO_VIDEO_NAME);
+    expect(file.type).toBe("video/mp4");
+  });
+
+  it("falls back to a video/mp4 type when the response blob has none", async () => {
+    const blob = new Blob(["demo-bytes"], { type: "" });
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, blob: async () => blob })));
+
+    const file = await fetchDemoVideoFile();
+
+    expect(file.type).toBe("video/mp4");
+  });
+
+  it("throws when the response is not ok", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 404, blob: async () => new Blob() })),
+    );
+
+    await expect(fetchDemoVideoFile()).rejects.toThrow("Demo video returned 404");
+  });
+});
+
+describe("seekVideo", () => {
+  it("resolves without waiting for a seeked event when already at the target time", async () => {
+    const video = document.createElement("video");
+    Object.defineProperty(video, "readyState", {
+      value: HTMLMediaElement.HAVE_CURRENT_DATA,
+      configurable: true,
+    });
+    video.currentTime = 5;
+    const seekedListener = vi.fn();
+    video.addEventListener("seeked", seekedListener);
+
+    await seekVideo(video, 5);
+
+    expect(seekedListener).not.toHaveBeenCalled();
+    expect(video.currentTime).toBe(5);
+  });
+
+  it("sets currentTime and waits for the seeked event when not already there", async () => {
+    const video = document.createElement("video");
+    Object.defineProperty(video, "readyState", { value: 0, configurable: true });
+    video.currentTime = 0;
+
+    const pending = seekVideo(video, 3);
+    expect(video.currentTime).toBe(3);
+
+    video.dispatchEvent(new Event("seeked"));
+
+    await expect(pending).resolves.toBeUndefined();
+  });
+
+  it("rejects when the video errors while seeking", async () => {
+    const video = document.createElement("video");
+    Object.defineProperty(video, "readyState", { value: 0, configurable: true });
+
+    const pending = seekVideo(video, 3);
+    video.dispatchEvent(new Event("error"));
+
+    await expect(pending).rejects.toThrow("Video failed while waiting for seeked.");
+  });
+});
+
+describe("frameToFile", () => {
+  it("rejects when the video has no drawable dimensions", async () => {
+    const video = document.createElement("video");
+
+    await expect(frameToFile(video, 0)).rejects.toThrow(
+      "Video frame has no drawable dimensions.",
+    );
+  });
+
+  it("rejects when 2d canvas rendering is unavailable", async () => {
+    // jsdom has no canvas backend installed, so getContext("2d") genuinely
+    // returns null here - this exercises the real fallback branch rather
+    // than a mocked one. The success path (drawImage/toBlob) would need a
+    // fully faked canvas context and wouldn't be testing real behavior, so
+    // it's left uncovered in this environment.
+    const video = document.createElement("video");
+    Object.defineProperty(video, "videoWidth", { value: 100, configurable: true });
+    Object.defineProperty(video, "videoHeight", { value: 100, configurable: true });
+
+    await expect(frameToFile(video, 0)).rejects.toThrow("Canvas rendering is unavailable.");
   });
 });
