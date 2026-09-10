@@ -29,6 +29,9 @@ from .artifacts import (
 from .classifier import build_predictions, make_classifier_head
 from .decision import DEFAULT_HARD_CLASSES, DEFAULT_POLICY, build_decision
 from .demo import (
+    MOCK_IMAGE_PREDICTIONS,
+    MOCK_MULTI_FOOD_REGIONS,
+    MOCK_VIDEO_PREDICTIONS,
     MODEL_NAME,
     MULTI_FOOD_POLICY,
     build_classifier_fallback_predictions,
@@ -62,10 +65,36 @@ from .schemas import (
 )
 
 __all__ = [
-    # Re-exported names below are not referenced elsewhere in this module's
-    # own body -- they're kept importable as `inference.X` for callers and
-    # tests that reach in this way. Everything else in this file's imports
-    # is used directly by the orchestration functions below.
+    # Every name below is importable as `inference.X` for callers and tests
+    # that reach in this way. That is NOT the same as being an effective
+    # monkeypatch target. Python resolves a module-level name from the
+    # *calling* module's globals, so monkeypatch.setattr(inference, name,
+    # fake) only takes effect if the code that reads `name` still lives in
+    # inference.py. For the names below it does not, so the patch is a
+    # silent no-op on these paths:
+    #   detector_region_role                  -> called in detection.py,
+    #                                             imaging.py
+    #   should_export_detection               -> called in detection.py
+    #   build_predictions                     -> called in demo.py
+    #   build_classifier_fallback_predictions -> called in demo.py
+    # Two are worse -- partially live, so a patch bites on one call site and
+    # silently misses another:
+    #   build_crop_data_url          -> live at inference.py:367 (the live
+    #                                    classifier path), NOT live at
+    #                                    demo.py:226 (the classifier-fallback
+    #                                    path)
+    #   detector_label_filter_config -> live at inference.py:142
+    #                                    (runtime_status), NOT live at
+    #                                    detection.py:24 (the actual
+    #                                    detection run)
+    # The same module-global split applies to MODEL_NAME, MULTI_FOOD_POLICY
+    # and TEMPERATURE: inference.py and demo.py each import their own copy.
+    # Patching inference.MODEL_NAME or inference.MULTI_FOOD_POLICY reaches
+    # only this module's own orchestration functions, not demo.py's mock and
+    # fallback builders; patching inference.TEMPERATURE reaches nothing at
+    # all, since this module never reads its own imported copy.
+    # Anyone needing to patch any of the above must patch the owning module
+    # (detection, imaging, demo, artifacts) directly, not inference.
     "REQUIRED_CLASSIFIER_ARTIFACTS",
     "TEMPERATURE",
     "DEFAULT_POLICY",
@@ -81,6 +110,9 @@ __all__ = [
     "should_export_detection",
     "build_predictions",
     "build_classifier_fallback_predictions",
+    "MOCK_IMAGE_PREDICTIONS",
+    "MOCK_VIDEO_PREDICTIONS",
+    "MOCK_MULTI_FOOD_REGIONS",
 ]
 
 ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "artifacts"
