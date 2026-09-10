@@ -1,6 +1,5 @@
 """API schemas for the FoodLens inference service."""
 
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -31,7 +30,7 @@ class PredictionResponse(BaseModel):
     top_predictions: list[Prediction]
     decision: Decision
     artifact_status: str
-    fallback_reason: Optional[str] = None
+    fallback_reason: str | None = None
 
 
 class BoundingBox(BaseModel):
@@ -69,7 +68,7 @@ class RegionArtifacts(BaseModel):
     crop_path: str
     crop_artifact_path: str
     figure_path: str
-    crop_data_url: Optional[str] = None
+    crop_data_url: str | None = None
 
 
 class MultiFoodPrediction(BaseModel):
@@ -94,7 +93,7 @@ class MultiFoodPredictionResponse(BaseModel):
     crop_count: int
     predictions: list[MultiFoodPrediction]
     artifact_status: str
-    fallback_reason: Optional[str] = None
+    fallback_reason: str | None = None
 
 
 class UrlPredictionRequest(BaseModel):

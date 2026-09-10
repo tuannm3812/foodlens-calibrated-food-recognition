@@ -1,8 +1,8 @@
 from io import BytesIO
 
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
-import pytest
 
 import app.backend.api as api
 import app.backend.inference as inference
@@ -13,7 +13,6 @@ from app.backend.youtube_ingestion import (
     MediaDependencyError,
     combine_frame_responses,
 )
-
 
 client = TestClient(app)
 

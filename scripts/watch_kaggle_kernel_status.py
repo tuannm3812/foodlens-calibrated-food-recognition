@@ -3,20 +3,19 @@
 
 Examples:
   python3 scripts/watch_kaggle_kernel_status.py tuannm3823/foodlens-a4-convnext-tiny-ft-hr-320
-  python3 scripts/watch_kaggle_kernel_status.py <kernel_slug> --interval-seconds 120 --max-attempts 50
+  python3 scripts/watch_kaggle_kernel_status.py <kernel_slug> \
+      --interval-seconds 120 --max-attempts 50
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import subprocess
-import time
 import os
 import shutil
+import subprocess
+import time
 from pathlib import Path
-from typing import Any
-
 
 RUNNING_STATES = {
     "running",
@@ -60,7 +59,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Poll Kaggle kernel status and optionally download outputs when complete."
     )
-    parser.add_argument("kernel_slug", help="Kernel slug, e.g. tuannm3823/foodlens-a4-convnext-tiny-ft-hr-320")
+    parser.add_argument(
+        "kernel_slug", help="Kernel slug, e.g. tuannm3823/foodlens-a4-convnext-tiny-ft-hr-320"
+    )
     parser.add_argument(
         "--interval-seconds",
         type=int,
@@ -210,7 +211,10 @@ def main() -> int:
     try:
         return wait_for_completion(args)
     except FileNotFoundError:
-        print("Error: Kaggle CLI not found. Install `kaggle` and authenticate before running this script.")
+        print(
+            "Error: Kaggle CLI not found. Install `kaggle` and authenticate before running "
+            "this script."
+        )
         return 3
 
 

@@ -1,4 +1,4 @@
-# 3. Modeling Approach And Notebook Reasoning Flow
+# 2. Modeling Approach And Notebook Reasoning Flow
 
 ## 1. Purpose
 

@@ -3,7 +3,6 @@ import pytest
 from app.backend.decision import build_decision
 from app.backend.schemas import Prediction
 
-
 TEST_POLICY = {
     "auto_confidence": 0.70,
     "suggest_confidence": 0.35,

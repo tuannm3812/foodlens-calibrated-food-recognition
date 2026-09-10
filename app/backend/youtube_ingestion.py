@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from pathlib import Path
 from typing import Any
 
 from .inference import predict_multi_food_image_bytes
 from .schemas import MultiFoodPrediction, MultiFoodPredictionResponse
 from .url_security import validate_public_http_url
-
 
 MAX_YOUTUBE_DURATION_SECONDS = 10 * 60
 FRAME_POSITIONS = (0.2, 0.5, 0.8)

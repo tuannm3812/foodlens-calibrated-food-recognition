@@ -22,7 +22,6 @@ from .youtube_ingestion import (
     predict_multi_food_youtube_url,
 )
 
-
 app = FastAPI(
     title="FoodLens API",
     description="Food recognition API with calibrated predictions and decision bands.",

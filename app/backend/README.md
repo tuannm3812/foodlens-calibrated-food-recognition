@@ -5,24 +5,40 @@ service is being prepared.
 
 ## Run Locally
 
-Install runtime dependencies in your preferred environment:
+Install runtime dependencies:
 
 ```bash
-pip install -r app/backend/requirements.txt
+pip install -r requirements.txt
 ```
 
-Install backend development dependencies before running tests:
+Install development dependencies before running tests:
 
 ```bash
-pip install -r app/backend/requirements-dev.txt
+pip install -r requirements-dev.txt
 ```
 
-Install the optional detector dependency when testing live multi-food image
-analysis:
+Install the optional detector dependency for live multi-food analysis:
 
 ```bash
-pip install -r app/backend/requirements-detector.txt
+pip install -r requirements-detector.txt
 ```
+
+`requirements-lock.txt` is a local reproducibility snapshot, not a CI
+constraint: it records the exact versions the pinned dev environment resolved
+to on macOS/arm64, for reproducing a known-good local environment. CI
+deliberately installs the unpinned files above so upstream breakage surfaces
+early rather than being masked by a frozen, platform-specific resolution.
+
+Live detection also needs the YOLO weights file `yolo11n.pt` in the repo root.
+It is gitignored (5.6 MB) so a fresh clone will not have it, or set
+`FOODLENS_DETECTOR_WEIGHTS` to an existing path. The demo fallback is driven
+by the `ultralytics` dependency, not by the weights file: when `ultralytics`
+is absent -- as it is in CI, which does not install
+`requirements-detector.txt` -- the backend serves the deterministic demo
+fallback. When `ultralytics` is installed but the local checkpoint is
+missing, `detect_candidate_regions()` calls `YOLO()` with no existence gate,
+so Ultralytics attempts to download the checkpoint; a failed download or
+failed inference surfaces as an error rather than a silent fallback.
 
 Start the API:
 

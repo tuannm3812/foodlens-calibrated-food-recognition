@@ -1,0 +1,46 @@
+[project]
+name = "foodlens-calibrated-food-recognition"
+version = "1.0.0"
+description = "Calibrated Food-101 recognition with a confidence decision layer and a multi-food FastAPI + React workbench."
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "fastapi",
+  "Pillow",
+  "python-multipart",
+  "torch",
+  "torchvision",
+  "uvicorn",
+  "yt-dlp",
+]
+
+[project.optional-dependencies]
+detector = ["ultralytics"]
+dev = ["httpx", "pytest", "ruff"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# Jupyter notebooks are execution records, not maintained source. Cell-based
+# code inherently trips E402 (imports after the config cell), F821 (names bound
+# in an earlier cell) and F404 (late __future__ import); see
+# docs/0_coding_standards.md for the rationale. 197 of 257 findings came
+# from .ipynb files; excluding them leaves 60 real findings in Python sources.
+extend-exclude = ["*.ipynb"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# Kaggle scripts and notebooks mirror notebook cell order: imports follow the
+# configuration block so the config is visible at the top of the run log. This
+# is the intended style for that directory, not debt. See docs/0_coding_standards.md.
+"kaggle/**" = ["E402", "E501"]
+# FastAPI declares request parameters as callables in argument defaults
+# (File(...), Form(...), Depends(...)). B008 flags the pattern the framework requires.
+"app/backend/api.py" = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-q"

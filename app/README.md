@@ -54,15 +54,15 @@ app/backend/api.py
 Run it locally:
 
 ```bash
-pip install -r app/backend/requirements.txt
-pip install -r app/backend/requirements-dev.txt
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
 uvicorn app.backend.api:app --reload --port 8000
 ```
 
 For live multi-food detection, install the optional detector runtime as well:
 
 ```bash
-pip install -r app/backend/requirements-detector.txt
+pip install -r requirements-detector.txt
 ```
 
 Backend tests:

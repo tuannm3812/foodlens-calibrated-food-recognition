@@ -1,13 +1,12 @@
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
-import pytest
 
 import app.backend.inference as inference
 from app.backend.api import app
-
 
 client = TestClient(app)
 

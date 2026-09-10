@@ -80,9 +80,8 @@ More interface captures are indexed in
 ## Multi-Agent Completion Drive
 
 - Board: [docs/superpowers/plans/2026-06-11-foodlens-subagent-execution-board.md](docs/superpowers/plans/2026-06-11-foodlens-subagent-execution-board.md)
-- Evidence bundle: [docs/superpowers/foodlens-subagent-evidence-bundle.md](docs/superpowers/foodlens-subagent-evidence-bundle.md)
-- Runbook: [docs/superpowers/foodlens-completion-runbook.md](docs/superpowers/foodlens-completion-runbook.md)
-- Runtime contract: [docs/superpowers/foodlens-runtime-contract.md](docs/superpowers/foodlens-runtime-contract.md)
+- Session history: [docs/9_agent_log.md](docs/9_agent_log.md)
+- Runtime contract: [docs/8_runtime_contract.md](docs/8_runtime_contract.md)
 
 Use this during coordinated completion runs to keep work split across independent
 agents with shared acceptance criteria.
@@ -175,18 +174,27 @@ Weak classes still needing focused review include `kaathi_rolls`, `masala_dosa`,
 
 ### Backend
 
+The project supports Python 3.11-3.12 (pinned in `runtime.txt`); on many
+systems plain `python3` resolves to an older interpreter, so name the version
+explicitly when creating the venv.
+
 ```bash
-python3 -m venv .venv
+# Requires Python 3.11-3.12 (pinned in runtime.txt). uv is the supported path:
+uv venv --python 3.11.9 --seed
 source .venv/bin/activate
-pip install -r app/backend/requirements.txt
-pip install -r app/backend/requirements-dev.txt
+
+# No uv? Name an explicit 3.11 interpreter -- plain `python3` may be older:
+#   python3.11 -m venv .venv && source .venv/bin/activate
+
+python -c "import sys; assert sys.version_info[:2] >= (3, 11), sys.version; print(sys.version)"
+pip install -r requirements.txt -r requirements-dev.txt
 uvicorn app.backend.api:app --reload --port 8000
 ```
 
 Optional detector runtime for live multi-food proposals:
 
 ```bash
-pip install -r app/backend/requirements-detector.txt
+pip install -r requirements-detector.txt
 ```
 
 Backend checks:
@@ -292,12 +300,12 @@ experience.
 Detailed documentation is available in:
 
 - [docs/README.md](docs/README.md)
-- [docs/03_modeling_approach.md](docs/03_modeling_approach.md)
-- [docs/04_model_results.md](docs/04_model_results.md)
-- [docs/05_next_steps.md](docs/05_next_steps.md)
-- [docs/06_foodlens_app_concept.md](docs/06_foodlens_app_concept.md)
-- [docs/07_multi_food_detection_plan.md](docs/07_multi_food_detection_plan.md)
-- [docs/08_model_accuracy_improvement_plan.md](docs/08_model_accuracy_improvement_plan.md)
+- [docs/2_modeling_approach.md](docs/2_modeling_approach.md)
+- [docs/3_model_results.md](docs/3_model_results.md)
+- [docs/4_next_steps.md](docs/4_next_steps.md)
+- [docs/5_app_concept.md](docs/5_app_concept.md)
+- [docs/6_multi_food_detection_plan.md](docs/6_multi_food_detection_plan.md)
+- [docs/7_accuracy_improvement_plan.md](docs/7_accuracy_improvement_plan.md)
 
 ## Roadmap
 
