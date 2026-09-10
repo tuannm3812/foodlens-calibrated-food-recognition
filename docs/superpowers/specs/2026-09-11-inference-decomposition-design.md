@@ -120,3 +120,25 @@ rest distributed across six focused modules.
   `detector_policy.py`, but `DETECTOR_WEIGHTS` is used by
   `detector_weights_path()`, which stays. It must remain reachable from
   `inference.py` and keep its current value.
+
+## 8. Behaviour found during Phase 1
+
+Both are pinned by the new tests as *current* behaviour, not fixed. S2 is a
+no-behaviour-change refactor, so correcting them belongs to a later change where
+the fix can be reviewed on its own merits.
+
+- **`read_json` does not guard `json.loads`.** A malformed artifact file raises
+  `JSONDecodeError` uncaught rather than degrading to the demo fallback. That is
+  a production robustness gap, not merely a test gap: a truncated or
+  half-written `decision_policy.json` takes the API down instead of falling back.
+  Worth fixing, separately.
+- **`detector_region_role(filter_mode="configured", configured_labels=None)`
+  silently falls back to default label behaviour** rather than treating every
+  label as a context object, because the guard is `configured_labels is not
+  None`. Easy to miss, and it makes a misconfigured filter look like a working
+  one.
+
+Also corrected: an earlier working note claimed `should_export_detection`
+applies `DETECTOR_CONFIDENCE_THRESHOLD`. It does not — it takes no confidence
+parameter at all, and confidence filtering happens only through YOLO's `conf=`
+argument at the call site.
