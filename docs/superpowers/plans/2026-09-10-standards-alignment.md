@@ -236,6 +236,10 @@ This is the test for this task. Create `scripts/check_doc_links.py`:
 
 Run from the repo root. Exits non-zero and lists offenders when a link
 points at a file that does not exist.
+
+Fenced code blocks are skipped. Spec and plan documents quote example
+markdown inside fences, and those examples describe files that may not
+exist yet -- treating them as live links produces false positives.
 """
 
 import re
@@ -244,6 +248,7 @@ import sys
 from pathlib import Path
 
 LINK_PATTERN = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+FENCE_PATTERN = re.compile(r"^\s*(`{3,}|~{3,})")
 
 
 def tracked_markdown_files() -> list[Path]:
@@ -257,10 +262,36 @@ def tracked_markdown_files() -> list[Path]:
     return [Path(line) for line in output.splitlines() if line]
 
 
+def strip_code_fences(text: str) -> str:
+    """Blank out fenced code blocks, preserving line numbering.
+
+    A fence closes only on a marker at least as long as the one that
+    opened it, so a ```bash block nested inside a ````markdown block does
+    not close the outer fence.
+    """
+    lines = text.splitlines()
+    kept: list[str] = []
+    fence: str | None = None
+    for line in lines:
+        match = FENCE_PATTERN.match(line)
+        if fence is None:
+            if match:
+                fence = match.group(1)
+                kept.append("")
+                continue
+            kept.append(line)
+        else:
+            if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence):
+                fence = None
+            kept.append("")
+    return "\n".join(kept)
+
+
 def broken_links(path: Path) -> list[str]:
     """Return relative links in `path` that do not resolve to a real file."""
     problems = []
-    for target in LINK_PATTERN.findall(path.read_text(encoding="utf-8")):
+    body = strip_code_fences(path.read_text(encoding="utf-8"))
+    for target in LINK_PATTERN.findall(body):
         target = target.split("#", 1)[0].strip()
         if not target or target.startswith(("http://", "https://", "mailto:")):
             continue
@@ -289,7 +320,36 @@ if __name__ == "__main__":
 - [ ] **Step 2: Run it against the current tree to capture the baseline**
 
 Run: `python3 scripts/check_doc_links.py; echo "exit=$?"`
-Expected: `exit=0` — the tree is currently consistent. **If it reports failures now, stop and fix those first**; otherwise you cannot tell your own breakage from pre-existing breakage.
+
+Expected: **exactly 4 broken links, all in
+`docs/superpowers/plans/2026-06-11-foodlens-subagent-execution-board.md`**, and
+`exit=1`. These are pre-existing breakage from June, confirmed before this plan
+was written:
+
+```
+docs/superpowers/plans/2026-06-11-foodlens-subagent-execution-board.md: broken link -> docs/superpowers/foodlens-runtime-contract.md
+docs/superpowers/plans/2026-06-11-foodlens-subagent-execution-board.md: broken link -> ../05_next_steps.md
+docs/superpowers/plans/2026-06-11-foodlens-subagent-execution-board.md: broken link -> foodlens-completion-runbook.md
+docs/superpowers/plans/2026-06-11-foodlens-subagent-execution-board.md: broken link -> foodlens-completion-status.md
+```
+
+They are broken at the wrong *relative depth*, not the wrong filename: the file
+lives in `docs/superpowers/plans/`, but its links are written as though it sat
+in `docs/superpowers/` or at the repo root. Step 10 fixes them.
+
+**If you see any broken link outside that one file, stop** — something else
+regressed, and you cannot otherwise tell your own breakage from pre-existing
+breakage.
+
+- [ ] **Step 2a: Confirm the checker ignores fenced code blocks**
+
+The spec and plan documents quote example markdown inside fences, referring to
+files that do not exist yet. Those must not count as live links.
+
+Run: `python3 scripts/check_doc_links.py | grep -c "2026-09-10-standards-alignment"`
+Expected: `0`. If this reports a non-zero count, `strip_code_fences` is not
+working — fix it before proceeding, or every later run will drown in false
+positives from the plan's own example blocks.
 
 - [ ] **Step 3: Rename the eight numbered docs**
 
@@ -456,7 +516,27 @@ Then hand-edit the "Multi-Agent Completion Drive" block at `README.md:82-85`. Th
 sed -i '' 's|08_model_accuracy_improvement_plan\.md|7_accuracy_improvement_plan.md|g' docs/4_next_steps.md
 ```
 
-`docs/superpowers/plans/2026-06-11-foodlens-subagent-execution-board.md` (2 numbered + 6 superpowers refs) and `docs/releases/github-release-v1.0.0-foodlens-completion.md` (3 superpowers refs) are **historical records**. Fix only the paths — do not touch any claim, metric, or narrative:
+`docs/superpowers/plans/2026-06-11-foodlens-subagent-execution-board.md` (2 numbered + 6 superpowers refs) and `docs/releases/github-release-v1.0.0-foodlens-completion.md` (3 superpowers refs) are **historical records**. Fix only the paths — do not touch any claim, metric, or narrative.
+
+First repair the four **pre-existing** broken links in the execution board that
+Step 2 captured. These are wrong at the relative-depth level, so a filename
+substitution alone will not fix them. The file sits in `docs/superpowers/plans/`,
+so `../../` reaches the repo root and `../../docs/` reaches the docs folder.
+Apply these four exact replacements to that file:
+
+| Line | Current link target | Correct target |
+| ---: | --- | --- |
+| 34 | `(docs/superpowers/foodlens-runtime-contract.md)` | `(../../8_runtime_contract.md)` |
+| 76 | `(../05_next_steps.md)` | `(../../4_next_steps.md)` |
+| 77 | `(foodlens-completion-runbook.md)` | `(../../9_agent_log.md)` |
+| 103 | `(foodlens-completion-status.md)` | `(../../9_agent_log.md)` |
+
+Update each link's visible text to match its new target as well — for example
+line 76's `[docs/05_next_steps.md](../05_next_steps.md)` becomes
+`[docs/4_next_steps.md](../../4_next_steps.md)`. Line 75's
+`[README.md](../../README.md)` is already correct; leave it alone.
+
+Then apply the filename substitutions to both historical files:
 
 ```bash
 sed -i '' \
@@ -1092,8 +1172,10 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 CI cannot be verified locally. Push to a branch and open a PR so both jobs actually run.
 
+All six commits already sit on `chore/s0-standards-alignment`, created before Task 1. Do **not** create a branch here — just push it.
+
 ```bash
-git checkout -b chore/s0-standards-alignment
+git branch --show-current   # must print chore/s0-standards-alignment
 git push -u origin chore/s0-standards-alignment
 gh pr create --title "S0: standards alignment and scaffolding" \
   --body "Implements docs/superpowers/specs/2026-09-10-standards-alignment-design.md
