@@ -35,6 +35,9 @@ select = ["E", "F", "I", "B", "UP"]
 # configuration block so the config is visible at the top of the run log. This
 # is the intended style for that directory, not debt. See docs/0_coding_standards.md.
 "kaggle/**" = ["E402", "E501"]
+# FastAPI declares request parameters as callables in argument defaults
+# (File(...), Form(...), Depends(...)). B008 flags the pattern the framework requires.
+"app/backend/api.py" = ["B008"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

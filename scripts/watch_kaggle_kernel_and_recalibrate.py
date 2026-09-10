@@ -65,7 +65,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--run-id",
         required=True,
-        help="Result folder name used by the Kaggle notebook, e.g. a4_convnext_tiny_full_finetune_320",
+        help=(
+            "Result folder name used by the Kaggle notebook, e.g. "
+            "a4_convnext_tiny_full_finetune_320"
+        ),
     )
     parser.add_argument(
         "--split",
@@ -119,7 +122,8 @@ def parse_args() -> argparse.Namespace:
         "--recalibration-output-dir",
         default=None,
         help=(
-            "Override recalibration output directory. Defaults to <results_dir>/<split>_decision_layer."
+            "Override recalibration output directory. Defaults to "
+            "<results_dir>/<split>_decision_layer."
         ),
     )
     parser.add_argument(
@@ -228,7 +232,9 @@ def status_is_cancelled(status: str) -> bool:
 def download_kernel_outputs(kernel_slug: str, output_dir: Path) -> str:
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"Downloading kernel output to: {output_dir}")
-    return run_command([resolve_kaggle_command(), "kernels", "output", kernel_slug, "-p", str(output_dir)])
+    return run_command(
+        [resolve_kaggle_command(), "kernels", "output", kernel_slug, "-p", str(output_dir)]
+    )
 
 
 def expected_run_dir(output_dir: Path, run_id: str, split: str) -> Path | None:

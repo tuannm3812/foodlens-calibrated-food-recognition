@@ -123,7 +123,9 @@ def artifact_status() -> str:
 
 def classifier_artifacts_ready(artifact_dir: Path) -> bool:
     """Return whether the required classifier artifacts exist in a directory."""
-    return all((artifact_dir / artifact_name).exists() for artifact_name in REQUIRED_CLASSIFIER_ARTIFACTS)
+    return all(
+        (artifact_dir / artifact_name).exists() for artifact_name in REQUIRED_CLASSIFIER_ARTIFACTS
+    )
 
 
 def artifact_dir_path() -> Path:
@@ -164,7 +166,9 @@ def read_policy() -> dict[str, float]:
         "suggest_confidence": float(
             policy.get("suggest_confidence", DEFAULT_POLICY["suggest_confidence"])
         ),
-        "margin_threshold": float(policy.get("margin_threshold", DEFAULT_POLICY["margin_threshold"])),
+        "margin_threshold": float(
+            policy.get("margin_threshold", DEFAULT_POLICY["margin_threshold"])
+        ),
     }
 
 
@@ -429,7 +433,7 @@ def classify_pil_image(image: Any, runtime: dict[str, Any]) -> list[Prediction]:
             confidence=confidence,
         )
         for rank, (class_index, confidence) in enumerate(
-            zip(top_indices[0].tolist(), top_probabilities[0].tolist())
+            zip(top_indices[0].tolist(), top_probabilities[0].tolist(), strict=True)
         )
     ]
 

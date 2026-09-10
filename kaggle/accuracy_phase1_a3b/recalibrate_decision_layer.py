@@ -430,7 +430,7 @@ def build_features(
     )
     features["is_frequent_confusion_pair"] = [
         (str(actual), str(predicted)) in confusion_pairs
-        for actual, predicted in zip(actual_series, predicted_series)
+        for actual, predicted in zip(actual_series, predicted_series, strict=True)
     ]
     features["top_5_contains_actual"] = features.apply(
         lambda row: row[actual_col] in row["top_5_labels"], axis=1

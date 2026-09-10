@@ -583,7 +583,7 @@ def expected_calibration_error(
     bin_boundaries = torch.linspace(0, 1, n_bins + 1)
     ece = torch.zeros(1)
 
-    for lower, upper in zip(bin_boundaries[:-1], bin_boundaries[1:]):
+    for lower, upper in zip(bin_boundaries[:-1], bin_boundaries[1:], strict=True):
         in_bin = confidences.gt(lower) & confidences.le(upper)
         proportion = in_bin.float().mean()
         if proportion.item() > 0:
