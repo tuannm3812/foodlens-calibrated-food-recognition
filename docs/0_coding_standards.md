@@ -46,6 +46,26 @@ records rather than maintained source.
 `File(...)`, `Form(...)`, `Depends(...)` — is how FastAPI declares request
 parameters, so "fixing" it would break request parsing.
 
+## `kaggle/*/` holds immutable run records
+
+Each `kaggle/<run>/` directory is the code that produced one published result.
+`kernel-metadata.json` names the `.ipynb` as Kaggle's `code_file` with
+`kernel_sources` empty, so the notebook must stay self-contained and cannot
+import a shared module — master §4 requires this directly.
+
+The four training scripts therefore stay duplicated on purpose. They differ by
+46 to 282 lines, and that difference *is* the record of what changed between
+experiments. Merging them into a parameterised runner would break the property
+the repo depends on: that any figure in `3_model_results.md` traces to the code
+that produced it.
+
+Do not edit a run record to satisfy a linter or a refactor. New experiments get
+a new directory, never an edit to an existing one.
+
+Each directory also carries a `.py` mirror of its notebook. The two have never
+been in sync — currently 97.8-98.1% similar — so the notebook, not the mirror,
+is the record of what ran. `scripts/check_kaggle_mirrors.py` reports the drift.
+
 ## Seven notebooks retain outputs
 
 Master §4 permits keeping notebook outputs when they are intentionally preserved
