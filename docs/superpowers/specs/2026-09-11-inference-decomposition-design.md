@@ -142,3 +142,42 @@ Also corrected: an earlier working note claimed `should_export_detection`
 applies `DETECTOR_CONFIDENCE_THRESHOLD`. It does not — it takes no confidence
 parameter at all, and confidence filtering happens only through YOLO's `conf=`
 argument at the call site.
+
+## 9. Deviations taken during Phase 2
+
+Two of this design's own rules turned out to conflict, and the conflict is worth
+recording rather than hiding.
+
+**The artifact readers gained an `artifact_dir: Path` parameter.** §5 said not to
+change signatures; §7 said no new module may import `inference`. Both could not
+hold. `read_temperature`, `read_policy`, `read_hard_classes` and
+`read_confusion_pairs` previously resolved their own directory by calling
+`artifact_dir_path()` — which cannot leave `inference.py` (§2), so
+`artifacts.py` would have had to import `inference` and create the cycle §7
+forbids.
+
+Taking the directory as a parameter resolves it, and is better design besides:
+the functions become pure and independently testable instead of reaching for
+module state. The blast radius is contained — the only callers are inside
+`inference.py` and the Phase 1 unit tests, verified by grep across `app/`,
+`tests/` and `scripts/`. `api.py` does not call them, and neither does any
+script.
+
+The cost is real and should be stated plainly: **the Phase 1 characterization
+tests were edited** (10 call sites) to pass the new argument. Those tests were
+meant to be the untouched proof that Phase 2 changed nothing, and for these four
+functions they no longer are. The three original backend test files *are*
+unmodified and passing, so the HTTP-observable contract is still proven; the
+weaker link is confined to the four readers.
+
+**Four public names became thin wrappers.** `detect_candidate_regions`,
+`predict_mock`, `build_multi_food_mock` and
+`build_multi_food_classifier_fallback_response` stay defined in `inference.py`,
+delegating to implementations in the new modules under distinct names
+(`run_yolo_detection`, `build_mock_prediction_response`, …). Their bodies need
+`artifact_status()` / `artifact_dir_path()`, which cannot move; the wrapper
+resolves that state and passes it in. This also keeps them patchable, since the
+name a test patches is still the one `inference.py` calls.
+
+**Result:** `inference.py` 886 → 489 lines. Backend coverage 68% → 79%. Suite
+36 → 82 tests. `api.py` unmodified.
