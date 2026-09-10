@@ -23,7 +23,7 @@ Project-specific rules and deliberate overrides: @docs/0_coding_standards.md
   list. The product runtime and the Kaggle run records both need a home in git.
 - **`E402` is intended in `kaggle/`.** Those scripts mirror notebook cell order,
   where imports follow the configuration block. Enforced as a per-file-ignore.
-- **Four archived notebooks deliberately retain outputs** as evidence, which
+- **Seven notebooks deliberately retain outputs** as evidence, which
   master §4 permits but does not default to.
 
 ## Evidence locations
@@ -45,6 +45,7 @@ decision-layer recalibration. Do not promote it without redoing calibration.
   classification, and response assembly. Decomposition is planned as S2 — don't
   bolt more onto it.
 - `kaggle/recalibrate_decision_layer.py` exists as three byte-identical copies,
-  and the four training scripts differ by ~74 lines. Fixing this is S1.
+  and the four training scripts are near-duplicates — 46 to 285 changed lines
+  between any pair of files that are each about 700 lines long. Fixing this is S1.
 - `yolo11n.pt` (5.6 MB, repo root) is gitignored and required at runtime for
   live detection. A fresh clone will not have it — see `app/backend/README.md`.

@@ -95,7 +95,7 @@ Project-specific rules and deliberate overrides: @docs/0_coding_standards.md
   list. The product runtime and the Kaggle run records both need a home in git.
 - **`E402` is intended in `kaggle/`.** Those scripts mirror notebook cell order,
   where imports follow the configuration block. Enforced as a per-file-ignore.
-- **Four archived notebooks deliberately retain outputs** as evidence, which
+- **Seven notebooks deliberately retain outputs** as evidence, which
   master §4 permits but does not default to.
 
 ## Evidence locations
@@ -117,7 +117,8 @@ decision-layer recalibration. Do not promote it without redoing calibration.
   classification, and response assembly. Decomposition is planned as S2 — don't
   bolt more onto it.
 - `kaggle/recalibrate_decision_layer.py` exists as three byte-identical copies,
-  and the four training scripts differ by ~74 lines. Fixing this is S1.
+  and the four training scripts are near-duplicates — 46 to 285 changed lines
+  between any pair of files that are each about 700 lines long. Fixing this is S1.
 - `yolo11n.pt` (5.6 MB, repo root) is gitignored and required at runtime for
   live detection. A fresh clone will not have it — see `app/backend/README.md`.
 ```
@@ -175,17 +176,22 @@ configuration block so the config is visible at the top of the run log. This is
 the intended Kaggle style, not debt. Enforced as a `per-file-ignores` entry in
 `pyproject.toml` rather than being "fixed".
 
-## Four archived notebooks retain outputs
+## Seven notebooks retain outputs
 
 Master §4 permits keeping notebook outputs when they are intentionally preserved
-as evidence. These four are, and their outputs must not be cleared:
+as evidence. These seven do, and their outputs must not be cleared:
 
 - `notebooks/05_confidence_decision_layer.ipynb`
 - `notebooks/06_food_recognition_demo_inference.ipynb`
 - `notebooks/08_detection_to_foodlens_pipeline.ipynb`
+- `notebooks/archive/01_food101_baseline_transfer_finetuning.ipynb`
+- `notebooks/archive/02_resnet50_training_refinements.ipynb`
 - `notebooks/archive/03_modern_backbone_comparison.ipynb`
+- `notebooks/archive/07_multi_food_detection_exploration.ipynb`
 
-Every other notebook follows the master rule: clear outputs when code changes.
+Three of the seven are active notebooks, not archived ones, so this is not an
+"archive only" exemption. Every other tracked notebook currently has no outputs,
+and the master rule applies to them: clear outputs when code changes.
 ```
 
 - [ ] **Step 7: Confirm no master restatement leaked in**
