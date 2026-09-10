@@ -242,7 +242,20 @@ keeping it out holds CI fast and avoids a large download.
   needed or where it came from. Document its provenance, version, and
   download step in `docs/8_runtime_contract.md` and `app/backend/README.md`.
 - **`.worktrees/foodlens-react-vite-refinement`** — a stale worktree from
-  completed June work. Remove it with `git worktree remove`.
+  completed June work, in two independent pieces:
+  1. A git *registration* pointing at
+     `/Users/tuanm.nguyen/Documents/multi-class-food-recognition/.worktrees/...`
+     — a different username and a different repo name, left over from a path
+     migration. Git reports it `prunable (gitdir file points to non-existent
+     location)`, so `git worktree prune` clears it. `git worktree remove`
+     would fail on a path that does not exist.
+  2. An orphaned *directory* at `.worktrees/foodlens-react-vite-refinement`
+     in this repo, which git does not track as a worktree at all (it is
+     gitignored) and which must be deleted directly.
+
+  Safe to remove: the `foodlens-react-vite-refinement` branch is already
+  merged into `main` and `git log main..foodlens-react-vite-refinement`
+  is empty, so no unique commits are lost. The branch itself is then deleted.
 - **Notebook outputs** — the four archived notebooks keep theirs. This is
   permitted by §4 as intentionally preserved evidence; the reason is written
   into `0_coding_standards.md` so a future audit reads it as a decision
@@ -285,7 +298,9 @@ running it.
 
 ## 7. Commit Strategy
 
-Master §9 asks for one coherent change per commit. This pass splits into five:
+Master §9 asks for one coherent change per commit. This pass splits into six
+(the implementation plan splits step 4 below into a mechanical `ruff --fix`
+sweep and a hand-edited follow-up, so the judgement calls stay reviewable):
 
 1. `docs(standards): add AGENTS.md and cut coding standards to deltas`
 2. `docs(structure): renumber docs to Shape A and add agent log`
