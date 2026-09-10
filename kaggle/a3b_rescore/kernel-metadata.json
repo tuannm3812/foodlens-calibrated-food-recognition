@@ -1,0 +1,19 @@
+{
+  "id": "tuannm3823/foodlens-a3b-rescore-predictions",
+  "title": "FoodLens A3b Re-score Predictions",
+  "code_file": "rescore_predictions.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [
+    "kmader/food41"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "tuannm3823/foodlens-a3b-convnext-tiny-continued"
+  ],
+  "model_sources": []
+}
