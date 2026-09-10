@@ -360,3 +360,56 @@ mirror decision; `demo.py`'s cohesion (it holds `MODEL_NAME` and
 `MULTI_FOOD_POLICY`, which the *live* paths import, and a degraded-live fallback
 that is not a demo); the link checker's blindness to HTML `<img src>` targets;
 and the absence of any gate on the doc-structure rules themselves.
+
+---
+
+## 2026-09-11 — Doc-structure gate, and the artifact-JSON 500
+
+Two follow-ups taken while the four-PR stack awaited review.
+
+**The doc-structure gate now exists** (`scripts/check_doc_structure.py`, wired
+into CI beside the link check). It verifies `CLAUDE.md` stays one line,
+`AGENTS.md` stays within 20-40, numbered doc headings match their filenames,
+numbers are unique and gapless, `docs/README.md` and the numbered docs agree in
+both directions, and `0_coding_standards.md` has not re-grown into a copy of the
+master. That last check is heuristic and says so in its own output.
+
+It exists because its absence had already cost real defects: the S0 renumbering
+renamed files without touching their H1 headings, leaving five docs displaying a
+number that contradicted their filename and two both claiming "8.", and
+`AGENTS.md` carried line counts a later commit had made false. Both were caught
+by hand in a final review. Both are five-line checks.
+
+**The `read_json` finding was a real HTTP 500, and the mechanism was sharper
+than the earlier entry described.** Reproduced before fixing: artifacts present,
+`calibration.json` truncated to `{"temperature": 0.95`, POST to
+`/predict/multi-food/image` → **500**.
+
+The earlier entry said an unreadable artifact "takes the API down". The precise
+reason is worse than a missing guard. `load_runtime()` raising *is* handled —
+`except Exception: return build_multi_food_mock(...)`. But
+`build_multi_food_mock()`, the demo fallback, reads `calibration.json` itself,
+and it is invoked from inside that except handler, so its exception propagates.
+**The corrupt file broke the very path meant to handle it.**
+`build_multi_food_classifier_fallback_response()` had the same exposure.
+
+Fixed with an explicit `tolerate_invalid` flag rather than a blanket catch. The
+four tuning artifacts opt in and log a warning naming the file;
+`class_names.json` deliberately stays strict, because degrading it to `[]` would
+build a classifier head with zero classes instead of failing cleanly into
+`classifier_load_error`. Verified: 500 → 200 with
+`fallback_reason=classifier_load_error`. Suite 92 → 115.
+
+The three tests that pinned the raising behaviour during S2 were rewritten, not
+deleted. Pinning it was correct then — S2 was a no-behaviour-change refactor —
+and changing it is the entire point of this one.
+
+**A note on the Kaggle blocker, since it is not a code problem.** Every FoodLens
+kernel is owned by `tuannm3823`; the local `~/.kaggle/kaggle.json` is for
+`tuannm3812`, so `kernels status` returns permission denied on all four accuracy
+runs. The A3b outputs are therefore not retrievable, `results/` holds only A4's
+four manifests, and decision-layer recalibration cannot run. Compounding it,
+`kaggle/accuracy_phase1_a4/README.md:42` stores the second credential set in
+`/tmp/kaggle-cred`, which no longer exists. Unresolved: whether `tuannm3823` is
+a second account or whether the eight `kernel-metadata.json` ids are simply
+wrong.
