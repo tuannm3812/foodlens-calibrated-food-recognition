@@ -23,6 +23,14 @@ Install the optional detector dependency for live multi-food analysis:
 pip install -r requirements-detector.txt
 ```
 
+Install the analysis-tooling dependencies (numpy/pandas) needed to run
+`scripts/recalibrate_decision_layer.py` -- these are not part of the deployed
+backend, so they are kept out of `requirements.txt`:
+
+```bash
+pip install -r requirements-analysis.txt
+```
+
 `requirements-lock.txt` is a local reproducibility snapshot, not a CI
 constraint: it records the exact versions the pinned dev environment resolved
 to on macOS/arm64, for reproducing a known-good local environment. CI

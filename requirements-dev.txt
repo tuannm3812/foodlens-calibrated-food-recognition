@@ -1,4 +1,9 @@
 -r requirements.txt
+# The suite covers scripts/recalibrate_decision_layer.py, which needs numpy and
+# pandas. They stay out of requirements.txt so the deployed backend does not
+# carry analysis tooling, but the dev environment must install whatever the
+# tests import -- CI installs this file and nothing else.
+-r requirements-analysis.txt
 pytest
 httpx
 ruff

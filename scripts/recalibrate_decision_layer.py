@@ -18,11 +18,65 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 import zipfile
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+# Columns `build_features()` reads off the predictions frame, after
+# `normalize_actual_col()` has already renamed the actual/predicted-label
+# aliases (true_label/actual_label/label -> "actual",
+# pred_label/predicted_label/prediction/class_name/predicted_class ->
+# "predicted") and, if missing, derived `is_correct` from them. Anything still
+# missing at this point cannot be recovered by this script.
+REQUIRED_PREDICTION_COLUMNS = {
+    "actual": "ground-truth label per row (accepts the aliases above)",
+    "predicted": "model's top-1 predicted label (accepts the aliases above)",
+    "is_correct": "whether predicted == actual; feeds decision-band accuracy metrics",
+    "top_5": (
+        "pipe-separated top-5 predicted labels, rank-aligned with "
+        "top_5_confidence; used to check whether the true label is in the top-5"
+    ),
+    "top_5_confidence": (
+        "pipe-separated per-class confidences for the top-5 labels, "
+        "rank-aligned with top_5; used to derive top_1_confidence, "
+        "top_2_confidence and the top_1_top_2_margin the decision policy "
+        "depends on"
+    ),
+}
+
+
+class PredictionSchemaError(ValueError):
+    """Raised when a predictions CSV lacks a column build_features() needs."""
+
+
+def validate_predictions_schema(predictions: pd.DataFrame, predictions_path: Path) -> None:
+    """Fail fast, with an actionable message, before any analysis work runs.
+
+    `build_features()` used to hit a bare `KeyError: 'top_5_confidence'` deep
+    inside pandas -- after hard-class and confusion-pair analysis had already
+    run -- when pointed at a run whose predictions predate this contract.
+    """
+    missing = [name for name in REQUIRED_PREDICTION_COLUMNS if name not in predictions.columns]
+    if not missing:
+        return
+
+    found = ", ".join(str(col) for col in predictions.columns) or "(none)"
+    raise PredictionSchemaError(
+        "Predictions file is missing columns required by decision-layer "
+        "recalibration.\n"
+        f"  file: {predictions_path}\n"
+        f"  missing columns: {', '.join(missing)}\n"
+        f"  columns found: {found}\n"
+        "Accuracy-phase training runs (kaggle/*) write `top_5` as "
+        "pipe-separated labels only and do not record per-class confidences, "
+        "which predates this script's documented predictions-CSV contract "
+        "(see docs/4_next_steps.md). Regenerate this run's predictions with "
+        "per-class top-5 confidences before recalibrating."
+    )
+
 
 AUTO_HARD_CLASSES = {
     "chocolate_mousse",
@@ -459,6 +513,8 @@ def run_analysis(
         )
 
     predictions = normalize_actual_col(pd.read_csv(predictions_path))[0]
+    validate_predictions_schema(predictions, predictions_path)
+
     if not class_report_file:
         class_report_file = str(class_report_path) if class_report_path.exists() else None
     hard_classes = load_hard_classes(results_dir, hard_classes_file, class_report_file)
@@ -608,16 +664,20 @@ def main() -> None:
         else results_dir / f"{args.split}_decision_layer"
     )
 
-    run_analysis(
-        results_dir=results_dir,
-        split=args.split,
-        hard_classes_file=args.hard_classes_file,
-        confusion_pairs_file=args.confusion_pairs_file,
-        class_report_file=args.class_report_file,
-        output_dir=output_dir,
-        max_confusion_pairs=args.max_confusion_pairs,
-        skip_zip=args.no_zip,
-    )
+    try:
+        run_analysis(
+            results_dir=results_dir,
+            split=args.split,
+            hard_classes_file=args.hard_classes_file,
+            confusion_pairs_file=args.confusion_pairs_file,
+            class_report_file=args.class_report_file,
+            output_dir=output_dir,
+            max_confusion_pairs=args.max_confusion_pairs,
+            skip_zip=args.no_zip,
+        )
+    except PredictionSchemaError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":
