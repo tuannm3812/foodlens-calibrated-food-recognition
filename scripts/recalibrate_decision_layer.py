@@ -119,15 +119,6 @@ def validate_predictions_schema(predictions: pd.DataFrame, predictions_path: Pat
     )
 
 
-AUTO_HARD_CLASSES = {
-    "chocolate_mousse",
-    "steak",
-    "pork_chop",
-    "bread_pudding",
-    "tuna_tartare",
-}
-
-
 AUTO_CONFIDENCE_GRID = tuple(np.round(np.arange(0.70, 0.96, 0.05), 2))
 SUGGEST_CONFIDENCE_GRID = tuple(np.round(np.arange(0.35, 0.76, 0.05), 2))
 MARGIN_GRID = tuple(np.round(np.arange(0.05, 0.51, 0.05), 2))
@@ -218,7 +209,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--hard-classes-file",
         default=None,
-        help="Optional CSV/JSON with explicit hard-class names",
+        help=(
+            "Explicit override: a JSON list of hard-class names, used as-is. "
+            "Must exist and contain at least one name -- an empty or missing "
+            "file is an error, never a silent fallback. When omitted, hard "
+            "classes are derived from --class-report-file or, failing that, "
+            "directly from the fit split's own predictions."
+        ),
     )
     parser.add_argument(
         "--confusion-pairs-file",
@@ -228,7 +225,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--class-report-file",
         default=None,
-        help="Optional class-report CSV for deriving hard classes",
+        help=(
+            "Explicit override: a class-level report CSV (`class_name`, "
+            "`f1-score` columns) to derive hard classes from -- the bottom "
+            "10%% of classes by F1 (at least 5). Must exist and have both "
+            "columns -- never a silent fallback. When omitted, hard classes "
+            "are derived the same way directly from the fit split's own "
+            "predictions, so two runs being compared always use the same "
+            "derivation path regardless of which optional files happen to "
+            "exist on disk."
+        ),
     )
     parser.add_argument(
         "--output-dir",
@@ -350,47 +356,176 @@ def normalize_class_report(class_report: pd.DataFrame) -> pd.DataFrame:
     return class_report
 
 
+class HardClassDerivationError(ValueError):
+    """Raised when hard classes cannot be resolved without silently guessing.
+
+    Both `--hard-classes-file` and `--class-report-file` are explicit,
+    opt-in overrides: if the caller names one, it must exist and be usable,
+    or this raises rather than quietly substituting a default. The default
+    (no override given) path derives hard classes directly from the fit
+    split's own predictions, which are always available -- so this should
+    only be reachable if `fit_predictions` itself is malformed.
+    """
+
+
+def class_f1_table(predictions: pd.DataFrame) -> pd.DataFrame:
+    """Compute a per-class F1 table directly from `predictions`.
+
+    This mirrors the shape of a `<split>_class_report.csv` (an
+    `sklearn.metrics.classification_report(..., output_dict=True)` table)
+    closely enough to feed `select_hard_classes_by_f1()` -- precision,
+    recall and F1 per class computed the standard way (one-vs-rest true/false
+    positives and negatives) -- but computed straight from this script's own
+    required `actual`/`predicted` columns instead of an optional side-file.
+    That is the fix for the bug this function replaces: hard-class
+    derivation no longer depends on whether a `val_class_report.csv` happens
+    to be sitting in `--results-dir` (see docs/9_agent_log.md, the
+    2026-09-14 Codex review, for the two comparison runs this silently
+    diverged for -- 11 hard classes for one, 5 for the other).
+
+    Every class appearing as either an actual or a predicted label is
+    scored. Rows are `class_name`-sorted before `select_hard_classes_by_f1()`
+    sorts by F1, so the tie-breaking on equal F1 scores is deterministic.
+
+    Args:
+        predictions: A predictions frame with `actual` and `predicted`
+            columns (as produced by `normalize_actual_col()`).
+
+    Returns:
+        A `class_name`/`f1-score` frame, one row per class.
+    """
+    actual = predictions["actual"].astype(str)
+    predicted = predictions["predicted"].astype(str)
+    classes = sorted(set(actual) | set(predicted))
+
+    rows = []
+    for class_name in classes:
+        is_actual = actual == class_name
+        is_predicted = predicted == class_name
+        true_positive = int((is_actual & is_predicted).sum())
+        false_positive = int((is_predicted & ~is_actual).sum())
+        false_negative = int((is_actual & ~is_predicted).sum())
+
+        precision = (
+            true_positive / (true_positive + false_positive)
+            if (true_positive + false_positive) > 0
+            else 0.0
+        )
+        recall = (
+            true_positive / (true_positive + false_negative)
+            if (true_positive + false_negative) > 0
+            else 0.0
+        )
+        f1_score = (
+            2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        )
+        rows.append({"class_name": class_name, "f1-score": f1_score})
+
+    return pd.DataFrame(rows)
+
+
+def select_hard_classes_by_f1(class_report: pd.DataFrame) -> set[str]:
+    """Bottom 10% of classes by F1 (at least 5), from a class-level report.
+
+    This is the one selection rule, shared by the explicit
+    `--class-report-file` path and the default derive-from-fit-predictions
+    path (`class_f1_table()`), so both apply identical tie-breaking
+    (`DataFrame.sort_values(ascending=True)`'s stable ordering on ties) and
+    rounding (`max(5, ceil(0.1 * n))`) -- the two paths can never disagree
+    about what "bottom 10%" means, only about where the F1 numbers came from.
+
+    Raises:
+        HardClassDerivationError: If `class_report` lacks `class_name` or
+            `f1-score` columns.
+    """
+    if not {"class_name", "f1-score"} <= set(class_report.columns):
+        raise HardClassDerivationError(
+            "Class report must have `class_name` and `f1-score` columns; "
+            f"found {', '.join(str(c) for c in class_report.columns) or '(none)'}."
+        )
+    low_f1 = class_report.sort_values("f1-score", ascending=True)
+    limit = max(5, math.ceil(0.1 * len(low_f1)))
+    return set(low_f1.head(limit)["class_name"].astype(str).tolist())
+
+
 def load_hard_classes(
     results_dir: Path,
     hard_classes_file: str | None,
-    class_report_file: str | None = None,
-) -> set[str]:
+    class_report_file: str | None,
+    fit_predictions: pd.DataFrame,
+) -> tuple[set[str], str]:
+    """Resolve the hard-class set and where it came from.
+
+    Precedence, each an explicit ask rather than a silent guess:
+
+    1. `--hard-classes-file` -- an explicit JSON list of class names, used
+       as-is.
+    2. `--class-report-file` -- an explicit class-level report CSV, scored
+       with `select_hard_classes_by_f1()`.
+    3. Derived directly from `fit_predictions` via `class_f1_table()` --
+       the fit split's own predictions are already required input to this
+       script, so this path never depends on an optional file's presence,
+       and two runs being compared always take it identically unless one of
+       them explicitly opts into an override.
+
+    Neither override silently falls back to the default derivation, and the
+    default derivation never falls back to a fixed constant list: previously
+    a missing/empty `--hard-classes-file` or a `--class-report-file` that
+    did not exist both silently returned a hardcoded 5-class default
+    (`AUTO_HARD_CLASSES`, now removed), which is exactly how two comparison
+    runs ended up with different, silently-diverging hard-class sets (11 vs.
+    5) despite the claim that they used the same pipeline -- see
+    docs/9_agent_log.md, the 2026-09-14 Codex review.
+
+    Returns:
+        `(hard_classes, source)` -- `source` is a short, human-readable
+        description of which of the three paths produced the result, for
+        logging at run start.
+
+    Raises:
+        HardClassDerivationError: If `hard_classes_file`/`class_report_file`
+            is given but missing, empty, or malformed, or if the default
+            derivation is impossible because `fit_predictions` lacks
+            `actual`/`predicted` columns.
+    """
     if hard_classes_file:
         path = Path(hard_classes_file)
         if not path.is_absolute():
             path = results_dir / path
+        if not path.exists():
+            raise HardClassDerivationError(f"--hard-classes-file {path} does not exist.")
         text = path.read_text().strip()
         if not text:
-            return set(AUTO_HARD_CLASSES)
-        return {
+            raise HardClassDerivationError(f"--hard-classes-file {path} is empty.")
+        classes = {
             entry.strip().strip('"\'') for entry in json.loads(text) if isinstance(entry, str)
-        } or set(AUTO_HARD_CLASSES)
+        }
+        if not classes:
+            raise HardClassDerivationError(
+                f"--hard-classes-file {path} contained no class names."
+            )
+        return classes, f"--hard-classes-file {path}"
 
-    if not class_report_file:
-        return set(AUTO_HARD_CLASSES)
+    if class_report_file:
+        path = Path(class_report_file)
+        if not path.is_absolute():
+            path = results_dir / path
+        if not path.exists():
+            raise HardClassDerivationError(f"--class-report-file {path} does not exist.")
+        report = normalize_class_report(pd.read_csv(path))
+        return select_hard_classes_by_f1(report), f"--class-report-file {path}"
 
-    path = Path(class_report_file)
-    if not path.is_absolute():
-        path = results_dir / path
-
-    if not path.exists():
-        return set(AUTO_HARD_CLASSES)
-
-    report = pd.read_csv(path)
-    report = normalize_class_report(report)
-
-    if {
-        "class_name",
-        "f1-score",
-    } <= set(report.columns):
-        low_f1 = report.sort_values("f1-score", ascending=True)
-        limit = max(5, math.ceil(0.1 * len(low_f1)))
-        return set(low_f1.head(limit)["class_name"].astype(str).tolist())
-
-    if "class_name" in report.columns:
-        return set(report["class_name"].astype(str).head(8).tolist())
-
-    return set(AUTO_HARD_CLASSES)
+    if not {"actual", "predicted"} <= set(fit_predictions.columns):
+        raise HardClassDerivationError(
+            "Cannot derive hard classes: fit-split predictions have no "
+            "`actual`/`predicted` columns, and neither --hard-classes-file "
+            "nor --class-report-file was given. Pass one of those explicitly."
+        )
+    class_report = class_f1_table(fit_predictions)
+    return (
+        select_hard_classes_by_f1(class_report),
+        "derived from fit-split predictions (bottom 10% by F1)",
+    )
 
 
 def load_confusion_pairs(
@@ -759,12 +894,23 @@ def run_analysis(
     fit_predictions = load_predictions_for_split(results_dir, fit_split, fit_predictions_file)
     eval_predictions = load_predictions_for_split(results_dir, eval_split, eval_predictions_file)
 
-    class_report_path = results_dir / f"{fit_split}_class_report.csv"
     confusion_path = results_dir / f"{fit_split}_confusion_pairs.csv"
 
-    if not class_report_file:
-        class_report_file = str(class_report_path) if class_report_path.exists() else None
-    hard_classes = load_hard_classes(results_dir, hard_classes_file, class_report_file)
+    # `class_report_file` is only ever what the caller explicitly passed --
+    # unlike confusion pairs below, this is deliberately NOT auto-discovered
+    # from a `<fit_split>_class_report.csv` convenience file in results_dir.
+    # That auto-discovery used to be exactly how two runs being compared
+    # silently diverged (one run directory happened to have the file, the
+    # other didn't) -- see load_hard_classes()'s docstring and
+    # docs/9_agent_log.md's 2026-09-14 Codex review. With no override, hard
+    # classes are always derived the same way: from fit_predictions itself.
+    hard_classes, hard_class_source = load_hard_classes(
+        results_dir, hard_classes_file, class_report_file, fit_predictions
+    )
+    print(
+        f"Hard classes in use ({len(hard_classes)}, source: {hard_class_source}): "
+        f"{sorted(hard_classes)}"
+    )
 
     if not confusion_pairs_file:
         confusion_pairs_file = str(confusion_path) if confusion_path.exists() else None
@@ -960,7 +1106,7 @@ def main(argv: list[str] | None = None) -> None:
             fit_predictions_file=fit_predictions_file,
             eval_predictions_file=eval_predictions_file,
         )
-    except PredictionSchemaError as exc:
+    except (PredictionSchemaError, HardClassDerivationError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1) from None
 

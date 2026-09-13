@@ -41,7 +41,15 @@ resolve_splits = recalibrate_decision_layer.resolve_splits
 ConflictingSplitArgumentsError = recalibrate_decision_layer.ConflictingSplitArgumentsError
 DEPRECATED_SPLIT_WARNING = recalibrate_decision_layer.DEPRECATED_SPLIT_WARNING
 
-LABELS = ["miso_soup", "pho", "ramen", "sushi", "tacos"]
+# 20 distinct labels, not 5: hard classes are now derived from real per-class
+# F1 (bottom 10%, floor 5 -- see load_hard_classes()). With only 5 labels
+# total, that floor selects literally every label as "hard" no matter what
+# the data looks like, which used to silently defeat these fixtures (a
+# uniform error rate across only 5 classes made every row a "hard case" and
+# collapsed auto_accept coverage to zero on both splits). 20 labels keeps
+# "hard" a genuine minority (5 of 20), matching how the real feature behaves
+# on the full 101-class Food-101 label set.
+LABELS = [f"class_{i:02d}" for i in range(20)]
 
 
 def _write_predictions(path: Path, n: int, correct_fraction: float) -> None:
@@ -60,7 +68,7 @@ def _write_predictions(path: Path, n: int, correct_fraction: float) -> None:
         predicted = actual if is_correct else LABELS[(i + 1) % len(LABELS)]
         confidences = {label: 0.02 for label in LABELS}
         confidences[predicted] = 0.9 if is_correct else 0.55
-        ranked = sorted(LABELS, key=lambda label: -confidences[label])
+        ranked = sorted(LABELS, key=lambda label: -confidences[label])[:5]
         top_5 = "|".join(ranked)
         top_5_confidence = "|".join(f"{confidences[label]:.4f}" for label in ranked)
         rows.append(
@@ -184,6 +192,99 @@ def test_hard_classes_and_confusion_pairs_derived_from_fit_split_only(tmp_path: 
 
     confusion_pairs = json.loads((output_dir / "confusion_pairs.json").read_text())
     assert confusion_pairs == []
+
+
+# 20 classes so the bottom-10% selection (`max(5, ceil(0.1 * n))`) picks
+# exactly 5 -- large enough to make "which 5" a meaningful, non-degenerate
+# question (with only 5 total classes, as LABELS above has, the floor of 5
+# always selects literally every class regardless of F1).
+HARD_CLASS_LABELS = [f"class_{i:02d}" for i in range(20)]
+
+
+def _write_predictions_with_error_classes(path: Path, error_classes: set[str]) -> None:
+    """Write predictions over `HARD_CLASS_LABELS` where every row whose
+    *actual* label is in `error_classes` is mispredicted (into the next
+    label in the list) and every other row is predicted correctly.
+
+    Every class in `error_classes` therefore has recall 0 (never predicted
+    correctly) and so F1 exactly 0, strictly below every other class's F1
+    (which is positive, since those classes are always predicted correctly
+    at least once). With 20 total classes, the bottom-10% (5-class) rule
+    selects exactly `error_classes` -- deterministically, regardless of the
+    non-error classes' precision, which is all that's needed to prove hard
+    classes are derived from each fit split's own error profile rather than
+    a fixed default.
+    """
+    rows = []
+    for index, label in enumerate(HARD_CLASS_LABELS):
+        wrong_target = HARD_CLASS_LABELS[(index + 1) % len(HARD_CLASS_LABELS)]
+        for i in range(20):
+            is_correct = label not in error_classes
+            predicted = label if is_correct else wrong_target
+            confidence = 0.9 if is_correct else 0.55
+            others = [name for name in HARD_CLASS_LABELS if name != predicted][:4]
+            ranked = [predicted, *others]
+            confidences = [confidence, *([0.02] * len(others))]
+            rows.append(
+                {
+                    "path": f"/data/{label}/{i}.jpg",
+                    "actual": label,
+                    "predicted": predicted,
+                    "is_correct": is_correct,
+                    "top_5": "|".join(ranked),
+                    "top_5_confidence": "|".join(f"{c:.4f}" for c in confidences),
+                }
+            )
+    pd.DataFrame(rows).to_csv(path, index=False)
+
+
+def test_hard_classes_derived_from_fit_split_predictions_not_a_fixed_default(
+    tmp_path: Path,
+) -> None:
+    """Hard classes must be derived from each run's own fit-split F1 profile,
+    not a fixed default -- and the absence of a `val_class_report.csv` in
+    the run directory (this is the exact condition that used to trigger a
+    silent fallback to a hardcoded 5-class default) must not make two runs
+    with different error profiles converge on the same hard classes."""
+    import json
+
+    def run_with_errors(name: str, error_classes: set[str]) -> set[str]:
+        results_dir = tmp_path / name
+        results_dir.mkdir()
+        _write_predictions_with_error_classes(
+            results_dir / "val_predictions.csv", error_classes
+        )
+        _write_predictions_with_error_classes(
+            results_dir / "test_predictions.csv", error_classes
+        )
+        assert not (results_dir / "val_class_report.csv").exists()
+
+        output_dir = results_dir / "out"
+        run_analysis(
+            results_dir=results_dir,
+            fit_split="val",
+            eval_split="test",
+            hard_classes_file=None,
+            confusion_pairs_file=None,
+            class_report_file=None,
+            output_dir=output_dir,
+            max_confusion_pairs=10,
+            skip_zip=True,
+        )
+        return set(json.loads((output_dir / "hard_classes.json").read_text()))
+
+    profile_a_errors = {"class_00", "class_04", "class_08", "class_12", "class_16"}
+    profile_b_errors = {"class_01", "class_05", "class_09", "class_13", "class_17"}
+
+    hard_classes_a = run_with_errors("run_a", profile_a_errors)
+    hard_classes_b = run_with_errors("run_b", profile_b_errors)
+
+    # Each run's derived hard classes reflect its own F1 profile...
+    assert hard_classes_a == profile_a_errors
+    assert hard_classes_b == profile_b_errors
+    # ...rather than both silently landing on the same fixed default despite
+    # neither run directory containing a class-report file.
+    assert hard_classes_a != hard_classes_b
 
 
 def test_default_fit_and_eval_splits_are_val_and_test() -> None:
