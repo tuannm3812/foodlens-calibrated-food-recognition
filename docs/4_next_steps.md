@@ -238,7 +238,37 @@ After any completed ConvNeXt run directory (for example
 pip install -r requirements-analysis.txt
 python3 scripts/recalibrate_decision_layer.py \
   --results-dir results/accuracy_phase1/a3b_convnext_tiny_continued_224 \
-  --split test
+  --fit-split val \
+  --eval-split test
+```
+
+**Selecting thresholds on the same split they are reported on leaks that
+split's labels into policy selection**, producing optimistic band metrics --
+this is why `--fit-split`/`--eval-split` exist instead of a single `--split`.
+The threshold grid search, hard classes and confusion pairs are derived from
+`--fit-split` (default `val`) alone; the frozen policy is then evaluated
+exactly once on `--eval-split` (default `test`), and both splits' band
+metrics are written (`decision_band_metrics_fit.csv` and
+`decision_band_metrics_eval.csv`) so the gap between them is visible. The
+older single-split `--split test` form still works as a deprecated alias for
+"fit and evaluate on the same split" and prints a warning explaining the
+leak; it is not removed because runbook commands already use it, but new
+usage should prefer `--fit-split`/`--eval-split`.
+
+If `val_predictions.csv` and `test_predictions.csv` don't share the same
+predictions-CSV contract (see below) -- e.g. one was re-scored and the other
+wasn't -- point each split at its own file with `--fit-predictions-file`/
+`--eval-predictions-file`, which override the `<split>_predictions.csv`
+convention independently per split while `--results-dir` still supplies the
+other artifacts:
+
+```bash
+python3 scripts/recalibrate_decision_layer.py \
+  --results-dir results/accuracy_phase1/a3b_convnext_tiny_continued_224 \
+  --fit-split val \
+  --eval-split test \
+  --fit-predictions-file results/accuracy_phase1/a3b_convnext_tiny_continued_224/val_predictions_rescored.csv \
+  --eval-predictions-file results/accuracy_phase1/a3b_convnext_tiny_continued_224/test_predictions_rescored.csv
 ```
 
 #### Required `*_predictions.csv` schema
@@ -271,12 +301,13 @@ from raw logits (04, 05, archive/15) are the reference for how to do so.
 
 This generates:
 
-- `decision_policy.csv`
-- `decision_policy_search.csv`
-- `decision_policy.json`
+- `decision_policy.csv` / `decision_policy.json` (the single frozen policy,
+  labelled with which split it was fit on and which it was evaluated on)
+- `decision_policy_search.csv` (grid search results, from the fit split only)
+- `decision_band_metrics_fit.csv` / `decision_band_metrics_eval.csv`
 - `hard_classes.json`
 - `confusion_pairs.json`
-- per-band examples (`decision_examples_*.csv`)
+- per-band examples (`decision_examples_*.csv`, drawn from the eval split)
 - `decision_layer_artifacts.zip`
 
 Promote only if:

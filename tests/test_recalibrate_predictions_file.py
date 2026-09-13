@@ -64,8 +64,11 @@ def _write_fake_predictions(path: Path, n: int = 20) -> None:
 
 
 def test_predictions_file_overrides_conventional_name(tmp_path: Path) -> None:
-    """`--predictions-file` is read instead of `<split>_predictions.csv`, and
-    no `<split>_predictions.csv` needs to exist at all."""
+    """`--fit/eval-predictions-file` are read instead of
+    `<split>_predictions.csv`, and no `<split>_predictions.csv` needs to
+    exist at all. fit_split == eval_split == "test" here since this test is
+    only about the predictions-file override mechanism (shared by both
+    roles), not the fit/eval split separation covered elsewhere."""
     results_dir = tmp_path / "run"
     results_dir.mkdir()
 
@@ -79,14 +82,16 @@ def test_predictions_file_overrides_conventional_name(tmp_path: Path) -> None:
     output_dir = tmp_path / "out"
     run_analysis(
         results_dir=results_dir,
-        split="test",
+        fit_split="test",
+        eval_split="test",
         hard_classes_file=None,
         confusion_pairs_file=None,
         class_report_file=None,
         output_dir=output_dir,
         max_confusion_pairs=10,
         skip_zip=True,
-        predictions_file=str(rescored_path),
+        fit_predictions_file=str(rescored_path),
+        eval_predictions_file=str(rescored_path),
     )
 
     assert not conventional_path.exists()
@@ -98,9 +103,9 @@ def test_predictions_file_overrides_conventional_name(tmp_path: Path) -> None:
 def test_predictions_file_relative_path_resolves_against_cwd_not_results_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`--predictions-file` is a normal CLI path (relative to cwd), not
-    relative to --results-dir -- unlike --hard-classes-file and friends. This
-    matters because the documented handoff command
+    """`--fit/eval-predictions-file` are normal CLI paths (relative to cwd),
+    not relative to --results-dir -- unlike --hard-classes-file and friends.
+    This matters because the documented handoff command
     (kaggle/a3b_rescore/README.md) passes a path like
     `results/.../test_predictions_rescored.csv` relative to the repo root,
     which is *not* relative to --results-dir (it repeats the results-dir
@@ -115,21 +120,23 @@ def test_predictions_file_relative_path_resolves_against_cwd_not_results_dir(
     output_dir = tmp_path / "out"
     run_analysis(
         results_dir=results_dir,
-        split="test",
+        fit_split="test",
+        eval_split="test",
         hard_classes_file=None,
         confusion_pairs_file=None,
         class_report_file=None,
         output_dir=output_dir,
         max_confusion_pairs=10,
         skip_zip=True,
-        predictions_file="run/test_predictions_rescored.csv",
+        fit_predictions_file="run/test_predictions_rescored.csv",
+        eval_predictions_file="run/test_predictions_rescored.csv",
     )
 
     assert (output_dir / "decision_policy.json").exists()
 
 
 def test_without_predictions_file_still_uses_conventional_name(tmp_path: Path) -> None:
-    """Unchanged default behavior: no --predictions-file means the
+    """Unchanged default behavior: no predictions-file override means the
     `<split>_predictions.csv` convention still applies."""
     results_dir = tmp_path / "run"
     results_dir.mkdir()
@@ -139,14 +146,16 @@ def test_without_predictions_file_still_uses_conventional_name(tmp_path: Path) -
     output_dir = tmp_path / "out"
     run_analysis(
         results_dir=results_dir,
-        split="test",
+        fit_split="test",
+        eval_split="test",
         hard_classes_file=None,
         confusion_pairs_file=None,
         class_report_file=None,
         output_dir=output_dir,
         max_confusion_pairs=10,
         skip_zip=True,
-        predictions_file=None,
+        fit_predictions_file=None,
+        eval_predictions_file=None,
     )
 
     assert (output_dir / "decision_policy.json").exists()
@@ -160,12 +169,14 @@ def test_missing_predictions_file_fails_with_clear_error(tmp_path: Path) -> None
     with pytest.raises(FileNotFoundError, match="does_not_exist.csv"):
         run_analysis(
             results_dir=results_dir,
-            split="test",
+            fit_split="test",
+            eval_split="test",
             hard_classes_file=None,
             confusion_pairs_file=None,
             class_report_file=None,
             output_dir=output_dir,
             max_confusion_pairs=10,
             skip_zip=True,
-            predictions_file="does_not_exist.csv",
+            fit_predictions_file="does_not_exist.csv",
+            eval_predictions_file="does_not_exist.csv",
         )
