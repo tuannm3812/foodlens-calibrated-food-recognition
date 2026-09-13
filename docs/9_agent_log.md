@@ -628,3 +628,73 @@ call, not a technical one, and it is the user's: A3b auto-accepts more traffic
 faithful in aggregate.
 
 Nothing in `app/artifacts/` was changed. No promotion has been made.
+
+---
+
+## 2026-09-14 — Codex review of Claude's methodology repair and comparison
+
+Reviewed commits `99006a3` through `eb0f687` against the prior Codex findings, the
+project/master standards, the committed tests, and the locally retained run
+artifacts. The implementation repairs the original ground-truth routing leak,
+separates fit from evaluation, makes re-scored inputs explicit, validates
+temperature, and delays final output replacement until the accuracy check
+passes. The shared routing function and its parity coverage are meaningful
+improvements. Fresh verification at `eb0f687` passed all 145 tests, ruff, the
+documentation-link gate, and the documentation-structure gate.
+
+The controlled-comparison conclusion is **not yet accepted**, for four reasons.
+
+1. **P1 — The two runs did not use the same hard-class derivation path.** The
+   A3b directory contains `val_class_report.csv`, so
+   `load_hard_classes()` selected the bottom 10% by validation F1: 11 classes.
+   The staged champion directory has no validation class report, so the same
+   function silently used the five `AUTO_HARD_CLASSES` defaults. The emitted
+   `hard_classes.json` files confirm 11 versus 5 classes. That directly
+   contradicts the claim that the champion went through the identical pipeline,
+   and the test named
+   `test_hard_classes_and_confusion_pairs_derived_from_fit_split_only` checks
+   only confusion pairs, not hard classes. Derive the champion's class report
+   from its validation predictions (or pass one common, explicit hard-class
+   policy to both runs), then rerun both comparisons. A counterfactual local
+   check deriving the champion's bottom 10% from its validation predictions
+   changed champion auto-accept coverage from 64.32% to 61.20%, so this is
+   material even though A3b still led on auto-accept coverage and accuracy.
+
+2. **P1 — The new band metrics are not in the metric evidence registry.** The
+   exact controlled band results exist only in this log and ignored `results/`
+   files; `docs/3_model_results.md` has only the older top-1/top-5/ECE rows.
+   That violates this repo's explicit evidence contract: every metric and any
+   accuracy claim must trace to a row in `docs/3_model_results.md`. Record the
+   corrected comparison there, with artifact/procedure provenance, before using
+   it for a promotion decision.
+
+3. **P2 — “A3b is better on every decision band” is false as written.** The
+   table immediately above that sentence reports review-band top-5 containment
+   of 76.83% for the champion and 73.30% for A3b. A3b leads review-band top-1,
+   but not every reported measure in that band. The whole A3b review cell is
+   bolded despite containing the lower top-5 value. Restate the conclusion per
+   metric rather than per band.
+
+4. **P2 — A failed re-score can still leave a complete-looking final file.**
+   `write_predictions_if_accuracy_matches()` preserves any pre-existing output
+   on mismatch, and a regression test explicitly requires that behavior. This
+   conflicts with the module text, design acceptance criterion 5, and the prior
+   log claim that a mismatch leaves no complete-looking artifact. The new run is
+   not promoted, but a stale file at the same path remains indistinguishable to
+   a later consumer. Either refuse to start when the destination exists unless
+   an explicit overwrite mode is selected, quarantine/name outputs per run, or
+   weaken the documented guarantee and add provenance that lets consumers
+   distinguish the prior artifact.
+
+Independent checks did confirm the shared-manifest and headline model metrics:
+the val and test manifest hashes match between the staged runs; recomputation
+from the re-scored test CSVs returned top-1 83.90099% and ECE 0.055596 for A3b,
+and top-1 78.27723% and ECE 0.026511 for ResNet50 FT-V2 (15 equal-width bins).
+Those facts support the checkpoint/preprocessing validity gate, but they do not
+repair the policy-comparison and evidence issues above.
+
+**Decision:** keep ResNet50 FT-V2 as product champion and keep A3b promotion
+blocked. Claude's methodology repair should be retained, but the comparison
+must be rerun with symmetric hard-class inputs and its corrected metrics entered
+in `docs/3_model_results.md` before the product trade-off is presented as
+settled.
