@@ -698,3 +698,90 @@ blocked. Claude's methodology repair should be retained, but the comparison
 must be rerun with symmetric hard-class inputs and its corrected metrics entered
 in `docs/3_model_results.md` before the product trade-off is presented as
 settled.
+
+---
+
+## 2026-09-14 — Symmetric hard-class rerun, per-metric correction, overwrite guard
+
+Fixed all four issues from the Codex review above and reran the controlled
+comparison.
+
+**F1 — symmetric hard classes.** `load_hard_classes()` now computes per-class
+F1 directly from the fit split's own predictions (`class_f1_table()` +
+`select_hard_classes_by_f1()`, same bottom-10%/floor-5 rule as before) instead
+of reading an optional `<split>_class_report.csv` that only sometimes exists.
+`--hard-classes-file`/`--class-report-file` remain as explicit overrides, but
+now fail loudly if given and missing/malformed rather than silently
+substituting the old `AUTO_HARD_CLASSES` default, which is removed (nothing
+else referenced it). The run now prints the hard-class set and its source at
+start.
+
+Rerunning both models with no override: **champion 11 hard classes**, **A3b 11
+hard classes**, both "derived from fit-split predictions (bottom 10% by F1)".
+The champion's fit-band auto-accept coverage under this symmetric derivation
+is 61.20% — matching Codex's counterfactual (61.20%) almost exactly, and
+confirming the earlier 64.32%/5-hard-class figure was the asymmetric one.
+
+**F2 — evidence registry.** The rerun's fit/eval band tables, the test-split
+top-1/top-5/ECE comparison, and full provenance (checkpoints, manifests,
+fit/eval handling, shared `route_decision`, ECE bin method) are now recorded
+in `docs/3_model_results.md`, section 16. Full tables there; summary below.
+
+Eval-split (test) band metrics, frozen policy scored once:
+
+| Band | Champion coverage / top-1 / top-5-in | A3b coverage / top-1 / top-5-in |
+| --- | --- | --- |
+| auto_accept | 61.20% / 94.58% / 98.25% | **66.63% / 96.66% / 99.26%** |
+| suggest | 23.31% / 64.74% / 89.21% | 21.10% / **69.12%** / **94.18%** |
+| confirm | 12.93% / 35.83% / 75.50% | 10.08% / **42.63%** / 81.04% |
+| review | 2.56% / 26.25% / **76.83%** | 2.19% / **28.05%** / 73.30% |
+
+| Metric | Champion | A3b |
+| --- | ---: | ---: |
+| test top-1 | 78.28% | **83.90%** |
+| test top-5 | 92.65% | **95.78%** |
+| ECE, temperature-scaled | **0.0265** | 0.0556 |
+
+Re-scoring was not repeated — the existing rescored prediction CSVs for both
+models and both splits were reused as-is; ECE recomputation from them
+(0.026511 champion, 0.055596 A3b, 15 equal-width bins) matches the prior
+entry's figures exactly, confirming nothing about the underlying predictions
+changed, only which hard classes route rows.
+
+**F3 — the "every decision band" claim was wrong, corrected per metric.** The
+previous entry stated "A3b is better on every decision band" and bolded
+A3b's review cell despite it holding the lower top-5-contains-actual value
+(73.30% vs. the champion's 76.83%). That claim is false as written. Stated
+per metric instead: A3b leads auto-accept coverage and leads top-1 accuracy
+and top-5-contains-actual in every band except review, where the champion's
+top-5-contains-actual is higher even though A3b's review-band top-1 is
+higher. A3b leads both overall test accuracy metrics. The champion leads
+calibrated ECE by roughly 2x. This is unchanged in substance from before —
+the hard-class fix moved coverage numbers but not which model leads which
+metric — the correction is to how the conclusion was worded, not to which
+model is ahead on what.
+
+**F4 — overwrite guard.** `write_predictions_if_accuracy_matches()` used to
+preserve a pre-existing file at `output_path` on a self-check mismatch, which
+kept that file from being corrupted but left it indistinguishable from a
+freshly verified one. It now refuses to start (before any scoring or
+self-check work, in both the script's own early check and the helper itself)
+if `output_path` already exists, unless `--overwrite` is passed; `--overwrite`
+only takes effect once the new run's self-check passes, and a failing
+self-check still leaves the destination exactly as it was. The module
+docstring, `kaggle/a3b_rescore/README.md`, and the design doc's acceptance
+criterion 5 are updated to match; the regression test that encoded the old
+"preserve silently" expectation is replaced with tests for the refusal and
+for `--overwrite`'s match/mismatch behavior. Verified end to end: rerunning
+against an existing output path without `--overwrite` fails with `error:
+... already exists. Refusing to start ...` before touching the model or
+data; the same command with `--overwrite` scores and replaces the file once
+its self-check passes.
+
+**Verification at this entry:** 148 tests pass (145 at the prior entry, plus
+one new hard-class test and two new overwrite-guard tests), `ruff check .`
+reports "All checks passed!", and both `scripts/check_doc_links.py` and
+`scripts/check_doc_structure.py` exit 0.
+
+No promotion recommendation is made here. The trade between the two models is
+what section 16 of `docs/3_model_results.md` states, not a decision.
