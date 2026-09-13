@@ -413,3 +413,86 @@ four manifests, and decision-layer recalibration cannot run. Compounding it,
 `/tmp/kaggle-cred`, which no longer exists. Unresolved: whether `tuannm3823` is
 a second account or whether the eight `kernel-metadata.json` ids are simply
 wrong.
+
+---
+
+## 2026-09-14 — Codex review of the A3b re-score and recalibration path
+
+**Scope:** reviewed `9043d9c..c190a60` on `feat/a3b-rescore`, including the
+prediction-schema contract, dependency declarations, A3b re-scoring entry
+point, and temperature-scaling repair. The working tree was clean before this
+entry was appended.
+
+**Assessment:** applying `softmax(logits / temperature)` in the re-scorer is the
+right correction and matches production. Loading the class order from the run
+artifact, refusing to overwrite the original predictions, validating image
+paths, and checking reproduced accuracy are also sound safeguards. However,
+the new work does not yet unblock trustworthy decision-layer recalibration.
+The following findings should block A3b promotion.
+
+1. **P1 — The recalibration algorithm does not model the production decision
+   function and uses ground truth during routing.**
+   `scripts/recalibrate_decision_layer.py:361-384` assigns `review` from the
+   exact `(actual, predicted)` pair, treats either the actual or predicted class
+   as a hard case, and only assigns `suggest` when the unknown actual label is
+   present in top-5. Production in `app/backend/decision.py:33-80` knows only
+   the predicted labels and confidences: it treats a predicted label appearing
+   anywhere in a confusion pair as risky, gates review on the margin, checks
+   only the predicted hard class, and assigns suggest from confidence alone.
+   A direct three-case reproduction produced `review` vs `auto_accept`,
+   `confirm` vs `suggest`, and `confirm` vs `suggest` for offline versus live
+   routing. Consequently, the grid search and band metrics optimise a policy
+   that cannot be executed at inference time. Extract or reuse one shared
+   routing function, with no actual-label inputs; use actual labels only after
+   routing to score each band.
+
+2. **P1 — The re-scored artifact cannot be consumed by the documented command.**
+   `rescore_predictions.py` deliberately writes
+   `<split>_predictions_rescored.csv`, while
+   `recalibrate_decision_layer.py:502` unconditionally reads
+   `<split>_predictions.csv`. The command at
+   `kaggle/a3b_rescore/README.md:84-88` therefore reads the old incompatible
+   file and fails schema validation. The note below it acknowledges the gap and
+   suggests copying or symlinking over the conventional name, which conflicts
+   with the same page's immutable-run-record rule; its suggested "equivalent
+   override" does not exist. Add an explicit predictions-file argument (or a
+   similarly concrete interface), then test the re-score-to-recalibration
+   handoff without renaming the original artifact.
+
+3. **P1 — The documented process selects thresholds on the test set and reports
+   performance on that same set.** The README and `docs/4_next_steps.md` direct
+   `--split test`; `run_analysis()` searches the threshold grid and produces
+   final band metrics from that one dataframe. It also derives confusion pairs
+   from the same predictions when no file is supplied. This leaks test labels
+   into policy selection and makes the promotion metrics optimistic, contrary
+   to the master leakage rule. Fit temperature and decision policy on validation
+   data, freeze the resulting artifacts, then evaluate that fixed policy once
+   on test data. The CLI needs separate fit/evaluation inputs or two explicit
+   modes to support that workflow.
+
+4. **P2 — A failed accuracy self-check still leaves the output advertised as
+   untrustworthy.** `rescore_predictions.py:586-596` writes the CSV before it
+   compares achieved and recorded accuracy. On mismatch the command exits
+   non-zero, but the completed-looking artifact remains in place. This
+   contradicts the README claim that the script exits rather than writing
+   confidences belonging to the wrong model. Perform the check before the final
+   write, or write to a temporary path and atomically promote it only after the
+   check passes. A regression test should verify that mismatch leaves no final
+   output.
+
+**Secondary hardening:** `resolve_temperature()` accepts zero, negative, NaN,
+and infinite explicit or JSON values. Validate a finite value greater than zero
+before dividing logits. This is not the current A3b failure because its recorded
+temperature is positive and finite.
+
+**Fresh verification:** `.venv/bin/python -m ruff check .` passed;
+`.venv/bin/python -m pytest -q` passed all 90 tests;
+`.venv/bin/python scripts/check_doc_links.py` passed; and
+`.venv/bin/python scripts/check_doc_structure.py` passed. The tests emitted the
+known Starlette/httpx and AnyIO deprecation warnings. The full model re-score
+was not run because the checkpoint and Food-101 data are not available in the
+working tree. [PR #9](https://github.com/tuannm3812/foodlens-calibrated-food-recognition/pull/9)
+and [CI run 34539816670](https://github.com/tuannm3812/foodlens-calibrated-food-recognition/actions/runs/34539816670)
+are green at the reviewed HEAD `c190a60602db2383b7f0ae7a90c1c05fa69ec127`;
+CI proves the current tests pass, while the four findings above identify
+missing contract and methodology coverage.
