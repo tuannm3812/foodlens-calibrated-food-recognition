@@ -540,3 +540,104 @@ Decision:
 - Calibrated ECE improved materially (0.0181 → 0.0138).
 - E2 should be used as the starting 130-class checkpoint for decision-layer
   work, while continuing weak-class remediation.
+
+## 16. Controlled Champion vs A3b Decision-Layer Comparison
+
+Section 11's decision-band numbers (58.02% auto-accept at 96.47% accuracy) came
+from `scripts/recalibrate_decision_layer.py` before its methodology repair: it
+selected thresholds and hard classes on the same split it then reported
+metrics on, using the model's own ground-truth label as a routing input. Both
+leaks are fixed (see
+`docs/superpowers/specs/2026-09-14-decision-layer-methodology-design.md`), but
+a follow-up Codex review (`docs/9_agent_log.md`, 2026-09-14) found that the
+first attempt at a controlled champion-vs-A3b comparison still had asymmetric
+hard-class derivation between the two runs. This section records the
+comparison rerun after that fix, with the champion put through the identical
+pipeline A3b went through.
+
+**Provenance.**
+
+- Checkpoints: `app/artifacts/resnet50_ft_v2_best.pth` (staged as
+  `results/accuracy_phase1/champion_resnet50_ft_v2/`) and
+  `results/accuracy_phase1/a3b_convnext_tiny_continued_224/convnext_tiny_continued_best.pth`.
+- Predictions: both re-scored onto the documented predictions-CSV schema with
+  `kaggle/a3b_rescore/rescore_predictions.py` (`--arch resnet50` for the
+  champion, `--arch convnext_tiny` for A3b), producing
+  `val_predictions_rescored.csv`/`test_predictions_rescored.csv` in each run
+  directory. Re-scoring the champion reproduced its published 78.28%/92.65%
+  test top-1/top-5 to within ~0.003pp, confirming the checkpoint, head and
+  preprocessing all match.
+- Manifests: both models were scored on A3b's exact `val_manifest.csv` and
+  `test_manifest.csv` -- the two run directories' manifest files are
+  byte-identical (matching MD5 hashes), confirming a shared split.
+- Fit/eval separation: `scripts/recalibrate_decision_layer.py
+  --fit-split val --eval-split test --fit-predictions-file
+  .../val_predictions_rescored.csv --eval-predictions-file
+  .../test_predictions_rescored.csv`, once per model. Thresholds, hard
+  classes and confusion pairs are selected from val alone; test is scored
+  exactly once with the frozen policy.
+- Routing: both runs call the shared `app/backend/decision_rules.route_decision`
+  -- no vendored copy of the routing rule.
+- Hard classes: both derived identically -- bottom 10% by F1 (floor 5),
+  computed directly from the fit split's own predictions
+  (`class_f1_table()`/`select_hard_classes_by_f1()` in
+  `scripts/recalibrate_decision_layer.py`). Neither run used a
+  `--class-report-file`/`--hard-classes-file` override.
+- Selected policy, both models: auto-accept confidence 0.70, suggest
+  confidence 0.35, top-1/top-2 margin 0.05.
+- ECE: 15 equal-width bins over temperature-scaled top-1 confidence (the
+  `confidence` column already scaled by each run's own `calibration.json`
+  temperature -- 0.9581 for the champion, 0.8844 for A3b).
+
+**Hard classes (post-fix, both runs identical in method):**
+
+| Model | Hard-class count | Source |
+| --- | ---: | --- |
+| ResNet50 FT-V2 champion | 11 | derived from fit-split (val) predictions, bottom 10% by F1 |
+| A3b ConvNeXt-Tiny continued | 11 | derived from fit-split (val) predictions, bottom 10% by F1 |
+
+**Fit-split (val) band metrics, thresholds selected here:**
+
+| Model | Band | Coverage | Top-1 | Top-5 contains actual |
+| --- | --- | ---: | ---: | ---: |
+| Champion | auto_accept | 61.20% | 94.16% | 98.14% |
+| Champion | suggest | 23.33% | 64.56% | 89.56% |
+| Champion | confirm | 12.80% | 36.19% | 73.63% |
+| Champion | review | 2.67% | 21.85% | 74.07% |
+| A3b | auto_accept | 67.14% | 96.73% | 99.41% |
+| A3b | suggest | 20.08% | 67.50% | 94.28% |
+| A3b | confirm | 10.34% | 46.07% | 82.47% |
+| A3b | review | 2.45% | 30.77% | 79.76% |
+
+**Eval-split (test) band metrics, frozen policy scored once:**
+
+| Model | Band | Coverage | Top-1 | Top-5 contains actual |
+| --- | --- | ---: | ---: | ---: |
+| Champion | auto_accept | 61.20% | 94.58% | 98.25% |
+| Champion | suggest | 23.31% | 64.74% | 89.21% |
+| Champion | confirm | 12.93% | 35.83% | 75.50% |
+| Champion | review | 2.56% | 26.25% | 76.83% |
+| A3b | auto_accept | 66.63% | 96.66% | 99.26% |
+| A3b | suggest | 21.10% | 69.12% | 94.18% |
+| A3b | confirm | 10.08% | 42.63% | 81.04% |
+| A3b | review | 2.19% | 28.05% | 73.30% |
+
+**Overall test-split metrics:**
+
+| Metric | Champion | A3b |
+| --- | ---: | ---: |
+| Test top-1 | 78.28% | 83.90% |
+| Test top-5 | 92.65% | 95.78% |
+| Calibrated ECE (15 bins) | 0.0265 | 0.0556 |
+
+Stated per metric rather than per band (an earlier agent-log entry claimed
+"A3b is better on every decision band", which is false -- see
+`docs/9_agent_log.md`, 2026-09-14, for the correction): A3b leads auto-accept
+coverage, and leads top-1 accuracy and top-5-contains-actual in every band
+except review, where the champion's top-5-contains-actual (76.83%) is higher
+than A3b's (73.30%) even though A3b's review-band top-1 (28.05% vs. 26.25%)
+is higher. A3b leads both overall accuracy metrics (test top-1 and top-5).
+The champion leads calibrated ECE by roughly 2x.
+
+These numbers do not by themselves settle a promotion decision; this section
+records them for the evidence trail, not as a recommendation.
