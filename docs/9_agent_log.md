@@ -571,3 +571,60 @@ the Codex review entry above into a commit whose message describes only the
 design doc. Two unrelated changes in one commit, against master §9. The content
 is intact and the history was already pushed, so it was left rather than
 rewritten.
+
+---
+
+## 2026-09-14 — Controlled champion vs A3b comparison
+
+Codex did not review PR #10 — its connector reported the account had reached its
+code-review usage limit, on both #9 and #10. **PR #10 is therefore unreviewed by
+Codex**, and the routing repair it contains has only Claude's own verification
+behind it.
+
+The champion was put through the identical pipeline that A3b went through, which
+is what the previous entry said was required before any promotion claim.
+
+**Validity gate passed.** ResNet50 FT-V2 re-scored on A3b's exact val and test
+manifests reproduced **78.2772% / 92.6535%** against its published 78.28 / 92.65
+— a match to roughly 0.003pp. That confirms in one shot that the split is shared
+(both eras use `SEED=42` and the same stratified procedure), and that the
+checkpoint, the 3-layer head and the preprocessing are all consistent. The
+checkpoint loaded with zero missing and zero unexpected keys.
+
+**Both models, same images, same routing function, thresholds fit on val only,
+test scored once:**
+
+| Band | Champion coverage / top-1 / top-5-in | A3b coverage / top-1 / top-5-in |
+| --- | --- | --- |
+| auto_accept | 64.32% / 94.13% / 98.17% | **66.63% / 96.66% / 99.26%** |
+| suggest | 22.06% / 60.77% / 87.97% | **21.10% / 69.12% / 94.18%** |
+| confirm | 11.06% / 33.03% / 73.59% | **10.08% / 42.63% / 81.04%** |
+| review | 2.56% / 26.25% / 76.83% | **2.19% / 28.05% / 73.30%** |
+
+| Metric | Champion | A3b |
+| --- | ---: | ---: |
+| test top-1 | 78.28% | **83.90%** |
+| test top-5 | 92.65% | **95.78%** |
+| ECE, temperature-scaled | **0.0265** | 0.0556 |
+
+ECE was recomputed from both rescored prediction files on an identical basis
+(15 bins, temperature-scaled top-1 confidence) rather than quoted: it returned
+0.0265 and 0.0556, matching the published figures exactly. So the champion's
+calibration advantage is real and independently confirmed, not an artefact of
+the old methodology.
+
+**The old methodology inflated the champion too.** Its auto-accept accuracy is
+94.13% under honest routing against the 96.47% published under the leaking
+version — about 2.3pp of inflation, close to the ~1.1pp seen for A3b. That the
+inflation ran in the same direction for both is why the earlier relative
+comparison happened to point the right way, but neither published number was
+sound.
+
+**Where this leaves the decision.** A3b is better on every decision band and on
+both accuracy metrics; the champion is better on ECE by roughly 2×. That is the
+whole trade, stated on comparable numbers for the first time. It is a product
+call, not a technical one, and it is the user's: A3b auto-accepts more traffic
+*and* is more accurate when it does, while its confidence values are less
+faithful in aggregate.
+
+Nothing in `app/artifacts/` was changed. No promotion has been made.
