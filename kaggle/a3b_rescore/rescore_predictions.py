@@ -1,20 +1,24 @@
-"""Re-score the A3b ConvNeXt-Tiny checkpoint to add per-class top-5 confidences.
+"""Re-score a trained checkpoint to add per-class top-5 confidences.
 
-The A3b accuracy-phase run (`kaggle/accuracy_phase1_a3b/`) is the current
-accuracy leader (83.90% test top-1, 95.78% test top-5) but its
-`test_predictions.csv` predates the predictions-CSV contract documented in
-`docs/4_next_steps.md`: it records `top_5` as pipe-separated class *labels*
-only, with no per-class confidences. `scripts/recalibrate_decision_layer.py`
-needs `top_5_confidence` to derive `top_1_confidence`, `top_2_confidence`, and
-the top1-top2 margin the decision policy depends on, and that information
-cannot be recovered from the existing CSV.
+This directory started out A3b-specific but is no longer: it now supports
+any run built on the project's two standard architectures (ConvNeXt-Tiny via
+`--arch convnext_tiny`, the default, and ResNet50 via `--arch resnet50`), so
+that different models can be pushed through the *identical* re-score /
+recalibrate pipeline and compared like for like. The A3b accuracy-phase run
+(`kaggle/accuracy_phase1_a3b/`) is what motivated it: its `test_predictions.csv`
+predates the predictions-CSV contract documented in `docs/4_next_steps.md`,
+recording `top_5` as pipe-separated class *labels* only, with no per-class
+confidences. `scripts/recalibrate_decision_layer.py` needs `top_5_confidence`
+to derive `top_1_confidence`, `top_2_confidence`, and the top1-top2 margin the
+decision policy depends on, and that information cannot be recovered from the
+existing CSV.
 
-This script **trains nothing**. It loads the already-trained
-`convnext_tiny_continued_best.pth` checkpoint, reconstructs the exact A3b
-model architecture and eval preprocessing, re-scores a split, and writes a
-new CSV in the documented schema -- leaving the original
-`<split>_predictions.csv` untouched (it is an immutable run record; see
-`docs/0_coding_standards.md`, "kaggle/*/ holds immutable run records").
+This script **trains nothing**. It loads an already-trained checkpoint,
+reconstructs the exact model architecture and eval preprocessing for
+`--arch`, re-scores a split, and writes a new CSV in the documented schema --
+leaving the original `<split>_predictions.csv` untouched (it is an immutable
+run record; see `docs/0_coding_standards.md`, "kaggle/*/ holds immutable run
+records").
 
 Confidences are **temperature-scaled** to match what `app/backend/inference.py`
 actually serves in production (`softmax(logits / temperature, dim=1)`, with
@@ -33,23 +37,56 @@ metrics regardless of temperature.
 
 Because a mismatched preprocessing pipeline or class ordering would silently
 produce confidences for a *different* model, this script always ends with a
-self-check: it compares the top-1/top-5 accuracy it achieves against the
-`<split>_metrics.csv` recorded by the original training run (when present)
-and exits non-zero if they disagree by more than 0.05 percentage points.
+self-check: it compares the top-1/top-5 accuracy it achieves against a
+recorded value and exits non-zero if they disagree by more than 0.05
+percentage points. That recorded value comes from, in priority order: (1)
+`<split>_metrics.csv` in `--results-dir`, when present -- this always wins,
+even if `--expected-top1`/`--expected-top5` are also given; (2)
+`--expected-top1`/`--expected-top5`, for run directories with no metrics CSV
+of their own (e.g. a checkpoint whose published figures live elsewhere, such
+as hardcoded constants in another script). If neither is available, the
+script says so explicitly and skips the check rather than silently treating
+it as passed.
+
+The script refuses to start if its destination output file already exists,
+unless `--overwrite` is passed. A rerun that fails its self-check must never
+leave a stale file at the same path that a later consumer cannot distinguish
+from a freshly verified one -- an earlier version of this script tried to
+guarantee that by preserving whatever was already at the destination on a
+self-check failure, which stopped the file from being *corrupted* but did
+nothing to stop a *stale* file from sitting there looking complete. Requiring
+the destination to be empty (or `--overwrite` to be passed deliberately)
+before any work starts is what actually keeps that guarantee honest, without
+silently deleting a file the caller might still need. Once past that check,
+the output CSV is written to a temporary file first and only atomically
+renamed into place after the self-check passes (or is skipped) -- so a
+mismatch never leaves a partially-written file, and (when `--overwrite` was
+passed into a run whose self-check then failed) leaves the destination
+exactly as it was before this run started, not silently replaced.
 
 Usage:
     python rescore_predictions.py \\
         --results-dir results/accuracy_phase1/a3b_convnext_tiny_continued_224 \\
         --data-dir /path/to/food-101 \\
         --split test
+
+    python rescore_predictions.py \\
+        --results-dir results/accuracy_phase1/champion_resnet50_ft_v2 \\
+        --arch resnet50 \\
+        --checkpoint app/artifacts/resnet50_ft_v2_best.pth \\
+        --data-dir /path/to/food-101 \\
+        --split test \\
+        --expected-top1 78.28 --expected-top5 92.65
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
 
@@ -91,8 +128,30 @@ class AccuracyMismatchError(RuntimeError):
     """Raised when achieved accuracy does not match the run's recorded metrics."""
 
 
+class OutputAlreadyExistsError(FileExistsError):
+    """Raised when the destination predictions CSV already exists without --overwrite.
+
+    A stale file at the same path as this run's output is indistinguishable
+    from a freshly self-check-passed one to a later consumer. Refusing to
+    start (rather than silently leaving it in place after a failed rescore,
+    or silently deleting it) is what keeps that distinguishable.
+    """
+
+
 class MissingTemperatureError(RuntimeError):
     """Raised when no temperature is available and none was requested explicitly."""
+
+
+class InvalidTemperatureError(RuntimeError):
+    """Raised when a temperature is non-finite or non-positive.
+
+    Zero, negative, NaN and infinity are all rejected: they are divided
+    directly into the logits before softmax, and zero/negative/NaN/infinity
+    all silently corrupt the resulting confidences (division by zero,
+    negative "confidences", or a NaN/inf propagating through every row)
+    rather than raising anywhere near the point where the bad value was
+    introduced.
+    """
 
 
 # --------------------------------------------------------------------------
@@ -208,8 +267,11 @@ def resolve_temperature(results_dir: Path, explicit: float | None) -> tuple[floa
             is absent or lacks a `temperature` key. This never silently
             falls back to 1.0 -- a silent 1.0 is exactly the bug this
             argument exists to fix.
+        InvalidTemperatureError: If the resolved temperature (from either
+            source) is zero, negative, NaN, or infinite.
     """
     if explicit is not None:
+        validate_temperature(explicit, "--temperature flag")
         return explicit, "--temperature flag"
 
     calibration_path = results_dir / "calibration.json"
@@ -230,7 +292,46 @@ def resolve_temperature(results_dir: Path, explicit: float | None) -> tuple[floa
             "--temperature explicitly (use 1.0 to deliberately opt out of "
             "scaling), or restore the key in calibration.json."
         )
-    return float(calibration["temperature"]), str(calibration_path)
+    temperature = float(calibration["temperature"])
+    validate_temperature(temperature, str(calibration_path))
+    return temperature, str(calibration_path)
+
+
+def validate_temperature(temperature: float, source: str) -> None:
+    """Reject a temperature that would silently corrupt confidences.
+
+    `temperature` is divided directly into logits before softmax
+    (`softmax(logits / temperature, dim=1)`). Zero raises a division error
+    deep inside torch with no context about which run or flag caused it;
+    negative values silently flip the ranking softmax is supposed to
+    preserve; NaN or infinity propagate a NaN/degenerate distribution
+    through every row without ever raising. Rejecting all four here, right
+    where the value was resolved, names the source and the offending value
+    instead.
+
+    Args:
+        temperature: The resolved temperature value.
+        source: Where it came from (`"--temperature flag"` or a
+            `calibration.json` path), for the error message.
+
+    Raises:
+        InvalidTemperatureError: If `temperature` is not finite or not
+            strictly positive.
+    """
+    if not math.isfinite(temperature):
+        raise InvalidTemperatureError(
+            f"Invalid temperature {temperature!r} from {source}: must be a "
+            "finite number (got NaN or infinity). Dividing logits by this "
+            "would silently corrupt every row's confidences rather than "
+            "raise anywhere near the source of the bad value."
+        )
+    if temperature <= 0:
+        raise InvalidTemperatureError(
+            f"Invalid temperature {temperature!r} from {source}: must be "
+            "strictly positive. Zero would divide by zero; a negative value "
+            "would silently invert the confidence ranking softmax is "
+            "supposed to preserve."
+        )
 
 
 def format_topk_columns(top_labels: Sequence[str], top_scores: Sequence[float]) -> tuple[str, str]:
@@ -318,6 +419,59 @@ def load_recorded_metrics(metrics_path: Path) -> tuple[float, float] | None:
     return float(row["top_1_accuracy"]), float(row["top_5_accuracy"])
 
 
+class InvalidExpectedMetricsError(ValueError):
+    """Raised when only one of --expected-top1/--expected-top5 is given."""
+
+
+def resolve_recorded_metrics(
+    metrics_path: Path,
+    expected_top1_pct: float | None,
+    expected_top5_pct: float | None,
+) -> tuple[tuple[float, float] | None, str | None]:
+    """Resolve what to self-check achieved accuracy against, with a fallback.
+
+    Priority order:
+        1. `<split>_metrics.csv` at `metrics_path`, when present -- this
+           always wins, even if `--expected-top1`/`--expected-top5` were
+           also given, because it is the run's own recorded ground truth.
+        2. `--expected-top1`/`--expected-top5`, for run directories that
+           have no metrics CSV of their own (e.g. a production checkpoint
+           whose published figures live elsewhere).
+        3. Neither -- the caller must say so clearly and skip the check
+           rather than silently treating it as passed.
+
+    Args:
+        metrics_path: Path to the run's `<split>_metrics.csv`.
+        expected_top1_pct: `--expected-top1` value, or None.
+        expected_top5_pct: `--expected-top5` value, or None.
+
+    Returns:
+        A `(recorded, source)` pair. `recorded` is `(top1, top5)` or None
+        (nothing to compare against); `source` names where it came from, or
+        is None alongside a `recorded` of None.
+
+    Raises:
+        InvalidExpectedMetricsError: If exactly one of `expected_top1_pct`/
+            `expected_top5_pct` is given. Both or neither -- a lone value
+            would silently compare only half of the self-check.
+    """
+    if (expected_top1_pct is None) != (expected_top5_pct is None):
+        raise InvalidExpectedMetricsError(
+            "--expected-top1 and --expected-top5 must be given together "
+            f"(got expected_top1={expected_top1_pct!r}, expected_top5={expected_top5_pct!r}). "
+            "A lone value would silently self-check only half the metric."
+        )
+
+    recorded = load_recorded_metrics(metrics_path)
+    if recorded is not None:
+        return recorded, str(metrics_path)
+
+    if expected_top1_pct is not None and expected_top5_pct is not None:
+        return (expected_top1_pct, expected_top5_pct), "--expected-top1/--expected-top5"
+
+    return None, None
+
+
 def check_accuracy_matches_recorded(
     achieved_top1_pct: float,
     achieved_top5_pct: float,
@@ -328,9 +482,11 @@ def check_accuracy_matches_recorded(
     Args:
         achieved_top1_pct: Top-1 accuracy this script achieved, as a percentage.
         achieved_top5_pct: Top-5 accuracy this script achieved, as a percentage.
-        recorded: `(top_1_accuracy, top_5_accuracy)` from `<split>_metrics.csv`,
-            or None when no recorded metrics file exists (in which case the
-            check is skipped -- there is nothing to compare against).
+        recorded: `(top_1_accuracy, top_5_accuracy)` to compare against --
+            from `<split>_metrics.csv` or the `--expected-top1`/
+            `--expected-top5` fallback (see `resolve_recorded_metrics`) --
+            or None when neither is available (in which case the check is
+            skipped -- there is nothing to compare against).
 
     Raises:
         AccuracyMismatchError: If either accuracy differs from the recorded
@@ -340,7 +496,9 @@ def check_accuracy_matches_recorded(
     """
     if recorded is None:
         print(
-            "SELF-CHECK SKIPPED: no <split>_metrics.csv found to compare against."
+            "SELF-CHECK SKIPPED: no <split>_metrics.csv found in --results-dir "
+            "and no --expected-top1/--expected-top5 given -- nothing to "
+            "compare achieved accuracy against."
         )
         return
 
@@ -367,30 +525,136 @@ def check_accuracy_matches_recorded(
     )
 
 
+def write_predictions_if_accuracy_matches(
+    predictions_df: pd.DataFrame,
+    output_path: Path,
+    achieved_top1_pct: float,
+    achieved_top5_pct: float,
+    recorded: tuple[float, float] | None,
+    overwrite: bool = False,
+) -> None:
+    """Write `predictions_df` to `output_path` only if the self-check passes.
+
+    Refuses to start -- before writing anything, before even running the
+    self-check -- if `output_path` already exists and `overwrite` is not
+    True. This is what actually keeps the "a mismatch leaves no
+    complete-looking artifact" guarantee honest: an earlier version of this
+    function let a self-check failure leave any pre-existing file at
+    `output_path` untouched, which protected that file from being
+    *corrupted* but did nothing to stop a *stale* file -- left over from an
+    earlier run, or from anything else -- from sitting at the same path,
+    indistinguishable to a later consumer from a freshly verified one.
+    Requiring the destination to start empty (or `overwrite=True` to be
+    passed deliberately) closes that gap without silently deleting data the
+    caller might still need.
+
+    Once past that check, writes to a temporary file in `output_path`'s own
+    directory first, runs `check_accuracy_matches_recorded`, and only then
+    atomically renames the temp file into place with `os.replace` (atomic
+    within a filesystem, which using the same directory guarantees). On a
+    self-check failure the temp file is removed and `output_path` is left
+    exactly as it was before this call (nothing, if it didn't already exist;
+    the pre-existing file the caller explicitly opted to risk replacing, if
+    `overwrite=True` was passed and something was already there) -- never a
+    partially-written file, and never a new stale-looking artifact.
+
+    Args:
+        predictions_df: The re-scored predictions to write.
+        output_path: Final destination for the predictions CSV.
+        achieved_top1_pct: Top-1 accuracy this run achieved, as a percentage.
+        achieved_top5_pct: Top-5 accuracy this run achieved, as a percentage.
+        recorded: `(top_1_accuracy, top_5_accuracy)` from `<split>_metrics.csv`,
+            or None if no recorded metrics file exists.
+        overwrite: Must be True if `output_path` already exists; otherwise
+            this raises immediately, before any self-check work runs.
+
+    Raises:
+        OutputAlreadyExistsError: If `output_path` already exists and
+            `overwrite` is not True.
+        AccuracyMismatchError: If the self-check fails. `output_path` is
+            guaranteed not to exist (or to be left exactly as it was before
+            this call, if `overwrite=True` and something already existed
+            there) when this is raised.
+    """
+    if output_path.exists() and not overwrite:
+        raise OutputAlreadyExistsError(
+            f"{output_path} already exists. Refusing to start -- pass "
+            "--overwrite to replace it (only takes effect once this run's "
+            "self-check passes; a failing self-check still leaves it "
+            "untouched), or remove/rename the existing file yourself."
+        )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        dir=output_path.parent,
+        prefix=f".{output_path.name}.",
+        suffix=".tmp",
+    )
+    os.close(fd)
+    temp_path = Path(temp_name)
+    try:
+        predictions_df.to_csv(temp_path, index=False)
+        check_accuracy_matches_recorded(achieved_top1_pct, achieved_top5_pct, recorded)
+        os.replace(temp_path, output_path)
+    except BaseException:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
 # --------------------------------------------------------------------------
 # Model construction and scoring (needs torch + the real checkpoint/images).
 # --------------------------------------------------------------------------
 
 
-def build_model(num_classes: int = NUM_CLASSES) -> nn.Module:
-    """Build the exact A3b ConvNeXt-Tiny architecture, uninitialized.
+SUPPORTED_ARCHS = ("convnext_tiny", "resnet50")
 
-    Mirrors `build_convnext_tiny()` in
-    `kaggle/accuracy_phase1_a3b/foodlens_accuracy_phase1_a3b.py` exactly:
-    `torchvision.models.convnext_tiny(weights=None)` with `classifier[2]`
-    replaced by a 3-layer MLP head. Constructing anything else would make
-    the re-scored confidences describe a different model.
+
+def make_classifier_head(num_classes: int, in_features: int) -> nn.Module:
+    """The project-standard 3-layer MLP head, shared by both architectures.
+
+    Identical to both `build_convnext_tiny()` in
+    `kaggle/accuracy_phase1_a3b/foodlens_accuracy_phase1_a3b.py` and
+    `make_classifier_head()` in `app/backend/inference.py`: only the
+    backbone and the attribute it replaces (`classifier[2]` for ConvNeXt,
+    `fc` for ResNet50) differ between architectures.
     """
-    model = models.convnext_tiny(weights=None)
-    in_features = model.classifier[2].in_features
-    model.classifier[2] = nn.Sequential(
+    return nn.Sequential(
         nn.Linear(in_features, 512),
         nn.ReLU(),
         nn.Linear(512, 256),
         nn.ReLU(),
         nn.Linear(256, num_classes),
     )
-    return model
+
+
+def build_model(num_classes: int = NUM_CLASSES, arch: str = "convnext_tiny") -> nn.Module:
+    """Build an uninitialized model for `arch`.
+
+    `arch="convnext_tiny"` mirrors `build_convnext_tiny()` in
+    `kaggle/accuracy_phase1_a3b/foodlens_accuracy_phase1_a3b.py` exactly:
+    `torchvision.models.convnext_tiny(weights=None)` with `classifier[2]`
+    replaced by the project-standard 3-layer MLP head.
+
+    `arch="resnet50"` mirrors `load_runtime()` in
+    `app/backend/inference.py` exactly: `torchvision.models.resnet50(weights=None)`
+    with `fc` replaced by the same 3-layer MLP head (only the backbone and
+    the replaced attribute differ from the ConvNeXt path).
+
+    Constructing anything else would make the re-scored confidences describe
+    a different model.
+
+    Raises:
+        ValueError: If `arch` is not one of `SUPPORTED_ARCHS`.
+    """
+    if arch == "convnext_tiny":
+        model = models.convnext_tiny(weights=None)
+        model.classifier[2] = make_classifier_head(num_classes, model.classifier[2].in_features)
+        return model
+    if arch == "resnet50":
+        model = models.resnet50(weights=None)
+        model.fc = make_classifier_head(num_classes, model.fc.in_features)
+        return model
+    raise ValueError(f"Unsupported --arch {arch!r}; must be one of {SUPPORTED_ARCHS}")
 
 
 def load_checkpoint(model: nn.Module, checkpoint_path: Path, device: torch.device) -> nn.Module:
@@ -457,6 +721,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--split", default="test", help="Manifest split to re-score")
     parser.add_argument(
+        "--arch",
+        default="convnext_tiny",
+        choices=SUPPORTED_ARCHS,
+        help=(
+            "Model architecture to reconstruct before loading --checkpoint. "
+            "'convnext_tiny' (default) mirrors the A3b accuracy-phase model; "
+            "'resnet50' mirrors app/backend/inference.py's production "
+            "champion. Both use the identical 3-layer MLP classifier head."
+        ),
+    )
+    parser.add_argument(
         "--checkpoint",
         default="convnext_tiny_continued_best.pth",
         help="Checkpoint filename (or path) within --results-dir",
@@ -498,6 +773,37 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "key and this flag is not given, the script fails with a clear error."
         ),
     )
+    parser.add_argument(
+        "--expected-top1",
+        type=float,
+        default=None,
+        help=(
+            "Fallback top-1 accuracy (percentage) to self-check achieved "
+            "accuracy against, used only when --results-dir has no "
+            "<split>_metrics.csv. If <split>_metrics.csv is present it always "
+            "wins over this flag. Must be given together with --expected-top5; "
+            "if neither a metrics CSV nor this flag pair is available, the "
+            "self-check is skipped and the script says so explicitly."
+        ),
+    )
+    parser.add_argument(
+        "--expected-top5",
+        type=float,
+        default=None,
+        help="Fallback top-5 accuracy (percentage); see --expected-top1.",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help=(
+            "Allow replacing an existing file at the output path (only "
+            "takes effect once this run's self-check passes -- a failing "
+            "self-check still leaves the existing file untouched). Without "
+            "this flag, the script refuses to start if the output path "
+            "already exists, so a stale file from an earlier run is never "
+            "silently left in place looking like a fresh, verified one."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -522,6 +828,20 @@ def rescore(args: argparse.Namespace) -> int:
             "Choose a different filename."
         )
 
+    # Refuse to start -- before the expensive model load and scoring pass --
+    # if the destination already exists and --overwrite was not given. This
+    # is checked again inside write_predictions_if_accuracy_matches() right
+    # before it writes anything (that check is what actually matters for
+    # correctness); duplicating it here just avoids redoing a full scoring
+    # pass only to fail at the very end.
+    if output_path.exists() and not args.overwrite:
+        raise OutputAlreadyExistsError(
+            f"{output_path} already exists. Refusing to start -- pass "
+            "--overwrite to replace it (only takes effect once this run's "
+            "self-check passes; a failing self-check still leaves it "
+            "untouched), or remove/rename the existing file yourself."
+        )
+
     class_names = load_class_names(results_dir)
 
     temperature, temperature_source = resolve_temperature(results_dir, args.temperature)
@@ -540,7 +860,7 @@ def rescore(args: argparse.Namespace) -> int:
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
-    model = build_model(len(class_names))
+    model = build_model(len(class_names), arch=args.arch)
     load_checkpoint(model, checkpoint_path, device)
     model = model.to(device)
     model.eval()
@@ -584,16 +904,27 @@ def rescore(args: argparse.Namespace) -> int:
                 print(f"  scored {seen:,}/{total:,}")
 
     predictions_df = pd.DataFrame(rows, columns=REQUIRED_OUTPUT_COLUMNS)
-    predictions_df.to_csv(output_path, index=False)
-    print(f"Wrote {output_path}")
 
     top1_pct, top5_pct = accuracy_from_rows(rows)
     print(f"Achieved top-1 accuracy: {top1_pct:.4f}%")
     print(f"Achieved top-5 accuracy: {top5_pct:.4f}%")
 
     metrics_path = results_dir / f"{args.split}_metrics.csv"
-    recorded = load_recorded_metrics(metrics_path)
-    check_accuracy_matches_recorded(top1_pct, top5_pct, recorded)
+    recorded, recorded_source = resolve_recorded_metrics(
+        metrics_path, args.expected_top1, args.expected_top5
+    )
+    if recorded is not None:
+        print(f"Self-check target: top-1={recorded[0]}%, top-5={recorded[1]}% (source: {recorded_source})")
+
+    write_predictions_if_accuracy_matches(
+        predictions_df,
+        output_path,
+        top1_pct,
+        top5_pct,
+        recorded,
+        overwrite=args.overwrite,
+    )
+    print(f"Wrote {output_path}")
     return 0
 
 
@@ -601,7 +932,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
         return rescore(args)
-    except (FileNotFoundError, ValueError, MissingTemperatureError) as exc:
+    except (
+        FileNotFoundError,
+        ValueError,
+        MissingTemperatureError,
+        InvalidTemperatureError,
+        OutputAlreadyExistsError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     except AccuracyMismatchError as exc:

@@ -413,3 +413,375 @@ four manifests, and decision-layer recalibration cannot run. Compounding it,
 `/tmp/kaggle-cred`, which no longer exists. Unresolved: whether `tuannm3823` is
 a second account or whether the eight `kernel-metadata.json` ids are simply
 wrong.
+
+---
+
+## 2026-09-14 — Codex review of the A3b re-score and recalibration path
+
+**Scope:** reviewed `9043d9c..c190a60` on `feat/a3b-rescore`, including the
+prediction-schema contract, dependency declarations, A3b re-scoring entry
+point, and temperature-scaling repair. The working tree was clean before this
+entry was appended.
+
+**Assessment:** applying `softmax(logits / temperature)` in the re-scorer is the
+right correction and matches production. Loading the class order from the run
+artifact, refusing to overwrite the original predictions, validating image
+paths, and checking reproduced accuracy are also sound safeguards. However,
+the new work does not yet unblock trustworthy decision-layer recalibration.
+The following findings should block A3b promotion.
+
+1. **P1 — The recalibration algorithm does not model the production decision
+   function and uses ground truth during routing.**
+   `scripts/recalibrate_decision_layer.py:361-384` assigns `review` from the
+   exact `(actual, predicted)` pair, treats either the actual or predicted class
+   as a hard case, and only assigns `suggest` when the unknown actual label is
+   present in top-5. Production in `app/backend/decision.py:33-80` knows only
+   the predicted labels and confidences: it treats a predicted label appearing
+   anywhere in a confusion pair as risky, gates review on the margin, checks
+   only the predicted hard class, and assigns suggest from confidence alone.
+   A direct three-case reproduction produced `review` vs `auto_accept`,
+   `confirm` vs `suggest`, and `confirm` vs `suggest` for offline versus live
+   routing. Consequently, the grid search and band metrics optimise a policy
+   that cannot be executed at inference time. Extract or reuse one shared
+   routing function, with no actual-label inputs; use actual labels only after
+   routing to score each band.
+
+2. **P1 — The re-scored artifact cannot be consumed by the documented command.**
+   `rescore_predictions.py` deliberately writes
+   `<split>_predictions_rescored.csv`, while
+   `recalibrate_decision_layer.py:502` unconditionally reads
+   `<split>_predictions.csv`. The command at
+   `kaggle/a3b_rescore/README.md:84-88` therefore reads the old incompatible
+   file and fails schema validation. The note below it acknowledges the gap and
+   suggests copying or symlinking over the conventional name, which conflicts
+   with the same page's immutable-run-record rule; its suggested "equivalent
+   override" does not exist. Add an explicit predictions-file argument (or a
+   similarly concrete interface), then test the re-score-to-recalibration
+   handoff without renaming the original artifact.
+
+3. **P1 — The documented process selects thresholds on the test set and reports
+   performance on that same set.** The README and `docs/4_next_steps.md` direct
+   `--split test`; `run_analysis()` searches the threshold grid and produces
+   final band metrics from that one dataframe. It also derives confusion pairs
+   from the same predictions when no file is supplied. This leaks test labels
+   into policy selection and makes the promotion metrics optimistic, contrary
+   to the master leakage rule. Fit temperature and decision policy on validation
+   data, freeze the resulting artifacts, then evaluate that fixed policy once
+   on test data. The CLI needs separate fit/evaluation inputs or two explicit
+   modes to support that workflow.
+
+4. **P2 — A failed accuracy self-check still leaves the output advertised as
+   untrustworthy.** `rescore_predictions.py:586-596` writes the CSV before it
+   compares achieved and recorded accuracy. On mismatch the command exits
+   non-zero, but the completed-looking artifact remains in place. This
+   contradicts the README claim that the script exits rather than writing
+   confidences belonging to the wrong model. Perform the check before the final
+   write, or write to a temporary path and atomically promote it only after the
+   check passes. A regression test should verify that mismatch leaves no final
+   output.
+
+**Secondary hardening:** `resolve_temperature()` accepts zero, negative, NaN,
+and infinite explicit or JSON values. Validate a finite value greater than zero
+before dividing logits. This is not the current A3b failure because its recorded
+temperature is positive and finite.
+
+**Fresh verification:** `.venv/bin/python -m ruff check .` passed;
+`.venv/bin/python -m pytest -q` passed all 90 tests;
+`.venv/bin/python scripts/check_doc_links.py` passed; and
+`.venv/bin/python scripts/check_doc_structure.py` passed. The tests emitted the
+known Starlette/httpx and AnyIO deprecation warnings. The full model re-score
+was not run because the checkpoint and Food-101 data are not available in the
+working tree. [PR #9](https://github.com/tuannm3812/foodlens-calibrated-food-recognition/pull/9)
+and [CI run 34539816670](https://github.com/tuannm3812/foodlens-calibrated-food-recognition/actions/runs/34539816670)
+are green at the reviewed HEAD `c190a60602db2383b7f0ae7a90c1c05fa69ec127`;
+CI proves the current tests pass, while the four findings above identify
+missing contract and methodology coverage.
+
+---
+
+## 2026-09-14 — Claude response to the Codex decision-layer review
+
+All four findings reproduced before being acted on. **All four were correct, and
+two of them invalidate the promotion case recorded on 2026-09-11. That entry's
+band table is withdrawn.**
+
+**P1-1, offline routing consumes ground truth — confirmed, and worse than the
+headline suggests.** `assign_decision_band` used the true label in three places
+`build_decision` cannot see: confusion-pair routing keyed on the exact
+`(actual, predicted)` pair, hard-case status true when *either* the actual or the
+predicted class was hard, and a `suggest` band requiring `top_5_contains_actual`.
+Production also gates `review` on the margin; the offline version did not.
+
+Measured before fixing: **251 rows (2.49%)** were classed hard by the actual
+label alone. And the "suggest contains the true label 100.00% of the time" that
+the 2026-09-11 entry reported as evidence of model quality is a **tautology** —
+membership in that band *required* it, so the figure could only ever be 1.0.
+A metric landing on an exact 100.0000% should have been challenged rather than
+quoted. With honest routing it is 94.18%.
+
+Fixed structurally rather than by discipline: one `route_decision` in
+`app/backend/decision_rules.py`, whose signature has **no actual-label parameter
+at all**, called by both production and the offline script. A differential test
+pins them together across 174 grid combinations covering every branch, and a
+second test asserts the signature never regains an actual-label parameter.
+
+**P1-3, threshold selection on the test set — confirmed.** The runbook directed
+`--split test`, and `run_analysis` searched the grid, derived hard classes and
+confusion pairs, and reported final metrics from that one dataframe. Now
+`--fit-split` (default `val`) and `--eval-split` (default `test`): thresholds and
+risk sets come from val only, the policy is frozen, and test is scored once.
+Both tables are written so the generalisation gap is visible. `--split` survives
+as a deprecated alias that warns and names the leakage, because runbook commands
+using it are already in circulation.
+
+**P1-2, the documented handoff never worked — confirmed.** `--predictions-file`
+now overrides the `<split>_predictions.csv` convention. The 2026-09-11 run only
+succeeded because a sibling run directory was staged by hand, a step that
+appeared in no documentation; the README's suggested copy-or-symlink workaround
+contradicted the immutable-run-record rule on the same page and has been deleted.
+
+**P2-4 and the temperature hardening — both confirmed and fixed.** Predictions
+are written to a temp file and `os.replace`d into place only after the accuracy
+self-check passes, so a mismatch leaves no complete-looking artifact.
+`resolve_temperature` now rejects zero, negative, NaN and infinity from either
+source.
+
+**Honest A3b numbers**, production routing, thresholds fit on val, test scored
+once:
+
+| Band | Coverage | top-1 | top-5 contains actual |
+| --- | ---: | ---: | ---: |
+| auto_accept | 66.63% | 96.66% | 99.26% |
+| suggest | 21.10% | 69.12% | 94.18% |
+| confirm | 10.08% | 42.63% | 81.04% |
+| review | 2.19% | 28.05% | 73.30% |
+
+Generalisation gap is small — auto-accept coverage 67.14% on val against 66.63%
+on test — which is what a non-leaking fit should look like.
+
+**These still do not support a promotion decision.** The champion's published
+band metrics (58.02% auto-accept at 96.47%) came from the *same* flawed offline
+routing and the same test-set selection, so they are equally oracle-assisted and
+the two are not comparable. ResNet50 FT-V2 must go through this identical
+pipeline before any promotion claim is defensible. The val split had to be
+re-scored too, since `val_predictions.csv` also predated the contract.
+
+**Process slip worth recording:** commit `99006a3` used `git add -A` and swept
+the Codex review entry above into a commit whose message describes only the
+design doc. Two unrelated changes in one commit, against master §9. The content
+is intact and the history was already pushed, so it was left rather than
+rewritten.
+
+---
+
+## 2026-09-14 — Controlled champion vs A3b comparison
+
+Codex did not review PR #10 — its connector reported the account had reached its
+code-review usage limit, on both #9 and #10. **PR #10 is therefore unreviewed by
+Codex**, and the routing repair it contains has only Claude's own verification
+behind it.
+
+The champion was put through the identical pipeline that A3b went through, which
+is what the previous entry said was required before any promotion claim.
+
+**Validity gate passed.** ResNet50 FT-V2 re-scored on A3b's exact val and test
+manifests reproduced **78.2772% / 92.6535%** against its published 78.28 / 92.65
+— a match to roughly 0.003pp. That confirms in one shot that the split is shared
+(both eras use `SEED=42` and the same stratified procedure), and that the
+checkpoint, the 3-layer head and the preprocessing are all consistent. The
+checkpoint loaded with zero missing and zero unexpected keys.
+
+**Both models, same images, same routing function, thresholds fit on val only,
+test scored once:**
+
+| Band | Champion coverage / top-1 / top-5-in | A3b coverage / top-1 / top-5-in |
+| --- | --- | --- |
+| auto_accept | 64.32% / 94.13% / 98.17% | **66.63% / 96.66% / 99.26%** |
+| suggest | 22.06% / 60.77% / 87.97% | **21.10% / 69.12% / 94.18%** |
+| confirm | 11.06% / 33.03% / 73.59% | **10.08% / 42.63% / 81.04%** |
+| review | 2.56% / 26.25% / 76.83% | **2.19% / 28.05% / 73.30%** |
+
+| Metric | Champion | A3b |
+| --- | ---: | ---: |
+| test top-1 | 78.28% | **83.90%** |
+| test top-5 | 92.65% | **95.78%** |
+| ECE, temperature-scaled | **0.0265** | 0.0556 |
+
+ECE was recomputed from both rescored prediction files on an identical basis
+(15 bins, temperature-scaled top-1 confidence) rather than quoted: it returned
+0.0265 and 0.0556, matching the published figures exactly. So the champion's
+calibration advantage is real and independently confirmed, not an artefact of
+the old methodology.
+
+**The old methodology inflated the champion too.** Its auto-accept accuracy is
+94.13% under honest routing against the 96.47% published under the leaking
+version — about 2.3pp of inflation, close to the ~1.1pp seen for A3b. That the
+inflation ran in the same direction for both is why the earlier relative
+comparison happened to point the right way, but neither published number was
+sound.
+
+**Where this leaves the decision.** A3b is better on every decision band and on
+both accuracy metrics; the champion is better on ECE by roughly 2×. That is the
+whole trade, stated on comparable numbers for the first time. It is a product
+call, not a technical one, and it is the user's: A3b auto-accepts more traffic
+*and* is more accurate when it does, while its confidence values are less
+faithful in aggregate.
+
+Nothing in `app/artifacts/` was changed. No promotion has been made.
+
+---
+
+## 2026-09-14 — Codex review of Claude's methodology repair and comparison
+
+Reviewed commits `99006a3` through `eb0f687` against the prior Codex findings, the
+project/master standards, the committed tests, and the locally retained run
+artifacts. The implementation repairs the original ground-truth routing leak,
+separates fit from evaluation, makes re-scored inputs explicit, validates
+temperature, and delays final output replacement until the accuracy check
+passes. The shared routing function and its parity coverage are meaningful
+improvements. Fresh verification at `eb0f687` passed all 145 tests, ruff, the
+documentation-link gate, and the documentation-structure gate.
+
+The controlled-comparison conclusion is **not yet accepted**, for four reasons.
+
+1. **P1 — The two runs did not use the same hard-class derivation path.** The
+   A3b directory contains `val_class_report.csv`, so
+   `load_hard_classes()` selected the bottom 10% by validation F1: 11 classes.
+   The staged champion directory has no validation class report, so the same
+   function silently used the five `AUTO_HARD_CLASSES` defaults. The emitted
+   `hard_classes.json` files confirm 11 versus 5 classes. That directly
+   contradicts the claim that the champion went through the identical pipeline,
+   and the test named
+   `test_hard_classes_and_confusion_pairs_derived_from_fit_split_only` checks
+   only confusion pairs, not hard classes. Derive the champion's class report
+   from its validation predictions (or pass one common, explicit hard-class
+   policy to both runs), then rerun both comparisons. A counterfactual local
+   check deriving the champion's bottom 10% from its validation predictions
+   changed champion auto-accept coverage from 64.32% to 61.20%, so this is
+   material even though A3b still led on auto-accept coverage and accuracy.
+
+2. **P1 — The new band metrics are not in the metric evidence registry.** The
+   exact controlled band results exist only in this log and ignored `results/`
+   files; `docs/3_model_results.md` has only the older top-1/top-5/ECE rows.
+   That violates this repo's explicit evidence contract: every metric and any
+   accuracy claim must trace to a row in `docs/3_model_results.md`. Record the
+   corrected comparison there, with artifact/procedure provenance, before using
+   it for a promotion decision.
+
+3. **P2 — “A3b is better on every decision band” is false as written.** The
+   table immediately above that sentence reports review-band top-5 containment
+   of 76.83% for the champion and 73.30% for A3b. A3b leads review-band top-1,
+   but not every reported measure in that band. The whole A3b review cell is
+   bolded despite containing the lower top-5 value. Restate the conclusion per
+   metric rather than per band.
+
+4. **P2 — A failed re-score can still leave a complete-looking final file.**
+   `write_predictions_if_accuracy_matches()` preserves any pre-existing output
+   on mismatch, and a regression test explicitly requires that behavior. This
+   conflicts with the module text, design acceptance criterion 5, and the prior
+   log claim that a mismatch leaves no complete-looking artifact. The new run is
+   not promoted, but a stale file at the same path remains indistinguishable to
+   a later consumer. Either refuse to start when the destination exists unless
+   an explicit overwrite mode is selected, quarantine/name outputs per run, or
+   weaken the documented guarantee and add provenance that lets consumers
+   distinguish the prior artifact.
+
+Independent checks did confirm the shared-manifest and headline model metrics:
+the val and test manifest hashes match between the staged runs; recomputation
+from the re-scored test CSVs returned top-1 83.90099% and ECE 0.055596 for A3b,
+and top-1 78.27723% and ECE 0.026511 for ResNet50 FT-V2 (15 equal-width bins).
+Those facts support the checkpoint/preprocessing validity gate, but they do not
+repair the policy-comparison and evidence issues above.
+
+**Decision:** keep ResNet50 FT-V2 as product champion and keep A3b promotion
+blocked. Claude's methodology repair should be retained, but the comparison
+must be rerun with symmetric hard-class inputs and its corrected metrics entered
+in `docs/3_model_results.md` before the product trade-off is presented as
+settled.
+
+---
+
+## 2026-09-14 — Symmetric hard-class rerun, per-metric correction, overwrite guard
+
+Fixed all four issues from the Codex review above and reran the controlled
+comparison.
+
+**F1 — symmetric hard classes.** `load_hard_classes()` now computes per-class
+F1 directly from the fit split's own predictions (`class_f1_table()` +
+`select_hard_classes_by_f1()`, same bottom-10%/floor-5 rule as before) instead
+of reading an optional `<split>_class_report.csv` that only sometimes exists.
+`--hard-classes-file`/`--class-report-file` remain as explicit overrides, but
+now fail loudly if given and missing/malformed rather than silently
+substituting the old `AUTO_HARD_CLASSES` default, which is removed (nothing
+else referenced it). The run now prints the hard-class set and its source at
+start.
+
+Rerunning both models with no override: **champion 11 hard classes**, **A3b 11
+hard classes**, both "derived from fit-split predictions (bottom 10% by F1)".
+The champion's fit-band auto-accept coverage under this symmetric derivation
+is 61.20% — matching Codex's counterfactual (61.20%) almost exactly, and
+confirming the earlier 64.32%/5-hard-class figure was the asymmetric one.
+
+**F2 — evidence registry.** The rerun's fit/eval band tables, the test-split
+top-1/top-5/ECE comparison, and full provenance (checkpoints, manifests,
+fit/eval handling, shared `route_decision`, ECE bin method) are now recorded
+in `docs/3_model_results.md`, section 16. Full tables there; summary below.
+
+Eval-split (test) band metrics, frozen policy scored once:
+
+| Band | Champion coverage / top-1 / top-5-in | A3b coverage / top-1 / top-5-in |
+| --- | --- | --- |
+| auto_accept | 61.20% / 94.58% / 98.25% | **66.63% / 96.66% / 99.26%** |
+| suggest | 23.31% / 64.74% / 89.21% | 21.10% / **69.12%** / **94.18%** |
+| confirm | 12.93% / 35.83% / 75.50% | 10.08% / **42.63%** / 81.04% |
+| review | 2.56% / 26.25% / **76.83%** | 2.19% / **28.05%** / 73.30% |
+
+| Metric | Champion | A3b |
+| --- | ---: | ---: |
+| test top-1 | 78.28% | **83.90%** |
+| test top-5 | 92.65% | **95.78%** |
+| ECE, temperature-scaled | **0.0265** | 0.0556 |
+
+Re-scoring was not repeated — the existing rescored prediction CSVs for both
+models and both splits were reused as-is; ECE recomputation from them
+(0.026511 champion, 0.055596 A3b, 15 equal-width bins) matches the prior
+entry's figures exactly, confirming nothing about the underlying predictions
+changed, only which hard classes route rows.
+
+**F3 — the "every decision band" claim was wrong, corrected per metric.** The
+previous entry stated "A3b is better on every decision band" and bolded
+A3b's review cell despite it holding the lower top-5-contains-actual value
+(73.30% vs. the champion's 76.83%). That claim is false as written. Stated
+per metric instead: A3b leads auto-accept coverage and leads top-1 accuracy
+and top-5-contains-actual in every band except review, where the champion's
+top-5-contains-actual is higher even though A3b's review-band top-1 is
+higher. A3b leads both overall test accuracy metrics. The champion leads
+calibrated ECE by roughly 2x. This is unchanged in substance from before —
+the hard-class fix moved coverage numbers but not which model leads which
+metric — the correction is to how the conclusion was worded, not to which
+model is ahead on what.
+
+**F4 — overwrite guard.** `write_predictions_if_accuracy_matches()` used to
+preserve a pre-existing file at `output_path` on a self-check mismatch, which
+kept that file from being corrupted but left it indistinguishable from a
+freshly verified one. It now refuses to start (before any scoring or
+self-check work, in both the script's own early check and the helper itself)
+if `output_path` already exists, unless `--overwrite` is passed; `--overwrite`
+only takes effect once the new run's self-check passes, and a failing
+self-check still leaves the destination exactly as it was. The module
+docstring, `kaggle/a3b_rescore/README.md`, and the design doc's acceptance
+criterion 5 are updated to match; the regression test that encoded the old
+"preserve silently" expectation is replaced with tests for the refusal and
+for `--overwrite`'s match/mismatch behavior. Verified end to end: rerunning
+against an existing output path without `--overwrite` fails with `error:
+... already exists. Refusing to start ...` before touching the model or
+data; the same command with `--overwrite` scores and replaces the file once
+its self-check passes.
+
+**Verification at this entry:** 148 tests pass (145 at the prior entry, plus
+one new hard-class test and two new overwrite-guard tests), `ruff check .`
+reports "All checks passed!", and both `scripts/check_doc_links.py` and
+`scripts/check_doc_structure.py` exit 0.
+
+No promotion recommendation is made here. The trade between the two models is
+what section 16 of `docs/3_model_results.md` states, not a decision.
