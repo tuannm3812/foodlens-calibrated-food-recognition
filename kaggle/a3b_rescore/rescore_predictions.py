@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import tempfile
@@ -98,6 +99,18 @@ class AccuracyMismatchError(RuntimeError):
 
 class MissingTemperatureError(RuntimeError):
     """Raised when no temperature is available and none was requested explicitly."""
+
+
+class InvalidTemperatureError(RuntimeError):
+    """Raised when a temperature is non-finite or non-positive.
+
+    Zero, negative, NaN and infinity are all rejected: they are divided
+    directly into the logits before softmax, and zero/negative/NaN/infinity
+    all silently corrupt the resulting confidences (division by zero,
+    negative "confidences", or a NaN/inf propagating through every row)
+    rather than raising anywhere near the point where the bad value was
+    introduced.
+    """
 
 
 # --------------------------------------------------------------------------
@@ -213,8 +226,11 @@ def resolve_temperature(results_dir: Path, explicit: float | None) -> tuple[floa
             is absent or lacks a `temperature` key. This never silently
             falls back to 1.0 -- a silent 1.0 is exactly the bug this
             argument exists to fix.
+        InvalidTemperatureError: If the resolved temperature (from either
+            source) is zero, negative, NaN, or infinite.
     """
     if explicit is not None:
+        validate_temperature(explicit, "--temperature flag")
         return explicit, "--temperature flag"
 
     calibration_path = results_dir / "calibration.json"
@@ -235,7 +251,46 @@ def resolve_temperature(results_dir: Path, explicit: float | None) -> tuple[floa
             "--temperature explicitly (use 1.0 to deliberately opt out of "
             "scaling), or restore the key in calibration.json."
         )
-    return float(calibration["temperature"]), str(calibration_path)
+    temperature = float(calibration["temperature"])
+    validate_temperature(temperature, str(calibration_path))
+    return temperature, str(calibration_path)
+
+
+def validate_temperature(temperature: float, source: str) -> None:
+    """Reject a temperature that would silently corrupt confidences.
+
+    `temperature` is divided directly into logits before softmax
+    (`softmax(logits / temperature, dim=1)`). Zero raises a division error
+    deep inside torch with no context about which run or flag caused it;
+    negative values silently flip the ranking softmax is supposed to
+    preserve; NaN or infinity propagate a NaN/degenerate distribution
+    through every row without ever raising. Rejecting all four here, right
+    where the value was resolved, names the source and the offending value
+    instead.
+
+    Args:
+        temperature: The resolved temperature value.
+        source: Where it came from (`"--temperature flag"` or a
+            `calibration.json` path), for the error message.
+
+    Raises:
+        InvalidTemperatureError: If `temperature` is not finite or not
+            strictly positive.
+    """
+    if not math.isfinite(temperature):
+        raise InvalidTemperatureError(
+            f"Invalid temperature {temperature!r} from {source}: must be a "
+            "finite number (got NaN or infinity). Dividing logits by this "
+            "would silently corrupt every row's confidences rather than "
+            "raise anywhere near the source of the bad value."
+        )
+    if temperature <= 0:
+        raise InvalidTemperatureError(
+            f"Invalid temperature {temperature!r} from {source}: must be "
+            "strictly positive. Zero would divide by zero; a negative value "
+            "would silently invert the confidence ranking softmax is "
+            "supposed to preserve."
+        )
 
 
 def format_topk_columns(top_labels: Sequence[str], top_scores: Sequence[float]) -> tuple[str, str]:
@@ -660,7 +715,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
         return rescore(args)
-    except (FileNotFoundError, ValueError, MissingTemperatureError) as exc:
+    except (
+        FileNotFoundError,
+        ValueError,
+        MissingTemperatureError,
+        InvalidTemperatureError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     except AccuracyMismatchError as exc:

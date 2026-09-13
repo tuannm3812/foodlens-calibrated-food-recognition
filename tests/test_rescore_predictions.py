@@ -52,6 +52,8 @@ REQUIRED_OUTPUT_COLUMNS = rescore_predictions.REQUIRED_OUTPUT_COLUMNS
 AccuracyMismatchError = rescore_predictions.AccuracyMismatchError
 MissingTemperatureError = rescore_predictions.MissingTemperatureError
 write_predictions_if_accuracy_matches = rescore_predictions.write_predictions_if_accuracy_matches
+validate_temperature = rescore_predictions.validate_temperature
+InvalidTemperatureError = rescore_predictions.InvalidTemperatureError
 
 
 # --------------------------------------------------------------------------
@@ -222,6 +224,96 @@ def test_resolve_temperature_explicit_one_point_zero_bypasses_missing_file(
 
     assert temperature == 1.0
     assert source == "--temperature flag"
+
+
+# --------------------------------------------------------------------------
+# Temperature validation
+#
+# Zero, negative, NaN and infinity are all divided directly into the logits
+# before softmax; each corrupts the resulting confidences silently (a
+# division error with no context, a flipped ranking, or a NaN/degenerate
+# distribution) rather than raising near the source of the bad value. This
+# is not the current A3b failure -- its temperature is 0.884 -- but a silent
+# corruption path that must be rejected regardless of source.
+# --------------------------------------------------------------------------
+
+
+def test_validate_temperature_accepts_valid_value() -> None:
+    validate_temperature(0.88435298204422, "some source")  # must not raise
+
+
+@pytest.mark.parametrize("bad_value", [0.0, -1.0, -0.001, float("nan"), float("inf")])
+def test_validate_temperature_rejects_non_finite_and_non_positive(bad_value: float) -> None:
+    with pytest.raises(InvalidTemperatureError) as excinfo:
+        validate_temperature(bad_value, "calibration.json source")
+
+    message = str(excinfo.value)
+    assert "calibration.json source" in message
+
+
+def test_resolve_temperature_rejects_zero_from_explicit_flag(tmp_path: Path) -> None:
+    with pytest.raises(InvalidTemperatureError) as excinfo:
+        resolve_temperature(tmp_path, explicit=0.0)
+
+    assert "--temperature flag" in str(excinfo.value)
+
+
+def test_resolve_temperature_rejects_negative_from_explicit_flag(tmp_path: Path) -> None:
+    with pytest.raises(InvalidTemperatureError) as excinfo:
+        resolve_temperature(tmp_path, explicit=-2.5)
+
+    assert "--temperature flag" in str(excinfo.value)
+
+
+def test_resolve_temperature_rejects_nan_from_explicit_flag(tmp_path: Path) -> None:
+    with pytest.raises(InvalidTemperatureError):
+        resolve_temperature(tmp_path, explicit=float("nan"))
+
+
+def test_resolve_temperature_rejects_infinity_from_explicit_flag(tmp_path: Path) -> None:
+    with pytest.raises(InvalidTemperatureError):
+        resolve_temperature(tmp_path, explicit=float("inf"))
+
+
+def test_resolve_temperature_rejects_zero_from_calibration_json(tmp_path: Path) -> None:
+    calibration_path = tmp_path / "calibration.json"
+    calibration_path.write_text('{"temperature": 0.0}', encoding="utf-8")
+
+    with pytest.raises(InvalidTemperatureError) as excinfo:
+        resolve_temperature(tmp_path, explicit=None)
+
+    assert str(calibration_path) in str(excinfo.value)
+
+
+def test_resolve_temperature_rejects_negative_from_calibration_json(tmp_path: Path) -> None:
+    (tmp_path / "calibration.json").write_text('{"temperature": -0.5}', encoding="utf-8")
+
+    with pytest.raises(InvalidTemperatureError):
+        resolve_temperature(tmp_path, explicit=None)
+
+
+def test_resolve_temperature_rejects_nan_from_calibration_json(tmp_path: Path) -> None:
+    (tmp_path / "calibration.json").write_text('{"temperature": NaN}', encoding="utf-8")
+
+    with pytest.raises(InvalidTemperatureError):
+        resolve_temperature(tmp_path, explicit=None)
+
+
+def test_resolve_temperature_rejects_infinity_from_calibration_json(tmp_path: Path) -> None:
+    (tmp_path / "calibration.json").write_text('{"temperature": Infinity}', encoding="utf-8")
+
+    with pytest.raises(InvalidTemperatureError):
+        resolve_temperature(tmp_path, explicit=None)
+
+
+def test_resolve_temperature_accepts_valid_value_from_calibration_json(tmp_path: Path) -> None:
+    (tmp_path / "calibration.json").write_text(
+        '{"temperature": 0.88435298204422}', encoding="utf-8"
+    )
+
+    temperature, _source = resolve_temperature(tmp_path, explicit=None)
+
+    assert temperature == pytest.approx(0.88435298204422)
 
 
 # --------------------------------------------------------------------------
