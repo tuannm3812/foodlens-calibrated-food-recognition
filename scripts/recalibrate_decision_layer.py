@@ -25,6 +25,34 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# This script shares the production decision-routing rule with
+# `app/backend/decision_rules.py` rather than vendoring its own copy -- that
+# is the fix for the offline/production decision-function divergence this
+# script used to have (see docs/superpowers/specs/
+# 2026-09-14-decision-layer-methodology-design.md, section 3.1). The repo
+# root must be on `sys.path` for that import to resolve when this script is
+# invoked directly (its usual invocation is `python
+# scripts/recalibrate_decision_layer.py ...` from the repo root, but Python
+# does not add the repo root to `sys.path` in that case -- only the script's
+# own directory).
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+try:
+    from app.backend.decision_rules import route_decision
+except ImportError as exc:  # pragma: no cover - exercised only outside the repo checkout
+    raise SystemExit(
+        "Could not import app.backend.decision_rules.route_decision.\n"
+        "This script deliberately does not vendor a copy of the production "
+        "decision-routing rule -- it shares app/backend/decision_rules.py so "
+        "the offline policy stays executable at inference time. Run this "
+        "script from within the foodlens-calibrated-food-recognition repo "
+        "checkout (so the repo root containing `app/` is importable), rather "
+        "than from a copied or partial checkout.\n"
+        f"Original import error: {exc}"
+    ) from exc
+
 # Columns `build_features()` reads off the predictions frame, after
 # `normalize_actual_col()` has already renamed the actual/predicted-label
 # aliases (true_label/actual_label/label -> "actual",
@@ -364,24 +392,30 @@ def assign_decision_band(
     auto_confidence: float,
     suggest_confidence: float,
     margin_threshold: float,
+    hard_classes: set[str],
+    confusion_pairs: set[tuple[str, str]],
 ) -> str:
-    if row["is_frequent_confusion_pair"]:
-        return "review"
+    """Route one row through the shared production decision rule.
 
-    if row["is_hard_case"] and row["top_1_confidence"] < auto_confidence:
-        return "confirm"
-
-    if (
-        row["top_1_confidence"] >= auto_confidence
-        and row["top_1_top_2_margin"] >= margin_threshold
-        and not row["is_hard_case"]
-    ):
-        return "auto_accept"
-
-    if row["top_1_confidence"] >= suggest_confidence and row["top_5_contains_actual"]:
-        return "suggest"
-
-    return "confirm"
+    This calls `route_decision` with only inference-time inputs -- the
+    predicted label, top-1 confidence and top-1/top-2 margin -- exactly as
+    production does. The actual label is not consulted here; it is used
+    elsewhere in this script only after routing, to score how each band
+    performed (see `decision_band_metrics`).
+    """
+    return route_decision(
+        row["top_1_confidence"],
+        row["top_1_top_2_margin"],
+        row["predicted"],
+        policy={
+            "auto_confidence": auto_confidence,
+            "suggest_confidence": suggest_confidence,
+            "margin_threshold": margin_threshold,
+        },
+        hard_classes=hard_classes,
+        confusion_pairs=confusion_pairs,
+        mode="image",
+    )
 
 
 def decision_band_metrics(decision_df: pd.DataFrame) -> pd.DataFrame:
@@ -425,6 +459,8 @@ def evaluate_policy(
     auto_confidence: float,
     suggest_confidence: float,
     margin_threshold: float,
+    hard_classes: set[str],
+    confusion_pairs: set[tuple[str, str]],
 ) -> dict[str, float | int]:
     scored = features_df.copy()
     scored["decision_band"] = scored.apply(
@@ -433,6 +469,8 @@ def evaluate_policy(
         auto_confidence=auto_confidence,
         suggest_confidence=suggest_confidence,
         margin_threshold=margin_threshold,
+        hard_classes=hard_classes,
+        confusion_pairs=confusion_pairs,
     )
     metrics_df = decision_band_metrics(scored)
 
@@ -545,6 +583,8 @@ def run_analysis(
                         auto_confidence=auto_confidence,
                         suggest_confidence=suggest_confidence,
                         margin_threshold=margin_threshold,
+                        hard_classes=hard_classes,
+                        confusion_pairs=confusion_pairs,
                     )
                 )
 
@@ -585,6 +625,8 @@ def run_analysis(
         auto_confidence=auto_confidence,
         suggest_confidence=suggest_confidence,
         margin_threshold=margin_threshold,
+        hard_classes=hard_classes,
+        confusion_pairs=confusion_pairs,
     )
 
     band_metrics = decision_band_metrics(final)
