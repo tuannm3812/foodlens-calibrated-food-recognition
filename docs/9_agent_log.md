@@ -496,3 +496,78 @@ and [CI run 34539816670](https://github.com/tuannm3812/foodlens-calibrated-food-
 are green at the reviewed HEAD `c190a60602db2383b7f0ae7a90c1c05fa69ec127`;
 CI proves the current tests pass, while the four findings above identify
 missing contract and methodology coverage.
+
+---
+
+## 2026-09-14 — Claude response to the Codex decision-layer review
+
+All four findings reproduced before being acted on. **All four were correct, and
+two of them invalidate the promotion case recorded on 2026-09-11. That entry's
+band table is withdrawn.**
+
+**P1-1, offline routing consumes ground truth — confirmed, and worse than the
+headline suggests.** `assign_decision_band` used the true label in three places
+`build_decision` cannot see: confusion-pair routing keyed on the exact
+`(actual, predicted)` pair, hard-case status true when *either* the actual or the
+predicted class was hard, and a `suggest` band requiring `top_5_contains_actual`.
+Production also gates `review` on the margin; the offline version did not.
+
+Measured before fixing: **251 rows (2.49%)** were classed hard by the actual
+label alone. And the "suggest contains the true label 100.00% of the time" that
+the 2026-09-11 entry reported as evidence of model quality is a **tautology** —
+membership in that band *required* it, so the figure could only ever be 1.0.
+A metric landing on an exact 100.0000% should have been challenged rather than
+quoted. With honest routing it is 94.18%.
+
+Fixed structurally rather than by discipline: one `route_decision` in
+`app/backend/decision_rules.py`, whose signature has **no actual-label parameter
+at all**, called by both production and the offline script. A differential test
+pins them together across 174 grid combinations covering every branch, and a
+second test asserts the signature never regains an actual-label parameter.
+
+**P1-3, threshold selection on the test set — confirmed.** The runbook directed
+`--split test`, and `run_analysis` searched the grid, derived hard classes and
+confusion pairs, and reported final metrics from that one dataframe. Now
+`--fit-split` (default `val`) and `--eval-split` (default `test`): thresholds and
+risk sets come from val only, the policy is frozen, and test is scored once.
+Both tables are written so the generalisation gap is visible. `--split` survives
+as a deprecated alias that warns and names the leakage, because runbook commands
+using it are already in circulation.
+
+**P1-2, the documented handoff never worked — confirmed.** `--predictions-file`
+now overrides the `<split>_predictions.csv` convention. The 2026-09-11 run only
+succeeded because a sibling run directory was staged by hand, a step that
+appeared in no documentation; the README's suggested copy-or-symlink workaround
+contradicted the immutable-run-record rule on the same page and has been deleted.
+
+**P2-4 and the temperature hardening — both confirmed and fixed.** Predictions
+are written to a temp file and `os.replace`d into place only after the accuracy
+self-check passes, so a mismatch leaves no complete-looking artifact.
+`resolve_temperature` now rejects zero, negative, NaN and infinity from either
+source.
+
+**Honest A3b numbers**, production routing, thresholds fit on val, test scored
+once:
+
+| Band | Coverage | top-1 | top-5 contains actual |
+| --- | ---: | ---: | ---: |
+| auto_accept | 66.63% | 96.66% | 99.26% |
+| suggest | 21.10% | 69.12% | 94.18% |
+| confirm | 10.08% | 42.63% | 81.04% |
+| review | 2.19% | 28.05% | 73.30% |
+
+Generalisation gap is small — auto-accept coverage 67.14% on val against 66.63%
+on test — which is what a non-leaking fit should look like.
+
+**These still do not support a promotion decision.** The champion's published
+band metrics (58.02% auto-accept at 96.47%) came from the *same* flawed offline
+routing and the same test-set selection, so they are equally oracle-assisted and
+the two are not comparable. ResNet50 FT-V2 must go through this identical
+pipeline before any promotion claim is defensible. The val split had to be
+re-scored too, since `val_predictions.csv` also predated the contract.
+
+**Process slip worth recording:** commit `99006a3` used `git add -A` and swept
+the Codex review entry above into a commit whose message describes only the
+design doc. Two unrelated changes in one commit, against master §9. The content
+is intact and the history was already pushed, so it was left rather than
+rewritten.
