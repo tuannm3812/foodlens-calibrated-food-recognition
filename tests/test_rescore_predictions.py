@@ -51,6 +51,7 @@ resolve_data_dir = rescore_predictions.resolve_data_dir
 REQUIRED_OUTPUT_COLUMNS = rescore_predictions.REQUIRED_OUTPUT_COLUMNS
 AccuracyMismatchError = rescore_predictions.AccuracyMismatchError
 MissingTemperatureError = rescore_predictions.MissingTemperatureError
+write_predictions_if_accuracy_matches = rescore_predictions.write_predictions_if_accuracy_matches
 
 
 # --------------------------------------------------------------------------
@@ -367,3 +368,95 @@ def test_self_check_fails_on_mismatch_with_explanatory_message() -> None:
     message = str(excinfo.value)
     assert "preprocessing or class ordering is wrong" in message
     assert "70.0" in message or "70.0000" in message
+
+
+# --------------------------------------------------------------------------
+# Write-only-what-passed: the output CSV must not exist if the self-check
+# fails. Exercised directly against write_predictions_if_accuracy_matches
+# (a pure helper needing no model, checkpoint or images) rather than against
+# the full rescore() pipeline, since forcing a *real* mismatch would require
+# either the actual A3b checkpoint plus Food-101 images (scoring a real,
+# deliberately-wrong-preprocessing pass), or faking rescore()'s internals in
+# a way that duplicates this helper's own logic. Factoring the write+check
+# into this helper is what makes the contract testable without either.
+# --------------------------------------------------------------------------
+
+
+def _fake_predictions_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            build_prediction_row(
+                "p1", "pho", ["pho", "a", "b", "c", "d"], [0.9, 0.05, 0.02, 0.02, 0.01]
+            )
+        ]
+    )
+
+
+def test_write_predictions_writes_file_when_accuracy_matches(tmp_path: Path) -> None:
+    output_path = tmp_path / "test_predictions_rescored.csv"
+
+    write_predictions_if_accuracy_matches(
+        _fake_predictions_df(),
+        output_path,
+        achieved_top1_pct=83.9,
+        achieved_top5_pct=95.78,
+        recorded=(83.9001, 95.7799),
+    )
+
+    assert output_path.exists()
+    written = pd.read_csv(output_path)
+    assert written.iloc[0]["pred_label"] == "pho"
+    # No stray temp file left behind in the output directory.
+    assert list(tmp_path.iterdir()) == [output_path]
+
+
+def test_write_predictions_leaves_no_file_on_mismatch(tmp_path: Path) -> None:
+    output_path = tmp_path / "test_predictions_rescored.csv"
+
+    with pytest.raises(AccuracyMismatchError):
+        write_predictions_if_accuracy_matches(
+            _fake_predictions_df(),
+            output_path,
+            achieved_top1_pct=70.0,
+            achieved_top5_pct=80.0,
+            recorded=(83.9, 95.78),
+        )
+
+    assert not output_path.exists()
+    # No stray temp file left behind either.
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_write_predictions_leaves_prior_file_untouched_on_mismatch(tmp_path: Path) -> None:
+    """A mismatch must not clobber whatever was already at output_path."""
+    output_path = tmp_path / "test_predictions_rescored.csv"
+    output_path.write_text("stale content from a previous run\n", encoding="utf-8")
+
+    with pytest.raises(AccuracyMismatchError):
+        write_predictions_if_accuracy_matches(
+            _fake_predictions_df(),
+            output_path,
+            achieved_top1_pct=70.0,
+            achieved_top5_pct=80.0,
+            recorded=(83.9, 95.78),
+        )
+
+    assert output_path.read_text(encoding="utf-8") == "stale content from a previous run\n"
+    # Only the pre-existing file remains -- no leftover temp file.
+    assert list(tmp_path.iterdir()) == [output_path]
+
+
+def test_write_predictions_skips_check_and_writes_when_no_recorded_metrics(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "test_predictions_rescored.csv"
+
+    write_predictions_if_accuracy_matches(
+        _fake_predictions_df(),
+        output_path,
+        achieved_top1_pct=70.0,
+        achieved_top5_pct=80.0,
+        recorded=None,
+    )
+
+    assert output_path.exists()

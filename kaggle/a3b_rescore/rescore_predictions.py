@@ -35,7 +35,11 @@ Because a mismatched preprocessing pipeline or class ordering would silently
 produce confidences for a *different* model, this script always ends with a
 self-check: it compares the top-1/top-5 accuracy it achieves against the
 `<split>_metrics.csv` recorded by the original training run (when present)
-and exits non-zero if they disagree by more than 0.05 percentage points.
+and exits non-zero if they disagree by more than 0.05 percentage points. The
+output CSV is written to a temporary file first and only atomically renamed
+into place after the self-check passes, so a mismatch leaves no
+complete-looking output file at all -- not a partially-written one, and not
+one left over from before the self-check ran.
 
 Usage:
     python rescore_predictions.py \\
@@ -50,6 +54,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
 
@@ -367,6 +372,54 @@ def check_accuracy_matches_recorded(
     )
 
 
+def write_predictions_if_accuracy_matches(
+    predictions_df: pd.DataFrame,
+    output_path: Path,
+    achieved_top1_pct: float,
+    achieved_top5_pct: float,
+    recorded: tuple[float, float] | None,
+) -> None:
+    """Write `predictions_df` to `output_path` only if the self-check passes.
+
+    Writes to a temporary file in `output_path`'s own directory first, runs
+    `check_accuracy_matches_recorded`, and only then atomically renames the
+    temp file into place with `os.replace` (atomic within a filesystem,
+    which using the same directory guarantees). On a self-check failure the
+    temp file is removed and `output_path` is left untouched -- no
+    complete-looking artifact is left behind that belongs to the wrong
+    model. Previously the CSV was written *before* the self-check, so a
+    mismatch still left the file in place despite exiting non-zero.
+
+    Args:
+        predictions_df: The re-scored predictions to write.
+        output_path: Final destination for the predictions CSV.
+        achieved_top1_pct: Top-1 accuracy this run achieved, as a percentage.
+        achieved_top5_pct: Top-5 accuracy this run achieved, as a percentage.
+        recorded: `(top_1_accuracy, top_5_accuracy)` from `<split>_metrics.csv`,
+            or None if no recorded metrics file exists.
+
+    Raises:
+        AccuracyMismatchError: If the self-check fails. `output_path` is
+            guaranteed not to exist (or to be left as it was, if something
+            already existed there before this call) when this is raised.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(
+        dir=output_path.parent,
+        prefix=f".{output_path.name}.",
+        suffix=".tmp",
+    )
+    os.close(fd)
+    temp_path = Path(temp_name)
+    try:
+        predictions_df.to_csv(temp_path, index=False)
+        check_accuracy_matches_recorded(achieved_top1_pct, achieved_top5_pct, recorded)
+        os.replace(temp_path, output_path)
+    except BaseException:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
 # --------------------------------------------------------------------------
 # Model construction and scoring (needs torch + the real checkpoint/images).
 # --------------------------------------------------------------------------
@@ -584,8 +637,6 @@ def rescore(args: argparse.Namespace) -> int:
                 print(f"  scored {seen:,}/{total:,}")
 
     predictions_df = pd.DataFrame(rows, columns=REQUIRED_OUTPUT_COLUMNS)
-    predictions_df.to_csv(output_path, index=False)
-    print(f"Wrote {output_path}")
 
     top1_pct, top5_pct = accuracy_from_rows(rows)
     print(f"Achieved top-1 accuracy: {top1_pct:.4f}%")
@@ -593,7 +644,15 @@ def rescore(args: argparse.Namespace) -> int:
 
     metrics_path = results_dir / f"{args.split}_metrics.csv"
     recorded = load_recorded_metrics(metrics_path)
-    check_accuracy_matches_recorded(top1_pct, top5_pct, recorded)
+
+    write_predictions_if_accuracy_matches(
+        predictions_df,
+        output_path,
+        top1_pct,
+        top5_pct,
+        recorded,
+    )
+    print(f"Wrote {output_path}")
     return 0
 
 
