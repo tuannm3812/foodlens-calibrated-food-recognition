@@ -151,7 +151,12 @@ message, whether they came from `calibration.json` or `--temperature`.
    test, fit on val, evaluate on test, using `--predictions-file`.
 4. Fit-split and eval-split metrics are both reported and differ (if identical,
    the split separation is not working).
-5. A deliberately mismatched self-check leaves no output file.
+5. The rescore script refuses to start if its destination output file
+   already exists, unless `--overwrite` is passed; a deliberately mismatched
+   self-check then leaves the destination exactly as it was before the run
+   started (nothing, on a fresh path; the pre-existing file, if `--overwrite`
+   was passed into a run that then failed its self-check) -- never a new,
+   complete-looking file that belongs to the wrong model.
 6. `pytest`, `ruff check .`, and both doc gates pass.
 7. `app/backend/api.py` and the three original backend test files unmodified;
    HTTP response shapes unchanged.

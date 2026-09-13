@@ -52,6 +52,7 @@ REQUIRED_OUTPUT_COLUMNS = rescore_predictions.REQUIRED_OUTPUT_COLUMNS
 AccuracyMismatchError = rescore_predictions.AccuracyMismatchError
 MissingTemperatureError = rescore_predictions.MissingTemperatureError
 write_predictions_if_accuracy_matches = rescore_predictions.write_predictions_if_accuracy_matches
+OutputAlreadyExistsError = rescore_predictions.OutputAlreadyExistsError
 validate_temperature = rescore_predictions.validate_temperature
 InvalidTemperatureError = rescore_predictions.InvalidTemperatureError
 build_model = rescore_predictions.build_model
@@ -524,8 +525,61 @@ def test_write_predictions_leaves_no_file_on_mismatch(tmp_path: Path) -> None:
     assert list(tmp_path.iterdir()) == []
 
 
-def test_write_predictions_leaves_prior_file_untouched_on_mismatch(tmp_path: Path) -> None:
-    """A mismatch must not clobber whatever was already at output_path."""
+def test_write_predictions_refuses_to_start_when_output_already_exists(
+    tmp_path: Path,
+) -> None:
+    """A destination that already exists must stop the run before any work
+    happens (not just be left untouched after a failed self-check) -- a
+    stale file at that path is otherwise indistinguishable from a fresh,
+    verified one to a later consumer."""
+    output_path = tmp_path / "test_predictions_rescored.csv"
+    output_path.write_text("stale content from a previous run\n", encoding="utf-8")
+
+    with pytest.raises(OutputAlreadyExistsError, match="already exists"):
+        write_predictions_if_accuracy_matches(
+            _fake_predictions_df(),
+            output_path,
+            # Even a passing self-check must not be allowed to run when the
+            # destination exists and --overwrite was not given.
+            achieved_top1_pct=83.9,
+            achieved_top5_pct=95.78,
+            recorded=(83.9001, 95.7799),
+        )
+
+    assert output_path.read_text(encoding="utf-8") == "stale content from a previous run\n"
+    # No leftover temp file either -- refusing to start means no write of
+    # any kind was attempted.
+    assert list(tmp_path.iterdir()) == [output_path]
+
+
+def test_write_predictions_overwrite_replaces_existing_file_on_match(
+    tmp_path: Path,
+) -> None:
+    """--overwrite (passed through as overwrite=True) allows replacing an
+    existing destination, but only once the self-check passes."""
+    output_path = tmp_path / "test_predictions_rescored.csv"
+    output_path.write_text("stale content from a previous run\n", encoding="utf-8")
+
+    write_predictions_if_accuracy_matches(
+        _fake_predictions_df(),
+        output_path,
+        achieved_top1_pct=83.9,
+        achieved_top5_pct=95.78,
+        recorded=(83.9001, 95.7799),
+        overwrite=True,
+    )
+
+    written = pd.read_csv(output_path)
+    assert written.iloc[0]["pred_label"] == "pho"
+    assert list(tmp_path.iterdir()) == [output_path]
+
+
+def test_write_predictions_overwrite_leaves_prior_file_untouched_on_mismatch(
+    tmp_path: Path,
+) -> None:
+    """Even with --overwrite, a failed self-check must not clobber whatever
+    was already at output_path -- overwrite only takes effect once the new
+    run is verified."""
     output_path = tmp_path / "test_predictions_rescored.csv"
     output_path.write_text("stale content from a previous run\n", encoding="utf-8")
 
@@ -536,6 +590,7 @@ def test_write_predictions_leaves_prior_file_untouched_on_mismatch(tmp_path: Pat
             achieved_top1_pct=70.0,
             achieved_top5_pct=80.0,
             recorded=(83.9, 95.78),
+            overwrite=True,
         )
 
     assert output_path.read_text(encoding="utf-8") == "stale content from a previous run\n"

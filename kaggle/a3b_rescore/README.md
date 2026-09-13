@@ -65,12 +65,31 @@ This writes
 and prints the achieved top-1/top-5 accuracy plus a self-check against
 `test_metrics.csv` from the original run. A self-check mismatch (more than
 0.05 percentage points off) means the preprocessing or class ordering is
-wrong -- the script exits non-zero rather than writing confidences that
-belong to a different model than the one A3b's champion-comparison numbers
-describe.
+wrong -- the script exits non-zero, and the output path is left exactly as
+it was before the run (see "Rerunning / --overwrite" below), rather than
+writing confidences that belong to a different model than the one A3b's
+champion-comparison numbers describe.
+
+## Rerunning / --overwrite
+
+The script refuses to start if the output path already exists:
+
+```
+error: .../test_predictions_rescored.csv already exists. Refusing to start
+-- pass --overwrite to replace it (only takes effect once this run's
+self-check passes; a failing self-check still leaves it untouched), or
+remove/rename the existing file yourself.
+```
+
+This is deliberate: a rescore is expensive, and a run whose self-check later
+fails must never leave a stale file at the destination that looks the same
+as a freshly verified one. Pass `--overwrite` to rerun into an existing
+path -- it only takes effect once the new run's self-check passes; if it
+fails, the existing file is left untouched, exactly as without `--overwrite`.
 
 Run `--help` for the full flag list (`--arch`, `--checkpoint`, `--batch-size`,
-`--num-workers`, `--device`, `--output`, `--expected-top1`, `--expected-top5`).
+`--num-workers`, `--device`, `--output`, `--expected-top1`, `--expected-top5`,
+`--overwrite`).
 
 ## Supporting another architecture or checkpoint
 

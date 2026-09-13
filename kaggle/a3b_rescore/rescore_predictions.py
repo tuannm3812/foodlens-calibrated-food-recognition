@@ -46,10 +46,23 @@ even if `--expected-top1`/`--expected-top5` are also given; (2)
 of their own (e.g. a checkpoint whose published figures live elsewhere, such
 as hardcoded constants in another script). If neither is available, the
 script says so explicitly and skips the check rather than silently treating
-it as passed. The output CSV is written to a temporary file first and only
-atomically renamed into place after the self-check passes (or is skipped), so
-a mismatch leaves no complete-looking output file at all -- not a
-partially-written one, and not one left over from before the self-check ran.
+it as passed.
+
+The script refuses to start if its destination output file already exists,
+unless `--overwrite` is passed. A rerun that fails its self-check must never
+leave a stale file at the same path that a later consumer cannot distinguish
+from a freshly verified one -- an earlier version of this script tried to
+guarantee that by preserving whatever was already at the destination on a
+self-check failure, which stopped the file from being *corrupted* but did
+nothing to stop a *stale* file from sitting there looking complete. Requiring
+the destination to be empty (or `--overwrite` to be passed deliberately)
+before any work starts is what actually keeps that guarantee honest, without
+silently deleting a file the caller might still need. Once past that check,
+the output CSV is written to a temporary file first and only atomically
+renamed into place after the self-check passes (or is skipped) -- so a
+mismatch never leaves a partially-written file, and (when `--overwrite` was
+passed into a run whose self-check then failed) leaves the destination
+exactly as it was before this run started, not silently replaced.
 
 Usage:
     python rescore_predictions.py \\
@@ -113,6 +126,16 @@ EVAL_TRANSFORMS = transforms.Compose(
 
 class AccuracyMismatchError(RuntimeError):
     """Raised when achieved accuracy does not match the run's recorded metrics."""
+
+
+class OutputAlreadyExistsError(FileExistsError):
+    """Raised when the destination predictions CSV already exists without --overwrite.
+
+    A stale file at the same path as this run's output is indistinguishable
+    from a freshly self-check-passed one to a later consumer. Refusing to
+    start (rather than silently leaving it in place after a failed rescore,
+    or silently deleting it) is what keeps that distinguishable.
+    """
 
 
 class MissingTemperatureError(RuntimeError):
@@ -508,17 +531,32 @@ def write_predictions_if_accuracy_matches(
     achieved_top1_pct: float,
     achieved_top5_pct: float,
     recorded: tuple[float, float] | None,
+    overwrite: bool = False,
 ) -> None:
     """Write `predictions_df` to `output_path` only if the self-check passes.
 
-    Writes to a temporary file in `output_path`'s own directory first, runs
-    `check_accuracy_matches_recorded`, and only then atomically renames the
-    temp file into place with `os.replace` (atomic within a filesystem,
-    which using the same directory guarantees). On a self-check failure the
-    temp file is removed and `output_path` is left untouched -- no
-    complete-looking artifact is left behind that belongs to the wrong
-    model. Previously the CSV was written *before* the self-check, so a
-    mismatch still left the file in place despite exiting non-zero.
+    Refuses to start -- before writing anything, before even running the
+    self-check -- if `output_path` already exists and `overwrite` is not
+    True. This is what actually keeps the "a mismatch leaves no
+    complete-looking artifact" guarantee honest: an earlier version of this
+    function let a self-check failure leave any pre-existing file at
+    `output_path` untouched, which protected that file from being
+    *corrupted* but did nothing to stop a *stale* file -- left over from an
+    earlier run, or from anything else -- from sitting at the same path,
+    indistinguishable to a later consumer from a freshly verified one.
+    Requiring the destination to start empty (or `overwrite=True` to be
+    passed deliberately) closes that gap without silently deleting data the
+    caller might still need.
+
+    Once past that check, writes to a temporary file in `output_path`'s own
+    directory first, runs `check_accuracy_matches_recorded`, and only then
+    atomically renames the temp file into place with `os.replace` (atomic
+    within a filesystem, which using the same directory guarantees). On a
+    self-check failure the temp file is removed and `output_path` is left
+    exactly as it was before this call (nothing, if it didn't already exist;
+    the pre-existing file the caller explicitly opted to risk replacing, if
+    `overwrite=True` was passed and something was already there) -- never a
+    partially-written file, and never a new stale-looking artifact.
 
     Args:
         predictions_df: The re-scored predictions to write.
@@ -527,12 +565,25 @@ def write_predictions_if_accuracy_matches(
         achieved_top5_pct: Top-5 accuracy this run achieved, as a percentage.
         recorded: `(top_1_accuracy, top_5_accuracy)` from `<split>_metrics.csv`,
             or None if no recorded metrics file exists.
+        overwrite: Must be True if `output_path` already exists; otherwise
+            this raises immediately, before any self-check work runs.
 
     Raises:
+        OutputAlreadyExistsError: If `output_path` already exists and
+            `overwrite` is not True.
         AccuracyMismatchError: If the self-check fails. `output_path` is
-            guaranteed not to exist (or to be left as it was, if something
-            already existed there before this call) when this is raised.
+            guaranteed not to exist (or to be left exactly as it was before
+            this call, if `overwrite=True` and something already existed
+            there) when this is raised.
     """
+    if output_path.exists() and not overwrite:
+        raise OutputAlreadyExistsError(
+            f"{output_path} already exists. Refusing to start -- pass "
+            "--overwrite to replace it (only takes effect once this run's "
+            "self-check passes; a failing self-check still leaves it "
+            "untouched), or remove/rename the existing file yourself."
+        )
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(
         dir=output_path.parent,
@@ -741,6 +792,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Fallback top-5 accuracy (percentage); see --expected-top1.",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help=(
+            "Allow replacing an existing file at the output path (only "
+            "takes effect once this run's self-check passes -- a failing "
+            "self-check still leaves the existing file untouched). Without "
+            "this flag, the script refuses to start if the output path "
+            "already exists, so a stale file from an earlier run is never "
+            "silently left in place looking like a fresh, verified one."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -763,6 +826,20 @@ def rescore(args: argparse.Namespace) -> int:
         raise ValueError(
             f"--output must not overwrite the original run record {original_predictions_path}. "
             "Choose a different filename."
+        )
+
+    # Refuse to start -- before the expensive model load and scoring pass --
+    # if the destination already exists and --overwrite was not given. This
+    # is checked again inside write_predictions_if_accuracy_matches() right
+    # before it writes anything (that check is what actually matters for
+    # correctness); duplicating it here just avoids redoing a full scoring
+    # pass only to fail at the very end.
+    if output_path.exists() and not args.overwrite:
+        raise OutputAlreadyExistsError(
+            f"{output_path} already exists. Refusing to start -- pass "
+            "--overwrite to replace it (only takes effect once this run's "
+            "self-check passes; a failing self-check still leaves it "
+            "untouched), or remove/rename the existing file yourself."
         )
 
     class_names = load_class_names(results_dir)
@@ -845,6 +922,7 @@ def rescore(args: argparse.Namespace) -> int:
         top1_pct,
         top5_pct,
         recorded,
+        overwrite=args.overwrite,
     )
     print(f"Wrote {output_path}")
     return 0
@@ -859,6 +937,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ValueError,
         MissingTemperatureError,
         InvalidTemperatureError,
+        OutputAlreadyExistsError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
