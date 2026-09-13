@@ -142,6 +142,21 @@ def parse_args() -> argparse.Namespace:
         help="Split used for recalibration",
     )
     parser.add_argument(
+        "--predictions-file",
+        default=None,
+        help=(
+            "Path to a predictions CSV overriding the `<split>_predictions.csv` "
+            "convention -- e.g. a re-scored artifact from "
+            "kaggle/a3b_rescore/rescore_predictions.py, which deliberately "
+            "writes `<split>_predictions_rescored.csv` rather than the "
+            "conventional name so it never clobbers the immutable run "
+            "record. When given, this file is read instead of "
+            "`<split>_predictions.csv`; --results-dir still supplies the "
+            "other artifacts (class report, confusion pairs, output "
+            "location)."
+        ),
+    )
+    parser.add_argument(
         "--hard-classes-file",
         default=None,
         help="Optional CSV/JSON with explicit hard-class names",
@@ -540,8 +555,18 @@ def run_analysis(
     output_dir: Path,
     max_confusion_pairs: int,
     skip_zip: bool,
+    predictions_file: str | None = None,
 ) -> None:
-    predictions_path = results_dir / f"{split}_predictions.csv"
+    if predictions_file:
+        # Resolved like a normal CLI path argument (relative to the current
+        # working directory), not relative to --results-dir: the whole point
+        # of this flag is pointing at an artifact that lives outside the
+        # `<split>_predictions.csv` convention -- e.g. a sibling
+        # `*_predictions_rescored.csv` file -- so it must not be forced back
+        # under `results_dir`.
+        predictions_path = Path(predictions_file).expanduser().resolve()
+    else:
+        predictions_path = results_dir / f"{split}_predictions.csv"
     class_report_path = results_dir / f"{split}_class_report.csv"
     confusion_path = results_dir / f"{split}_confusion_pairs.csv"
 
@@ -716,6 +741,7 @@ def main() -> None:
             output_dir=output_dir,
             max_confusion_pairs=args.max_confusion_pairs,
             skip_zip=args.no_zip,
+            predictions_file=args.predictions_file,
         )
     except PredictionSchemaError as exc:
         print(f"error: {exc}", file=sys.stderr)

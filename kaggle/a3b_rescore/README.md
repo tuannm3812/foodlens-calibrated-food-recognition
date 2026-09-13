@@ -79,16 +79,18 @@ See `kaggle/accuracy_phase1_a4/README.md` for how to set up a durable
 `test_predictions_rescored.csv` is written in the schema
 `scripts/recalibrate_decision_layer.py` requires (see "Required
 `*_predictions.csv` schema" in `docs/4_next_steps.md`). Once it exists,
-recalibrate against it directly:
+recalibrate against it directly with `--predictions-file`, which overrides
+the `<split>_predictions.csv` convention while `--results-dir` still supplies
+the other artifacts (class report, confusion pairs, output location):
 
 ```bash
 python3 scripts/recalibrate_decision_layer.py \
   --results-dir results/accuracy_phase1/a3b_convnext_tiny_continued_224 \
+  --predictions-file results/accuracy_phase1/a3b_convnext_tiny_continued_224/test_predictions_rescored.csv \
   --split test
 ```
 
-(`recalibrate_decision_layer.py` reads `<split>_predictions.csv` by
-convention; point it at the rescored file by copying/symlinking it to that
-name, or by adjusting `--results-dir`/an equivalent override once one exists
--- the immutable-run-record rule above is why this script does not overwrite
-the original in place.)
+No copying, symlinking, or adjusting `--results-dir` is needed or supported
+-- doing either would conflict with the immutable-run-record rule above,
+which is exactly why this script writes `test_predictions_rescored.csv`
+instead of overwriting `test_predictions.csv` in the first place.
