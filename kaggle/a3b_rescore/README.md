@@ -1,4 +1,12 @@
-# A3b Re-score
+# Re-score
+
+Despite the directory name, this is no longer A3b-specific: `--arch` supports
+both ConvNeXt-Tiny (A3b's architecture, the default) and ResNet50 (the
+production champion's architecture), so different models can be pushed
+through the identical re-score / recalibrate pipeline and compared like for
+like. The rest of this document describes the A3b case that motivated it;
+see "Supporting another architecture or checkpoint" below for the champion
+case.
 
 ## Why this directory exists
 
@@ -61,8 +69,37 @@ wrong -- the script exits non-zero rather than writing confidences that
 belong to a different model than the one A3b's champion-comparison numbers
 describe.
 
-Run `--help` for the full flag list (`--checkpoint`, `--batch-size`,
-`--num-workers`, `--device`, `--output`).
+Run `--help` for the full flag list (`--arch`, `--checkpoint`, `--batch-size`,
+`--num-workers`, `--device`, `--output`, `--expected-top1`, `--expected-top5`).
+
+## Supporting another architecture or checkpoint
+
+`--arch {convnext_tiny,resnet50}` (default `convnext_tiny`) selects which
+model to reconstruct before loading `--checkpoint`. `resnet50` mirrors
+`load_runtime()` in `app/backend/inference.py` exactly:
+`torchvision.models.resnet50(weights=None)` with `fc` replaced by the same
+3-layer MLP head A3b uses -- only the backbone and the replaced attribute
+(`fc` vs `classifier[2]`) differ.
+
+The accuracy self-check normally compares against `<split>_metrics.csv` in
+`--results-dir`. A checkpoint that has no such file of its own -- e.g. a
+production checkpoint whose published figures are hardcoded constants
+elsewhere, not a metrics CSV -- can instead pass `--expected-top1` and
+`--expected-top5` (both required together) as the comparison target. A
+`<split>_metrics.csv`, if present, always wins over these flags. If neither
+is available, the script prints that the self-check is skipped rather than
+silently treating it as passed. For example, re-scoring the production
+ResNet50 FT-V2 champion on the exact same manifests as an A3b run:
+
+```bash
+.venv/bin/python kaggle/a3b_rescore/rescore_predictions.py \
+  --results-dir results/accuracy_phase1/champion_resnet50_ft_v2 \
+  --arch resnet50 \
+  --checkpoint app/artifacts/resnet50_ft_v2_best.pth \
+  --data-dir /path/to/food-101 \
+  --split test \
+  --expected-top1 78.28 --expected-top5 92.65
+```
 
 ## Pushing to Kaggle
 

@@ -1,20 +1,24 @@
-"""Re-score the A3b ConvNeXt-Tiny checkpoint to add per-class top-5 confidences.
+"""Re-score a trained checkpoint to add per-class top-5 confidences.
 
-The A3b accuracy-phase run (`kaggle/accuracy_phase1_a3b/`) is the current
-accuracy leader (83.90% test top-1, 95.78% test top-5) but its
-`test_predictions.csv` predates the predictions-CSV contract documented in
-`docs/4_next_steps.md`: it records `top_5` as pipe-separated class *labels*
-only, with no per-class confidences. `scripts/recalibrate_decision_layer.py`
-needs `top_5_confidence` to derive `top_1_confidence`, `top_2_confidence`, and
-the top1-top2 margin the decision policy depends on, and that information
-cannot be recovered from the existing CSV.
+This directory started out A3b-specific but is no longer: it now supports
+any run built on the project's two standard architectures (ConvNeXt-Tiny via
+`--arch convnext_tiny`, the default, and ResNet50 via `--arch resnet50`), so
+that different models can be pushed through the *identical* re-score /
+recalibrate pipeline and compared like for like. The A3b accuracy-phase run
+(`kaggle/accuracy_phase1_a3b/`) is what motivated it: its `test_predictions.csv`
+predates the predictions-CSV contract documented in `docs/4_next_steps.md`,
+recording `top_5` as pipe-separated class *labels* only, with no per-class
+confidences. `scripts/recalibrate_decision_layer.py` needs `top_5_confidence`
+to derive `top_1_confidence`, `top_2_confidence`, and the top1-top2 margin the
+decision policy depends on, and that information cannot be recovered from the
+existing CSV.
 
-This script **trains nothing**. It loads the already-trained
-`convnext_tiny_continued_best.pth` checkpoint, reconstructs the exact A3b
-model architecture and eval preprocessing, re-scores a split, and writes a
-new CSV in the documented schema -- leaving the original
-`<split>_predictions.csv` untouched (it is an immutable run record; see
-`docs/0_coding_standards.md`, "kaggle/*/ holds immutable run records").
+This script **trains nothing**. It loads an already-trained checkpoint,
+reconstructs the exact model architecture and eval preprocessing for
+`--arch`, re-scores a split, and writes a new CSV in the documented schema --
+leaving the original `<split>_predictions.csv` untouched (it is an immutable
+run record; see `docs/0_coding_standards.md`, "kaggle/*/ holds immutable run
+records").
 
 Confidences are **temperature-scaled** to match what `app/backend/inference.py`
 actually serves in production (`softmax(logits / temperature, dim=1)`, with
@@ -33,19 +37,33 @@ metrics regardless of temperature.
 
 Because a mismatched preprocessing pipeline or class ordering would silently
 produce confidences for a *different* model, this script always ends with a
-self-check: it compares the top-1/top-5 accuracy it achieves against the
-`<split>_metrics.csv` recorded by the original training run (when present)
-and exits non-zero if they disagree by more than 0.05 percentage points. The
-output CSV is written to a temporary file first and only atomically renamed
-into place after the self-check passes, so a mismatch leaves no
-complete-looking output file at all -- not a partially-written one, and not
-one left over from before the self-check ran.
+self-check: it compares the top-1/top-5 accuracy it achieves against a
+recorded value and exits non-zero if they disagree by more than 0.05
+percentage points. That recorded value comes from, in priority order: (1)
+`<split>_metrics.csv` in `--results-dir`, when present -- this always wins,
+even if `--expected-top1`/`--expected-top5` are also given; (2)
+`--expected-top1`/`--expected-top5`, for run directories with no metrics CSV
+of their own (e.g. a checkpoint whose published figures live elsewhere, such
+as hardcoded constants in another script). If neither is available, the
+script says so explicitly and skips the check rather than silently treating
+it as passed. The output CSV is written to a temporary file first and only
+atomically renamed into place after the self-check passes (or is skipped), so
+a mismatch leaves no complete-looking output file at all -- not a
+partially-written one, and not one left over from before the self-check ran.
 
 Usage:
     python rescore_predictions.py \\
         --results-dir results/accuracy_phase1/a3b_convnext_tiny_continued_224 \\
         --data-dir /path/to/food-101 \\
         --split test
+
+    python rescore_predictions.py \\
+        --results-dir results/accuracy_phase1/champion_resnet50_ft_v2 \\
+        --arch resnet50 \\
+        --checkpoint app/artifacts/resnet50_ft_v2_best.pth \\
+        --data-dir /path/to/food-101 \\
+        --split test \\
+        --expected-top1 78.28 --expected-top5 92.65
 """
 
 from __future__ import annotations
@@ -378,6 +396,59 @@ def load_recorded_metrics(metrics_path: Path) -> tuple[float, float] | None:
     return float(row["top_1_accuracy"]), float(row["top_5_accuracy"])
 
 
+class InvalidExpectedMetricsError(ValueError):
+    """Raised when only one of --expected-top1/--expected-top5 is given."""
+
+
+def resolve_recorded_metrics(
+    metrics_path: Path,
+    expected_top1_pct: float | None,
+    expected_top5_pct: float | None,
+) -> tuple[tuple[float, float] | None, str | None]:
+    """Resolve what to self-check achieved accuracy against, with a fallback.
+
+    Priority order:
+        1. `<split>_metrics.csv` at `metrics_path`, when present -- this
+           always wins, even if `--expected-top1`/`--expected-top5` were
+           also given, because it is the run's own recorded ground truth.
+        2. `--expected-top1`/`--expected-top5`, for run directories that
+           have no metrics CSV of their own (e.g. a production checkpoint
+           whose published figures live elsewhere).
+        3. Neither -- the caller must say so clearly and skip the check
+           rather than silently treating it as passed.
+
+    Args:
+        metrics_path: Path to the run's `<split>_metrics.csv`.
+        expected_top1_pct: `--expected-top1` value, or None.
+        expected_top5_pct: `--expected-top5` value, or None.
+
+    Returns:
+        A `(recorded, source)` pair. `recorded` is `(top1, top5)` or None
+        (nothing to compare against); `source` names where it came from, or
+        is None alongside a `recorded` of None.
+
+    Raises:
+        InvalidExpectedMetricsError: If exactly one of `expected_top1_pct`/
+            `expected_top5_pct` is given. Both or neither -- a lone value
+            would silently compare only half of the self-check.
+    """
+    if (expected_top1_pct is None) != (expected_top5_pct is None):
+        raise InvalidExpectedMetricsError(
+            "--expected-top1 and --expected-top5 must be given together "
+            f"(got expected_top1={expected_top1_pct!r}, expected_top5={expected_top5_pct!r}). "
+            "A lone value would silently self-check only half the metric."
+        )
+
+    recorded = load_recorded_metrics(metrics_path)
+    if recorded is not None:
+        return recorded, str(metrics_path)
+
+    if expected_top1_pct is not None and expected_top5_pct is not None:
+        return (expected_top1_pct, expected_top5_pct), "--expected-top1/--expected-top5"
+
+    return None, None
+
+
 def check_accuracy_matches_recorded(
     achieved_top1_pct: float,
     achieved_top5_pct: float,
@@ -388,9 +459,11 @@ def check_accuracy_matches_recorded(
     Args:
         achieved_top1_pct: Top-1 accuracy this script achieved, as a percentage.
         achieved_top5_pct: Top-5 accuracy this script achieved, as a percentage.
-        recorded: `(top_1_accuracy, top_5_accuracy)` from `<split>_metrics.csv`,
-            or None when no recorded metrics file exists (in which case the
-            check is skipped -- there is nothing to compare against).
+        recorded: `(top_1_accuracy, top_5_accuracy)` to compare against --
+            from `<split>_metrics.csv` or the `--expected-top1`/
+            `--expected-top5` fallback (see `resolve_recorded_metrics`) --
+            or None when neither is available (in which case the check is
+            skipped -- there is nothing to compare against).
 
     Raises:
         AccuracyMismatchError: If either accuracy differs from the recorded
@@ -400,7 +473,9 @@ def check_accuracy_matches_recorded(
     """
     if recorded is None:
         print(
-            "SELF-CHECK SKIPPED: no <split>_metrics.csv found to compare against."
+            "SELF-CHECK SKIPPED: no <split>_metrics.csv found in --results-dir "
+            "and no --expected-top1/--expected-top5 given -- nothing to "
+            "compare achieved accuracy against."
         )
         return
 
@@ -480,25 +555,55 @@ def write_predictions_if_accuracy_matches(
 # --------------------------------------------------------------------------
 
 
-def build_model(num_classes: int = NUM_CLASSES) -> nn.Module:
-    """Build the exact A3b ConvNeXt-Tiny architecture, uninitialized.
+SUPPORTED_ARCHS = ("convnext_tiny", "resnet50")
 
-    Mirrors `build_convnext_tiny()` in
-    `kaggle/accuracy_phase1_a3b/foodlens_accuracy_phase1_a3b.py` exactly:
-    `torchvision.models.convnext_tiny(weights=None)` with `classifier[2]`
-    replaced by a 3-layer MLP head. Constructing anything else would make
-    the re-scored confidences describe a different model.
+
+def make_classifier_head(num_classes: int, in_features: int) -> nn.Module:
+    """The project-standard 3-layer MLP head, shared by both architectures.
+
+    Identical to both `build_convnext_tiny()` in
+    `kaggle/accuracy_phase1_a3b/foodlens_accuracy_phase1_a3b.py` and
+    `make_classifier_head()` in `app/backend/inference.py`: only the
+    backbone and the attribute it replaces (`classifier[2]` for ConvNeXt,
+    `fc` for ResNet50) differ between architectures.
     """
-    model = models.convnext_tiny(weights=None)
-    in_features = model.classifier[2].in_features
-    model.classifier[2] = nn.Sequential(
+    return nn.Sequential(
         nn.Linear(in_features, 512),
         nn.ReLU(),
         nn.Linear(512, 256),
         nn.ReLU(),
         nn.Linear(256, num_classes),
     )
-    return model
+
+
+def build_model(num_classes: int = NUM_CLASSES, arch: str = "convnext_tiny") -> nn.Module:
+    """Build an uninitialized model for `arch`.
+
+    `arch="convnext_tiny"` mirrors `build_convnext_tiny()` in
+    `kaggle/accuracy_phase1_a3b/foodlens_accuracy_phase1_a3b.py` exactly:
+    `torchvision.models.convnext_tiny(weights=None)` with `classifier[2]`
+    replaced by the project-standard 3-layer MLP head.
+
+    `arch="resnet50"` mirrors `load_runtime()` in
+    `app/backend/inference.py` exactly: `torchvision.models.resnet50(weights=None)`
+    with `fc` replaced by the same 3-layer MLP head (only the backbone and
+    the replaced attribute differ from the ConvNeXt path).
+
+    Constructing anything else would make the re-scored confidences describe
+    a different model.
+
+    Raises:
+        ValueError: If `arch` is not one of `SUPPORTED_ARCHS`.
+    """
+    if arch == "convnext_tiny":
+        model = models.convnext_tiny(weights=None)
+        model.classifier[2] = make_classifier_head(num_classes, model.classifier[2].in_features)
+        return model
+    if arch == "resnet50":
+        model = models.resnet50(weights=None)
+        model.fc = make_classifier_head(num_classes, model.fc.in_features)
+        return model
+    raise ValueError(f"Unsupported --arch {arch!r}; must be one of {SUPPORTED_ARCHS}")
 
 
 def load_checkpoint(model: nn.Module, checkpoint_path: Path, device: torch.device) -> nn.Module:
@@ -565,6 +670,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--split", default="test", help="Manifest split to re-score")
     parser.add_argument(
+        "--arch",
+        default="convnext_tiny",
+        choices=SUPPORTED_ARCHS,
+        help=(
+            "Model architecture to reconstruct before loading --checkpoint. "
+            "'convnext_tiny' (default) mirrors the A3b accuracy-phase model; "
+            "'resnet50' mirrors app/backend/inference.py's production "
+            "champion. Both use the identical 3-layer MLP classifier head."
+        ),
+    )
+    parser.add_argument(
         "--checkpoint",
         default="convnext_tiny_continued_best.pth",
         help="Checkpoint filename (or path) within --results-dir",
@@ -605,6 +721,25 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "no silent default -- if calibration.json is missing or lacks the "
             "key and this flag is not given, the script fails with a clear error."
         ),
+    )
+    parser.add_argument(
+        "--expected-top1",
+        type=float,
+        default=None,
+        help=(
+            "Fallback top-1 accuracy (percentage) to self-check achieved "
+            "accuracy against, used only when --results-dir has no "
+            "<split>_metrics.csv. If <split>_metrics.csv is present it always "
+            "wins over this flag. Must be given together with --expected-top5; "
+            "if neither a metrics CSV nor this flag pair is available, the "
+            "self-check is skipped and the script says so explicitly."
+        ),
+    )
+    parser.add_argument(
+        "--expected-top5",
+        type=float,
+        default=None,
+        help="Fallback top-5 accuracy (percentage); see --expected-top1.",
     )
     return parser.parse_args(argv)
 
@@ -648,7 +783,7 @@ def rescore(args: argparse.Namespace) -> int:
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
-    model = build_model(len(class_names))
+    model = build_model(len(class_names), arch=args.arch)
     load_checkpoint(model, checkpoint_path, device)
     model = model.to(device)
     model.eval()
@@ -698,7 +833,11 @@ def rescore(args: argparse.Namespace) -> int:
     print(f"Achieved top-5 accuracy: {top5_pct:.4f}%")
 
     metrics_path = results_dir / f"{args.split}_metrics.csv"
-    recorded = load_recorded_metrics(metrics_path)
+    recorded, recorded_source = resolve_recorded_metrics(
+        metrics_path, args.expected_top1, args.expected_top5
+    )
+    if recorded is not None:
+        print(f"Self-check target: top-1={recorded[0]}%, top-5={recorded[1]}% (source: {recorded_source})")
 
     write_predictions_if_accuracy_matches(
         predictions_df,

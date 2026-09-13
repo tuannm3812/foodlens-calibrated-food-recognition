@@ -54,6 +54,11 @@ MissingTemperatureError = rescore_predictions.MissingTemperatureError
 write_predictions_if_accuracy_matches = rescore_predictions.write_predictions_if_accuracy_matches
 validate_temperature = rescore_predictions.validate_temperature
 InvalidTemperatureError = rescore_predictions.InvalidTemperatureError
+build_model = rescore_predictions.build_model
+make_classifier_head = rescore_predictions.make_classifier_head
+resolve_recorded_metrics = rescore_predictions.resolve_recorded_metrics
+InvalidExpectedMetricsError = rescore_predictions.InvalidExpectedMetricsError
+parse_args = rescore_predictions.parse_args
 
 
 # --------------------------------------------------------------------------
@@ -552,3 +557,170 @@ def test_write_predictions_skips_check_and_writes_when_no_recorded_metrics(
     )
 
     assert output_path.exists()
+
+
+# --------------------------------------------------------------------------
+# --arch: model construction, kept model-free (no real checkpoint) by only
+# inspecting module structure -- shapes, layer types, replaced attribute --
+# never loading weights or running a forward pass.
+# --------------------------------------------------------------------------
+
+
+def test_build_model_default_arch_is_convnext_tiny() -> None:
+    model = build_model(num_classes=101)
+
+    head = model.classifier[2]
+    assert isinstance(head, torch.nn.Sequential)
+    assert isinstance(head[0], torch.nn.Linear)
+    assert head[0].out_features == 512
+    assert head[-1].out_features == 101
+
+
+def test_build_model_convnext_tiny_explicit_matches_default() -> None:
+    model = build_model(num_classes=101, arch="convnext_tiny")
+
+    assert isinstance(model.classifier[2], torch.nn.Sequential)
+    assert model.classifier[2][-1].out_features == 101
+
+
+def test_build_model_resnet50_replaces_fc_with_same_head_shape() -> None:
+    model = build_model(num_classes=101, arch="resnet50")
+
+    head = model.fc
+    assert isinstance(head, torch.nn.Sequential)
+    assert isinstance(head[0], torch.nn.Linear)
+    assert head[0].in_features == 2048  # resnet50's fc.in_features
+    assert head[0].out_features == 512
+    assert isinstance(head[1], torch.nn.ReLU)
+    assert head[2].out_features == 256
+    assert isinstance(head[3], torch.nn.ReLU)
+    assert head[4].out_features == 101
+
+
+def test_build_model_resnet50_and_convnext_heads_are_structurally_identical() -> None:
+    """Only the backbone and replaced attribute (fc vs classifier[2]) should
+    differ between architectures -- the 3-layer MLP head itself must not."""
+    convnext_head = build_model(num_classes=101, arch="convnext_tiny").classifier[2]
+    resnet_head = build_model(num_classes=101, arch="resnet50").fc
+
+    convnext_shapes = [
+        (type(layer).__name__, getattr(layer, "out_features", None)) for layer in convnext_head
+    ]
+    resnet_shapes = [
+        (type(layer).__name__, getattr(layer, "out_features", None)) for layer in resnet_head
+    ]
+    assert convnext_shapes == resnet_shapes
+
+
+def test_build_model_rejects_unsupported_arch() -> None:
+    with pytest.raises(ValueError, match="Unsupported --arch"):
+        build_model(num_classes=101, arch="not_a_real_arch")
+
+
+def test_make_classifier_head_builds_the_documented_three_layer_mlp() -> None:
+    head = make_classifier_head(num_classes=101, in_features=2048)
+
+    assert [type(layer).__name__ for layer in head] == [
+        "Linear",
+        "ReLU",
+        "Linear",
+        "ReLU",
+        "Linear",
+    ]
+    assert head[0].in_features == 2048
+    assert head[-1].out_features == 101
+
+
+def test_parse_args_arch_defaults_to_convnext_tiny() -> None:
+    args = parse_args(["--results-dir", "some/dir"])
+
+    assert args.arch == "convnext_tiny"
+
+
+def test_parse_args_arch_accepts_resnet50() -> None:
+    args = parse_args(["--results-dir", "some/dir", "--arch", "resnet50"])
+
+    assert args.arch == "resnet50"
+
+
+def test_parse_args_rejects_unknown_arch() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["--results-dir", "some/dir", "--arch", "vgg16"])
+
+
+# --------------------------------------------------------------------------
+# --expected-top1/--expected-top5: fallback self-check target for run
+# directories with no <split>_metrics.csv of their own (e.g. the production
+# champion checkpoint, whose published figures are hardcoded constants
+# elsewhere rather than a metrics CSV in --results-dir).
+# --------------------------------------------------------------------------
+
+
+def test_resolve_recorded_metrics_prefers_metrics_csv_when_present(tmp_path: Path) -> None:
+    metrics_path = tmp_path / "test_metrics.csv"
+    pd.DataFrame([{"top_1_accuracy": 83.9, "top_5_accuracy": 95.78}]).to_csv(
+        metrics_path, index=False
+    )
+
+    recorded, source = resolve_recorded_metrics(
+        metrics_path, expected_top1_pct=78.28, expected_top5_pct=92.65
+    )
+
+    # The metrics CSV wins even though --expected-* was also given.
+    assert recorded == pytest.approx((83.9, 95.78))
+    assert source == str(metrics_path)
+
+
+def test_resolve_recorded_metrics_falls_back_to_expected_when_no_csv(tmp_path: Path) -> None:
+    metrics_path = tmp_path / "test_metrics.csv"
+
+    recorded, source = resolve_recorded_metrics(
+        metrics_path, expected_top1_pct=78.28, expected_top5_pct=92.65
+    )
+
+    assert recorded == pytest.approx((78.28, 92.65))
+    assert source == "--expected-top1/--expected-top5"
+
+
+def test_resolve_recorded_metrics_none_when_neither_available(tmp_path: Path) -> None:
+    metrics_path = tmp_path / "test_metrics.csv"
+
+    recorded, source = resolve_recorded_metrics(
+        metrics_path, expected_top1_pct=None, expected_top5_pct=None
+    )
+
+    assert recorded is None
+    assert source is None
+
+
+def test_resolve_recorded_metrics_rejects_lone_expected_top1(tmp_path: Path) -> None:
+    metrics_path = tmp_path / "test_metrics.csv"
+
+    with pytest.raises(InvalidExpectedMetricsError, match="must be given together"):
+        resolve_recorded_metrics(metrics_path, expected_top1_pct=78.28, expected_top5_pct=None)
+
+
+def test_resolve_recorded_metrics_rejects_lone_expected_top5(tmp_path: Path) -> None:
+    metrics_path = tmp_path / "test_metrics.csv"
+
+    with pytest.raises(InvalidExpectedMetricsError, match="must be given together"):
+        resolve_recorded_metrics(metrics_path, expected_top1_pct=None, expected_top5_pct=92.65)
+
+
+def test_self_check_skipped_message_mentions_both_fallbacks_when_neither_given(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    check_accuracy_matches_recorded(70.0, 80.0, recorded=None)
+
+    output = capsys.readouterr().out
+    assert "no <split>_metrics.csv" in output
+    assert "--expected-top1/--expected-top5" in output
+
+
+def test_self_check_passes_against_expected_fallback_within_tolerance() -> None:
+    check_accuracy_matches_recorded(78.28, 92.65, recorded=(78.28, 92.65))  # must not raise
+
+
+def test_self_check_fails_against_expected_fallback_on_mismatch() -> None:
+    with pytest.raises(AccuracyMismatchError):
+        check_accuracy_matches_recorded(70.0, 80.0, recorded=(78.28, 92.65))
