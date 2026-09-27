@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .decision_rules import route_decision
 from .schemas import Decision, Prediction
 
 DEFAULT_HARD_CLASSES = {
@@ -34,11 +35,20 @@ def build_decision(
     top_2 = predictions[1]
     margin = top_1.confidence - top_2.confidence
     predicted_label = top_1.class_name
-    risky_prediction = any(predicted_label in pair for pair in active_confusion_pairs)
+
+    band = route_decision(
+        top_1.confidence,
+        margin,
+        predicted_label,
+        policy=active_policy,
+        hard_classes=active_hard_classes,
+        confusion_pairs=active_confusion_pairs,
+        mode=mode,
+    )
 
     if mode == "video":
         return Decision(
-            band="confirm",
+            band=band,
             title="Confirm dish",
             recommended_action=(
                 "Ask the user to confirm because sampled frames are not fully aligned."
@@ -46,47 +56,44 @@ def build_decision(
             top_1_top_2_margin=margin,
         )
 
-    if risky_prediction and margin < active_policy["margin_threshold"]:
+    if band == "review":
         return Decision(
-            band="review",
+            band=band,
             title="Review prediction",
             recommended_action="Flag for review because this matches a known confusion risk.",
             top_1_top_2_margin=margin,
         )
 
     if (
-        predicted_label in active_hard_classes
+        band == "confirm"
+        and predicted_label in active_hard_classes
         and top_1.confidence < active_policy["auto_confidence"]
     ):
         return Decision(
-            band="confirm",
+            band=band,
             title="Confirm dish",
             recommended_action="Ask the user to confirm because this is a hard predicted class.",
             top_1_top_2_margin=margin,
         )
 
-    if (
-        top_1.confidence >= active_policy["auto_confidence"]
-        and margin >= active_policy["margin_threshold"]
-        and predicted_label not in active_hard_classes
-    ):
+    if band == "auto_accept":
         return Decision(
-            band="auto_accept",
+            band=band,
             title="Auto-accept",
             recommended_action="Accept the top prediction automatically.",
             top_1_top_2_margin=margin,
         )
 
-    if top_1.confidence >= active_policy["suggest_confidence"]:
+    if band == "suggest":
         return Decision(
-            band="suggest",
+            band=band,
             title="Show suggestions",
             recommended_action="Show ranked suggestions for user selection.",
             top_1_top_2_margin=margin,
         )
 
     return Decision(
-        band="confirm",
+        band=band,
         title="Confirm dish",
         recommended_action="Ask the user to confirm before applying a label.",
         top_1_top_2_margin=margin,
