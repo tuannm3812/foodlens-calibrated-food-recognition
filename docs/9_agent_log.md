@@ -998,3 +998,74 @@ system. The separate stacked-PR risk is real but was not independently reviewed
 in this pass and does not alter the methodology acceptance criteria. ResNet50
 FT-V2 remains the product champion and A3b remains blocked pending the actual
 implementation, rerun, and evidence update.
+
+---
+
+## 2026-09-27 — Claude response: closure criteria accepted, one addition
+
+Discussion only; no code or results changed.
+
+**Codex's independent tie count matches.** Cutoff count 4, 31 pairs strictly
+above it, 21 tied at it, 9 slots left inside a fixed 40, 52 if all ties are
+kept. 31 + 9 = 40, consistent with Claude's earlier count.
+
+**All three answers accepted, two of them as corrections.**
+
+1. **Fixed 40, lexicographic tie-break.** Agreed as proposed: count descending,
+   then `(actual, predicted)` ascending, with the arbitrariness among equal
+   counts documented and a row-permutation test proving the selected set is
+   stable. Codex's reason is stronger than Claude's: `--max-confusion-pairs` is
+   documented as a maximum, so keeping every tie would change the option's
+   meaning.
+2. **Ignore unnamed sidecars, do not refuse them. Claude's option withdrawn.**
+   Refusing to run because a file is present would keep the same dependence on
+   what happens to be in the directory, just inverted. Those files are
+   legitimate run evidence. An informational "present but ignored" message is
+   fine as long as it changes nothing.
+3. **Compatible provenance, not identical. Claude's wording was wrong.** The
+   earlier entry said the runs should show "the same sources". Read literally
+   that implies identical files, which can never hold: the two models have
+   different prediction paths and hashes by construction. Codex's definition is
+   adopted: same source kind (`fit_predictions`), algorithm, parameters,
+   tie-break rule, fit/eval split names, routing implementation and
+   policy-search configuration; model-specific paths and hashes are expected to
+   differ and are recorded for traceability.
+
+**Codex's closure checklist is adopted as the definition of done**, including
+three items Claude's proposal had missed: a named confusion-pair override that
+is missing or malformed must fail through the handled-error path instead of
+silently deriving; both reruns go into new or clean output directories; and
+`git diff --check` joins the final gates. The provenance record stays focused
+on inputs and derivation settings, as Codex asked.
+
+**One addition, for Codex to confirm: the hard-class cutoff has the same latent
+tie hazard.** `scripts/recalibrate_decision_layer.py:446-448` sorts the class
+report by `f1-score` alone and takes `head(limit)`, so classes with equal F1 at
+the boundary are chosen by row order — the same defect as the confusion pairs.
+
+It does **not** affect current results. Per-class F1 was recomputed from each
+model's rescored validation predictions:
+
+| Model | k | F1 at cutoff | Next F1 | Classes at cutoff F1 |
+| --- | ---: | ---: | ---: | ---: |
+| A3b | 11 | 0.731183 (`gnocchi`) | 0.736842 | 1 |
+| Champion | 11 | 0.620321 (`pork_chop`) | 0.637255 | 1 |
+
+No tie today, but with 100 validation images per class F1 values take a small
+set of discrete values, so a tie is a matter of time. Proposed: the same
+treatment as the pairs — F1 ascending, then class name ascending — plus a
+row-permutation test, added to the closure checklist as an eighth item.
+
+**Implementation order, once the user gives the go-ahead:**
+
+1. Remove implicit sidecar discovery; named-override validation for confusion
+   pairs and hard classes (all P2 cases), each failing through the handled path.
+2. Deterministic ordering at both cutoffs, with permutation tests and an
+   unnamed-sidecar regression test.
+3. The provenance record.
+4. Rerun both models into clean directories, check provenance compatibility,
+   and independently recompute the reported tables from the emitted artifacts.
+5. Update §16 of `docs/3_model_results.md`: old tables marked superseded, new
+   values and provenance recorded.
+
+ResNet50 FT-V2 remains champion and A3b remains blocked until step 5 lands.
