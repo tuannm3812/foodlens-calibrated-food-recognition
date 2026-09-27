@@ -785,3 +785,63 @@ reports "All checks passed!", and both `scripts/check_doc_links.py` and
 
 No promotion recommendation is made here. The trade between the two models is
 what section 16 of `docs/3_model_results.md` states, not a decision.
+
+---
+
+## 2026-09-22 — Codex review of Claude's comparison follow-up
+
+Reviewed commits `c196a7d` through `1503600` against the preceding Codex
+findings, the project/master standards, the committed tests, and the retained
+local run artifacts. The hard-class repair is directionally correct: both runs
+now derive 11 hard classes from their own validation predictions through the
+same code path. The result registry now contains the comparison, the conclusion
+is stated per metric, and the rescore command refuses an existing destination
+unless the caller explicitly selects `--overwrite`. Fresh verification at
+`1503600` passed all 148 tests when invoked with the project interpreter as
+`.venv/bin/python -m pytest -q`.
+
+The follow-up does **not** yet close the controlled-comparison review.
+
+1. **P1 — confusion-pair derivation is still asymmetric, so the recorded band
+   metrics are not from an identical pipeline.** `run_analysis()` still
+   auto-discovers `<fit_split>_confusion_pairs.csv` when that optional file is
+   present. The A3b run directory has `val_confusion_pairs.csv`, so its rerun
+   loaded that sidecar; the staged champion directory has no corresponding
+   file, so its 40 pairs were derived live from
+   `val_predictions_rescored.csv`. The underlying A3b predicted labels are the
+   same in the old and rescored validation CSVs, but many pairs tie at the
+   40-pair cutoff (count 4), and the two sort paths choose different tied rows.
+   The emitted A3b `confusion_pairs.json` differs from direct derivation by six
+   pairs in each direction. This is the same optional-file asymmetry pattern
+   that caused the hard-class defect, now one input later in the policy.
+
+   A local counterfactual run forced A3b to derive pairs directly from the
+   rescored fit predictions. It changed validation review coverage/top-1/top-5
+   from **2.45% / 30.77% / 79.76%** to **2.31% / 30.04% / 80.69%**, and test
+   review coverage/top-1/top-5 from **2.19% / 28.05% / 73.30%** to
+   **2.25% / 29.07% / 73.57%**. Confirm-band figures also moved (test top-1
+   42.63% to 42.48%). The high-level ordering described in section 16 does not
+   reverse, but several exact registry values are wrong for a symmetric run.
+   Remove implicit sidecar discovery (or require one explicit, validated
+   derivation policy for both models), add deterministic secondary ordering at
+   tied cutoffs, rerun both models, and update `docs/3_model_results.md` before
+   treating the comparison as closed.
+
+2. **P2 — the new hard-class override contract accepts malformed inputs that it
+   says it rejects.** `--hard-classes-file` is documented as a JSON list, but
+   `load_hard_classes()` iterates any decoded JSON value: `{"steak": true}` is
+   accepted as `{"steak"}`, while `"steak"` is accepted as the five one-letter
+   classes `{"s", "t", "e", "a", "k"}`. A header-only class-report CSV is
+   accepted as an empty hard-class set, and non-numeric `f1-score` values are
+   sorted lexicographically. Malformed JSON syntax also escapes the CLI's
+   handled-error path as a traceback rather than the promised clear validation
+   error. Validate the decoded container, non-empty normalized class names,
+   report rows, and finite numeric F1 values, and cover each failure mode with
+   focused tests.
+
+The overwrite guard itself satisfies the prior review's requested behavior,
+and the existing tests cover refusal, successful replacement, and preservation
+on a failed self-check. The four original findings are therefore three accepted
+closures plus one incomplete methodology closure with an additional validation
+gap. Keep ResNet50 FT-V2 as product champion and keep A3b promotion blocked
+until the confusion-pair rerun and evidence correction are complete.
