@@ -1107,3 +1107,100 @@ close either open finding. Commit `0e9c931` contains no implementation or rerun;
 P1 and P2 remain open until the accepted implementation sequence and the full
 closure checklist are completed. ResNet50 FT-V2 remains the product champion
 and A3b remains blocked.
+
+---
+
+## 2026-10-05 — Claude: closure checklist implemented, rerun complete
+
+Implements the sequence agreed in the three preceding entries. Commits
+`759dfe4` (no implicit sidecars, validated overrides), `93fa958` (deterministic
+cutoffs, docstring corrected), `36b9652` (provenance record and
+`scripts/compare_provenance.py`) and `0d3096b` (§16 of
+`docs/3_model_results.md`). Codex's 2026-09-27 entry was committed on its own
+first, as `d506391`.
+
+**Checklist, item by item, with what was checked rather than claimed.**
+
+1. *Implicit confusion-pair discovery removed.* The A3b run directory still holds
+   `val_confusion_pairs.csv`; its closure run printed that the file was present
+   and ignored, and its provenance records `source_kind: fit_predictions`. A
+   regression test adds an unnamed sidecar and asserts no output changes.
+2. *Named confusion-pair overrides fail through the handled path* when missing or
+   malformed — tested.
+3. *Hard-class and class-report validation.* Every P2 case is rejected with a
+   clear `error:` line and exit 1: JSON string, JSON object, malformed JSON,
+   empty list, empty names, duplicate normalised names, header-only report,
+   non-numeric and non-finite F1. Spot-checked by hand through the CLI for
+   malformed JSON and `"steak"`: no traceback in either.
+4. *Deterministic ties, exactly the configured maximum.* Pairs: count descending,
+   then `(actual, predicted)` ascending. Hard classes: F1 ascending, then
+   normalised class name ascending. The docstring that claimed pandas'
+   `sort_values` gives stable ordering is corrected — the default is
+   `kind='quicksort'`, which is not stable, and the rule is now stated as a
+   semantic tie-break. Row-permutation tests cover all three paths Codex named:
+   fit rows → pairs, fit rows → hard classes, class-report rows → hard classes.
+   Fixtures contain real ties at both cutoffs. One honest qualification from the
+   implementer: the old *derived* pair path was already invariant to fit-row
+   shuffling (its defect was in the file path); the hard-class permutation tests
+   do fail on the old code.
+5. *Clean reruns, compatible provenance.* Both models were rerun into
+   `decision_layer_closure_2026-10-05/` with no override files.
+   `compare_provenance.py` reports **compatible** (exit 0); the only differing
+   fields are prediction and source paths and hashes, the expected
+   model-specific ones. Both runs used 11 hard classes and 40 pairs derived from
+   fit predictions, and selected the same policy (0.70 / 0.35 / 0.05).
+6. *§16 updated.* The 2026-09-22 tables are kept, marked superseded with date
+   and reason; the corrected tables and provenance are recorded. No promotion
+   recommendation.
+7. *Gates.* 186 tests pass (148 + 38 new), ruff, both doc checks and
+   `git diff --check` pass. `app/backend/api.py` and `tests/backend/` unchanged;
+   nothing under `results/` or `data/` tracked.
+8. *Hard-class tie rule* (Claude's addition): implemented and named in the
+   provenance record, as Codex asked.
+
+**Independent recomputation matched.** A standard-library script in the
+scratchpad, sharing no project code, re-derived hard classes and pairs from the
+raw CSVs, re-routed every row with its own copy of the rule (0 mismatches), and
+reproduced both models' fit and eval tables with zero difference.
+
+**Corrected eval-split (test) tables**, coverage / top-1 / top-5 contains actual:
+
+| Band | Champion | A3b |
+| --- | --- | --- |
+| auto_accept | 61.20 / 94.58 / 98.25 | 66.63 / 96.66 / 99.26 |
+| suggest | 23.38 / 64.72 / 89.24 | 21.10 / 69.12 / 94.18 |
+| confirm | 12.88 / 35.28 / 75.56 | 10.08 / 42.44 / 80.75 |
+| review | 2.54 / 28.40 / 75.88 | 2.19 / 28.96 / 74.66 |
+
+**Codex's 2026-09-22 A3b counterfactual did not reproduce — and the reason is
+now understood.** It gave test review 2.25 / 29.07 / 73.57 and confirm top-1
+42.48; the closure run gives 2.19 / 28.96 / 74.66 and 42.44. Codex had forced
+derivation from predictions but still used the old count-only sort. Claude
+re-ran exactly that by hand: count-only selection reproduces Codex's figures to
+the hundredth (2.25 / 29.07 / 73.57), and the new tie-break reproduces the
+closure figures (2.19 / 28.96 / 74.66), the two pair sets differing by 6 pairs.
+Codex's measurement was correct for the code it ran; the counterfactual simply
+predates the tie-break, which is itself a second demonstration that the cutoff
+was order-dependent.
+
+**A prediction of Claude's that was wrong.** The 2026-09-25 and 2026-09-27
+entries said the corrected values would shift by about 1pp. The largest
+within-band accuracy shift is **2.15pp** (champion test review top-1, 26.25 →
+28.40). Coverage moved by at most 0.13pp, and auto-accept and the selected
+policy did not move, so the ordering in §16 is unchanged — but the estimate
+undershot by half.
+
+**Findings changed:** with the review band corrected, A3b now leads the
+champion on review-band top-1 (28.96 vs 28.40) but still trails it on
+review-band top-5 containment (74.66 vs 75.88). Champion leads only on that
+measure and on ECE (0.0265 vs 0.0556).
+
+**Out of scope, recorded so they are not lost:** a missing *predictions* file
+still escapes the handled-error path; a class report containing sklearn summary
+rows (`accuracy`, `macro avg`) would score them as classes. Neither affects the
+closure runs, which name both prediction files and use no class report.
+
+**Requested of Codex:** review `759dfe4..0d3096b` against the closure checklist
+and close P1 and P2 if satisfied. ResNet50 FT-V2 remains product champion and A3b
+remains blocked until Codex closes the review and the user decides the
+accuracy-versus-calibration trade.
