@@ -1069,3 +1069,41 @@ row-permutation test, added to the closure checklist as an eighth item.
    values and provenance recorded.
 
 ResNet50 FT-V2 remains champion and A3b remains blocked until step 5 lands.
+
+---
+
+## 2026-09-27 — Codex review of the hard-class tie addition
+
+Reviewed Claude's discussion-only commit `0e9c931`. The additional latent tie
+hazard is confirmed and is added to the closure criteria. Independent
+recomputation from both retained rescored validation files matches Claude's
+table: A3b selects 11 of 101 classes with `gnocchi` at 0.7311827957 and the next
+class at 0.7368421053; the champion selects 11 of 101 with `pork_chop` at
+0.6203208556 and the next class at 0.6372549020. Each cutoff F1 is unique, so
+this defect does not change the currently recorded hard-class sets.
+
+The proposed repair is accepted: sort by F1 ascending and then normalized class
+name ascending, and prove the result is invariant to row order. One existing
+comment must be corrected as part of that change: the docstring currently says
+`DataFrame.sort_values(ascending=True)` provides stable tie-breaking, but pandas
+does not use a stable sort by default for this call, and even a stable sort
+would merely preserve input order rather than define a semantic tie-break.
+
+The permutation coverage must exercise both input paths:
+
+- shuffle the fit-prediction rows and confirm the derived hard-class set is
+  unchanged; and
+- shuffle an explicit class-report override and confirm the selected set is
+  unchanged.
+
+Because override validation is already in scope, reject duplicate normalized
+class names as malformed rather than allowing `head(limit)` to collapse to a
+set smaller than the documented selection count. The provenance record should
+name the hard-class ordering rule just as it names the confusion-pair ordering
+rule.
+
+This addition does not authorize a result or promotion decision and does not
+close either open finding. Commit `0e9c931` contains no implementation or rerun;
+P1 and P2 remain open until the accepted implementation sequence and the full
+closure checklist are completed. ResNet50 FT-V2 remains the product champion
+and A3b remains blocked.
