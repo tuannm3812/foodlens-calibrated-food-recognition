@@ -555,6 +555,13 @@ hard-class derivation between the two runs. This section records the
 comparison rerun after that fix, with the champion put through the identical
 pipeline A3b went through.
 
+A later Codex review (`docs/9_agent_log.md`, 2026-09-22) found the first
+rerun's confusion pairs were still derived asymmetrically: A3b's run picked up
+an unnamed `val_confusion_pairs.csv` sidecar, the champion's derived pairs
+from its predictions, and pairs tied at the 40-pair cutoff were chosen by row
+order. The band tables below were rerun on 2026-10-05 after that was fixed;
+the 2026-09-22 tables are kept further down, marked superseded.
+
 **Provenance.**
 
 - Checkpoints: `app/artifacts/resnet50_ft_v2_best.pth` (staged as
@@ -582,7 +589,32 @@ pipeline A3b went through.
   computed directly from the fit split's own predictions
   (`class_f1_table()`/`select_hard_classes_by_f1()` in
   `scripts/recalibrate_decision_layer.py`). Neither run used a
-  `--class-report-file`/`--hard-classes-file` override.
+  `--class-report-file`/`--hard-classes-file` override. Ties at the cutoff
+  are broken by F1 ascending, then class name ascending (no tie occurs at
+  either model's cutoff today: A3b's 11th class is `gnocchi` at 0.7312, the
+  champion's `pork_chop` at 0.6203, each with a unique F1).
+- Confusion pairs (2026-10-05 rerun): both derived from the fit split's own
+  predictions, the 40 most frequent `(actual, predicted)` errors, ranked by
+  count descending and then `(actual, predicted)` ascending. That secondary
+  order is arbitrary among equal counts, but it is fixed, so the selection no
+  longer depends on row order. Neither run used `--confusion-pairs-file`; A3b's
+  `val_confusion_pairs.csv` is still in its run directory and was reported as
+  present and ignored.
+- Output directories (2026-10-05 rerun):
+  `results/accuracy_phase1/champion_resnet50_ft_v2/decision_layer_closure_2026-10-05/`
+  and
+  `results/accuracy_phase1/a3b_convnext_tiny_continued_224/decision_layer_closure_2026-10-05/`,
+  both new. Each holds a `derivation_provenance.json`.
+- Provenance check: `scripts/compare_provenance.py` reports the two
+  `derivation_provenance.json` files **compatible**. The only differences are
+  the model-specific prediction paths and SHA-256 hashes; source kind
+  (`fit_predictions` for both inputs), algorithms, parameters, tie-break rules,
+  split names, routing function and policy-search grid all match.
+- Independent check: re-routing every row from the emitted
+  `decision_policy.json`, `hard_classes.json` and `confusion_pairs.json` with a
+  standalone re-implementation of the routing rule (standard library only)
+  reproduced every row's band and every value in the four band tables below
+  exactly.
 - Selected policy, both models: auto-accept confidence 0.70, suggest
   confidence 0.35, top-1/top-2 margin 0.05.
 - ECE: 15 equal-width bins over temperature-scaled top-1 confidence (the
@@ -596,7 +628,51 @@ pipeline A3b went through.
 | ResNet50 FT-V2 champion | 11 | derived from fit-split (val) predictions, bottom 10% by F1 |
 | A3b ConvNeXt-Tiny continued | 11 | derived from fit-split (val) predictions, bottom 10% by F1 |
 
-**Fit-split (val) band metrics, thresholds selected here:**
+**Fit-split (val) band metrics, thresholds selected here (2026-10-05 rerun):**
+
+| Model | Band | Coverage | Top-1 | Top-5 contains actual |
+| --- | --- | ---: | ---: | ---: |
+| Champion | auto_accept | 61.20% | 94.16% | 98.14% |
+| Champion | suggest | 23.39% | 64.52% | 89.63% |
+| Champion | confirm | 12.87% | 36.00% | 73.23% |
+| Champion | review | 2.54% | 21.79% | 75.10% |
+| A3b | auto_accept | 67.14% | 96.73% | 99.41% |
+| A3b | suggest | 20.12% | 67.47% | 94.29% |
+| A3b | confirm | 10.46% | 45.45% | 82.01% |
+| A3b | review | 2.29% | 32.47% | 81.39% |
+
+**Eval-split (test) band metrics, frozen policy scored once (2026-10-05 rerun):**
+
+| Model | Band | Coverage | Top-1 | Top-5 contains actual |
+| --- | --- | ---: | ---: | ---: |
+| Champion | auto_accept | 61.20% | 94.58% | 98.25% |
+| Champion | suggest | 23.38% | 64.72% | 89.24% |
+| Champion | confirm | 12.88% | 35.28% | 75.56% |
+| Champion | review | 2.54% | 28.40% | 75.88% |
+| A3b | auto_accept | 66.63% | 96.66% | 99.26% |
+| A3b | suggest | 21.10% | 69.12% | 94.18% |
+| A3b | confirm | 10.08% | 42.44% | 80.75% |
+| A3b | review | 2.19% | 28.96% | 74.66% |
+
+The selected policy did not change (0.70 / 0.35 / 0.05 for both models), and
+neither did either model's hard-class set or its auto-accept band, which the
+confusion pairs do not reach (the review rule only applies below the 0.05
+margin that auto-accept requires). Only the three lower bands moved: coverage
+by at most 0.13pp, and within-band accuracy by up to 2.15pp, the largest in the
+review band, which carries about 2.5% of traffic. Codex's 2026-09-22 counterfactual for A3b (test review 2.25% /
+29.07% / 73.57%, confirm top-1 42.48%) is **not** reproduced by these numbers,
+and the difference is explained: that counterfactual derived pairs with the
+old count-only sort. Recomputing with that sort reproduces Codex's figures
+exactly. The fixed tie-break picks a different 6 of A3b's 21 pairs tied at
+count 4, and a different 8 of the champion's tied pairs.
+
+**Superseded (2026-09-22 rerun; superseded 2026-10-05).** Kept for the
+evidence trail, not to be quoted. Confusion pairs were not derived the same
+way for both models: A3b's came from the unnamed `val_confusion_pairs.csv`
+sidecar, the champion's from its predictions, and both broke ties at the
+cutoff by row order. The tables above replace them.
+
+*Superseded* fit-split (val) band metrics:
 
 | Model | Band | Coverage | Top-1 | Top-5 contains actual |
 | --- | --- | ---: | ---: | ---: |
@@ -609,7 +685,7 @@ pipeline A3b went through.
 | A3b | confirm | 10.34% | 46.07% | 82.47% |
 | A3b | review | 2.45% | 30.77% | 79.76% |
 
-**Eval-split (test) band metrics, frozen policy scored once:**
+*Superseded* eval-split (test) band metrics:
 
 | Model | Band | Coverage | Top-1 | Top-5 contains actual |
 | --- | --- | ---: | ---: | ---: |
@@ -634,9 +710,10 @@ Stated per metric rather than per band (an earlier agent-log entry claimed
 "A3b is better on every decision band", which is false -- see
 `docs/9_agent_log.md`, 2026-09-14, for the correction): A3b leads auto-accept
 coverage, and leads top-1 accuracy and top-5-contains-actual in every band
-except review, where the champion's top-5-contains-actual (76.83%) is higher
-than A3b's (73.30%) even though A3b's review-band top-1 (28.05% vs. 26.25%)
-is higher. A3b leads both overall accuracy metrics (test top-1 and top-5).
+except review, where the champion's top-5-contains-actual (75.88%) is higher
+than A3b's (74.66%) even though A3b's review-band top-1 (28.96% vs. 28.40%)
+is higher. These are the 2026-10-05 figures; the same pattern held in the
+superseded tables. A3b leads both overall accuracy metrics (test top-1 and top-5).
 The champion leads calibrated ECE by roughly 2x.
 
 These numbers do not by themselves settle a promotion decision; this section
