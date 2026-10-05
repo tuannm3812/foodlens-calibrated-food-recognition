@@ -277,3 +277,105 @@ def test_missing_named_override_files_fail_through_handled_path(
     _assert_handled_failure(
         capsys, results_dir, "--class-report-file", "nope.csv", needle="does not exist"
     )
+
+
+# --------------------------------------------------------------------------
+# C. Deterministic cutoffs: row-permutation invariance with real ties.
+# --------------------------------------------------------------------------
+
+# class_00..class_09 each have 2 errors, class_10..class_19 have 1. That puts
+# ten confusion pairs at count 2 (so a cutoff of 7 splits a tie), and nine
+# classes (class_01..class_09: TP 18, FN 2, FP 2) at the lowest F1, so the
+# five-class hard cutoff splits a tie too. Each test asserts the tie first;
+# without it, permutation invariance would hold trivially and prove nothing.
+TIED_ERRORS = {label: (2 if i < 10 else 1) for i, label in enumerate(LABELS)}
+TIED_MAX_PAIRS = 7
+SEEDS = range(8)
+
+
+def _tied_fit_frame() -> pd.DataFrame:
+    frame = pd.DataFrame(_prediction_rows(TIED_ERRORS))
+    return recalibrate_decision_layer.normalize_actual_col(frame)[0]
+
+
+def _shuffled(frame: pd.DataFrame, seed: int) -> pd.DataFrame:
+    return frame.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+
+
+def test_confusion_pair_fixture_has_a_tie_spanning_the_cutoff() -> None:
+    counts = recalibrate_decision_layer.count_confusion_pairs(_tied_fit_frame())
+    ranked = counts.sort_values("count", ascending=False)["count"].tolist()
+    cutoff = ranked[TIED_MAX_PAIRS - 1]
+    assert ranked[TIED_MAX_PAIRS] == cutoff  # tied across the boundary
+    assert ranked.count(cutoff) > TIED_MAX_PAIRS - ranked.index(cutoff)
+
+
+def test_confusion_pairs_keep_exactly_the_maximum_when_ties_span_the_cutoff(
+    tmp_path: Path,
+) -> None:
+    pairs, source = recalibrate_decision_layer.load_confusion_pairs(
+        _tied_fit_frame(), tmp_path, None, max_pairs=TIED_MAX_PAIRS
+    )
+    assert source == {"kind": "fit_predictions"}
+    assert len(pairs) == TIED_MAX_PAIRS
+    # Ten pairs tie at count 2; label order picks the first seven.
+    assert pairs == {(LABELS[i], LABELS[i + 1]) for i in range(TIED_MAX_PAIRS)}
+
+
+def test_confusion_pairs_invariant_to_fit_prediction_row_order(tmp_path: Path) -> None:
+    frame = _tied_fit_frame()
+    expected, _ = recalibrate_decision_layer.load_confusion_pairs(
+        frame, tmp_path, None, max_pairs=TIED_MAX_PAIRS
+    )
+    for seed in SEEDS:
+        shuffled, _ = recalibrate_decision_layer.load_confusion_pairs(
+            _shuffled(frame, seed), tmp_path, None, max_pairs=TIED_MAX_PAIRS
+        )
+        assert shuffled == expected, seed
+
+
+def test_named_confusion_pair_file_invariant_to_row_order(tmp_path: Path) -> None:
+    counts = recalibrate_decision_layer.count_confusion_pairs(_tied_fit_frame())
+    results = set()
+    for seed in SEEDS:
+        _shuffled(counts, seed).to_csv(tmp_path / f"pairs_{seed}.csv", index=False)
+        pairs, source = recalibrate_decision_layer.load_confusion_pairs(
+            pd.DataFrame(), tmp_path, f"pairs_{seed}.csv", max_pairs=TIED_MAX_PAIRS
+        )
+        assert source["kind"] == "confusion_pairs_file"
+        assert len(pairs) == TIED_MAX_PAIRS
+        results.add(frozenset(pairs))
+    assert len(results) == 1
+
+
+def _hard_class_cutoff_is_tied(report: pd.DataFrame) -> bool:
+    ranked = sorted(report["f1-score"].tolist())
+    limit = max(5, -(-len(ranked) // 10))
+    return ranked[limit - 1] == ranked[limit]
+
+
+def test_derived_hard_classes_invariant_to_fit_prediction_row_order(tmp_path: Path) -> None:
+    frame = _tied_fit_frame()
+    assert _hard_class_cutoff_is_tied(recalibrate_decision_layer.class_f1_table(frame))
+    expected, _ = recalibrate_decision_layer.load_hard_classes(tmp_path, None, None, frame)
+    # Nine classes tie at the lowest F1; name order picks the first five.
+    assert expected == {f"class_0{i}" for i in range(1, 6)}
+    for seed in SEEDS:
+        derived, _ = recalibrate_decision_layer.load_hard_classes(
+            tmp_path, None, None, _shuffled(frame, seed)
+        )
+        assert derived == expected, seed
+
+
+def test_class_report_override_invariant_to_row_order(tmp_path: Path) -> None:
+    report = recalibrate_decision_layer.class_f1_table(_tied_fit_frame())
+    assert _hard_class_cutoff_is_tied(report)
+    results = set()
+    for seed in SEEDS:
+        _shuffled(report, seed).to_csv(tmp_path / f"report_{seed}.csv", index=False)
+        selected, _ = recalibrate_decision_layer.load_hard_classes(
+            tmp_path, None, f"report_{seed}.csv", pd.DataFrame()
+        )
+        assert len(selected) == 5
+        results.add(frozenset(selected))
+    assert results == {frozenset(f"class_0{i}" for i in range(1, 6))}

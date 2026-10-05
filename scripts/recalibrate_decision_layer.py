@@ -126,6 +126,24 @@ MIN_AUTO_ACCEPT_ACCURACY = 0.90
 MIN_SUGGEST_ACCURACY = 0.80
 ZIP_NAME = "decision_layer_artifacts.zip"
 
+# Hard classes: the bottom HARD_CLASS_FRACTION of classes by F1, at least
+# HARD_CLASS_MINIMUM. Both cutoffs below use an explicit total order, so the
+# selected set depends only on the values, never on input row order. Among
+# entries tied exactly at a cutoff the secondary key is an arbitrary but
+# fixed choice; it carries no meaning beyond making the result reproducible.
+HARD_CLASS_FRACTION = 0.1
+HARD_CLASS_MINIMUM = 5
+HARD_CLASS_TIE_BREAK = (
+    "f1-score ascending, then normalised class name ascending (Unicode code "
+    "point order); keep the first max(minimum, ceil(fraction * n_classes)). "
+    "The name order is arbitrary among classes with equal F1 at the cutoff."
+)
+CONFUSION_PAIR_TIE_BREAK = (
+    "count descending, then (actual, predicted) ascending (Unicode code point "
+    "order); keep exactly the first max_pairs. The label order is arbitrary "
+    "among pairs with equal count at the cutoff."
+)
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -258,7 +276,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--max-confusion-pairs",
         default=40,
         type=int,
-        help="Maximum frequent confusion pairs included as review risk",
+        help=(
+            "Number of most frequent confusion pairs included as review risk "
+            "(fewer only if fewer exist). Ranked by count descending, then "
+            "(actual, predicted) ascending, so pairs tied at the cutoff are "
+            "chosen by label order -- arbitrary, but independent of row order."
+        ),
     )
     parser.add_argument(
         "--no-zip",
@@ -412,8 +435,8 @@ def class_f1_table(predictions: pd.DataFrame) -> pd.DataFrame:
     diverged for -- 11 hard classes for one, 5 for the other).
 
     Every class appearing as either an actual or a predicted label is
-    scored. Rows are `class_name`-sorted before `select_hard_classes_by_f1()`
-    sorts by F1, so the tie-breaking on equal F1 scores is deterministic.
+    scored. Tie-breaking on equal F1 is `select_hard_classes_by_f1()`'s job
+    (by class name), so this table's row order does not matter.
 
     Args:
         predictions: A predictions frame with `actual` and `predicted`
@@ -457,14 +480,24 @@ def select_hard_classes_by_f1(class_report: pd.DataFrame) -> set[str]:
 
     This is the one selection rule, shared by the explicit
     `--class-report-file` path and the default derive-from-fit-predictions
-    path (`class_f1_table()`), so both apply identical tie-breaking
-    (`DataFrame.sort_values(ascending=True)`'s stable ordering on ties) and
-    rounding (`max(5, ceil(0.1 * n))`) -- the two paths can never disagree
-    about what "bottom 10%" means, only about where the F1 numbers came from.
+    path (`class_f1_table()`), so both apply identical ordering and rounding
+    (`max(HARD_CLASS_MINIMUM, ceil(HARD_CLASS_FRACTION * n))`) -- the two
+    paths can never disagree about what "bottom 10%" means, only about where
+    the F1 numbers came from.
+
+    Ordering is F1 ascending, then normalised class name ascending (see
+    `HARD_CLASS_TIE_BREAK`). The name is a semantic tie-break, not an
+    appeal to sort stability: a stable sort would merely preserve whatever
+    order the rows arrived in, and pandas' default `sort_values` is not
+    stable anyway. With the name as secondary key, the selected set is the
+    same for any permutation of the input rows. Which of several classes
+    tied at the cutoff F1 gets in is still arbitrary -- it is just fixed.
 
     Raises:
         HardClassDerivationError: If `class_report` lacks `class_name` or
-            `f1-score` columns.
+            `f1-score` columns, has no rows, has empty or duplicate
+            (normalised) class names, or has an F1 that is not a finite
+            number.
     """
     if not {"class_name", "f1-score"} <= set(class_report.columns):
         raise HardClassDerivationError(
@@ -506,10 +539,12 @@ def select_hard_classes_by_f1(class_report: pd.DataFrame) -> set[str]:
             f"{', '.join(bad[:5])}."
         )
 
-    low_f1 = pd.DataFrame({"class_name": names, "f1-score": f1_scores.astype(float)})
-    low_f1 = low_f1.sort_values("f1-score", ascending=True)
-    limit = max(5, math.ceil(0.1 * len(low_f1)))
-    return set(low_f1.head(limit)["class_name"].tolist())
+    ordered = sorted(
+        zip(f1_scores.astype(float), names, strict=True),
+        key=lambda item: (item[0], item[1]),
+    )
+    limit = max(HARD_CLASS_MINIMUM, math.ceil(HARD_CLASS_FRACTION * len(ordered)))
+    return {name for _, name in ordered[:limit]}
 
 
 def parse_hard_classes_json(text: str, path: Path) -> set[str]:
@@ -781,17 +816,28 @@ def load_confusion_pairs(
         pair_frame = count_confusion_pairs(predictions)
         source = {"kind": "fit_predictions"}
 
-    if pair_frame.empty:
-        return set(), source
-    pair_frame = pair_frame.sort_values("count", ascending=False).head(max_pairs)
+    return select_top_confusion_pairs(pair_frame, max_pairs), source
 
-    pairs = {
-        (str(actual), str(predicted))
-        for actual, predicted in pair_frame[["actual", "predicted"]].itertuples(
-            index=False, name=None
-        )
-    }
-    return pairs, source
+
+def select_top_confusion_pairs(pair_frame: pd.DataFrame, max_pairs: int) -> set[tuple[str, str]]:
+    """Keep exactly `max_pairs` pairs (or all, if fewer) by `CONFUSION_PAIR_TIE_BREAK`.
+
+    Sorted by count descending, then `(actual, predicted)` ascending. The
+    label order only decides among pairs whose count ties at the cutoff, and
+    that choice is arbitrary but fixed: the result is the same for any
+    permutation of the input rows. Keeping every tied pair instead would
+    make `--max-confusion-pairs` no longer a maximum.
+    """
+    ordered = sorted(
+        (
+            (float(count), str(actual), str(predicted))
+            for actual, predicted, count in pair_frame[
+                ["actual", "predicted", "count"]
+            ].itertuples(index=False, name=None)
+        ),
+        key=lambda item: (-item[0], item[1], item[2]),
+    )
+    return {(actual, predicted) for _, actual, predicted in ordered[:max_pairs]}
 
 
 def assign_decision_band(
