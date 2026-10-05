@@ -12,6 +12,8 @@ artifact bundle matching the app contract:
 - decision_band_metrics_fit.csv
 - decision_band_metrics_eval.csv
 - decision_examples_<band>.csv
+- derivation_provenance.json (inputs and derivation settings; see
+  `build_provenance()` and scripts/compare_provenance.py)
 
 The threshold grid search, hard classes and confusion pairs are derived from
 the fit split (`--fit-split`, default `val`) alone; the selected policy is
@@ -29,6 +31,7 @@ that leaks.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -601,7 +604,7 @@ def load_hard_classes(
     hard_classes_file: str | None,
     class_report_file: str | None,
     fit_predictions: pd.DataFrame,
-) -> tuple[set[str], str]:
+) -> tuple[set[str], dict[str, str]]:
     """Resolve the hard-class set and where it came from.
 
     Precedence, each an explicit ask rather than a silent guess:
@@ -626,9 +629,9 @@ def load_hard_classes(
     docs/9_agent_log.md, the 2026-09-14 Codex review.
 
     Returns:
-        `(hard_classes, source)` -- `source` is a short, human-readable
-        description of which of the three paths produced the result, for
-        logging at run start.
+        `(hard_classes, source)` -- `source` has `kind` (`hard_classes_file`,
+        `class_report_file` or `fit_predictions`) and, for a named file, its
+        resolved `path`. It feeds the run's provenance record.
 
     Raises:
         HardClassDerivationError: If `hard_classes_file`/`class_report_file`
@@ -642,7 +645,10 @@ def load_hard_classes(
             path = results_dir / path
         if not path.exists():
             raise HardClassDerivationError(f"--hard-classes-file {path} does not exist.")
-        return parse_hard_classes_json(path.read_text(), path), f"--hard-classes-file {path}"
+        return (
+            parse_hard_classes_json(path.read_text(), path),
+            {"kind": "hard_classes_file", "path": str(path)},
+        )
 
     if class_report_file:
         path = Path(class_report_file)
@@ -660,7 +666,7 @@ def load_hard_classes(
             selected = select_hard_classes_by_f1(normalize_class_report(report))
         except HardClassDerivationError as exc:
             raise HardClassDerivationError(f"--class-report-file {path}: {exc}") from exc
-        return selected, f"--class-report-file {path}"
+        return selected, {"kind": "class_report_file", "path": str(path)}
 
     if not {"actual", "predicted"} <= set(fit_predictions.columns):
         raise HardClassDerivationError(
@@ -669,10 +675,7 @@ def load_hard_classes(
             "nor --class-report-file was given. Pass one of those explicitly."
         )
     class_report = class_f1_table(fit_predictions)
-    return (
-        select_hard_classes_by_f1(class_report),
-        "derived from fit-split predictions (bottom 10% by F1)",
-    )
+    return select_hard_classes_by_f1(class_report), {"kind": "fit_predictions"}
 
 
 class ConfusionPairsError(DerivationInputError):
@@ -1109,6 +1112,126 @@ def score_split(
     return scored, decision_band_metrics(scored)
 
 
+PROVENANCE_FILE = "derivation_provenance.json"
+PROVENANCE_SCHEMA_VERSION = 1
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _file_record(path: Path) -> dict[str, str]:
+    return {"path": str(path), "sha256": sha256_file(path)}
+
+
+def build_provenance(
+    *,
+    fit_split: str,
+    eval_split: str,
+    fit_predictions_path: Path,
+    eval_predictions_path: Path,
+    hard_class_source: dict[str, str],
+    confusion_pair_source: dict[str, str],
+    max_confusion_pairs: int,
+) -> dict[str, object]:
+    """Record every input and derivation setting that shapes the policy.
+
+    Deliberately limited to inputs and derivation settings, not general run
+    management. Two runs are *compatible* (see scripts/compare_provenance.py)
+    when everything matches except the model-specific `path`/`sha256` of the
+    prediction files and override sources -- those differ between models by
+    construction and are recorded for traceability, not for equality.
+    """
+    if hard_class_source["kind"] == "fit_predictions":
+        hard_source_path = fit_predictions_path
+    else:
+        hard_source_path = Path(hard_class_source["path"])
+    if hard_class_source["kind"] == "hard_classes_file":
+        hard_algorithm = "explicit_list"
+        hard_parameters: dict[str, object] = {}
+        hard_tie_break = "not applicable: the named list is used as-is"
+    else:
+        hard_algorithm = "bottom_fraction_by_f1"
+        hard_parameters = {"fraction": HARD_CLASS_FRACTION, "minimum": HARD_CLASS_MINIMUM}
+        hard_tie_break = HARD_CLASS_TIE_BREAK
+
+    if confusion_pair_source["kind"] == "fit_predictions":
+        pair_source_path = fit_predictions_path
+        pair_algorithm = "most_frequent_fit_errors"
+    else:
+        pair_source_path = Path(confusion_pair_source["path"])
+        pair_algorithm = "top_named_pairs_by_count"
+
+    routing_module = route_decision.__module__
+    routing_file = Path(sys.modules[routing_module].__file__ or "")
+    return {
+        "schema_version": PROVENANCE_SCHEMA_VERSION,
+        "generator": "scripts/recalibrate_decision_layer.py",
+        "splits": {"fit": fit_split, "eval": eval_split},
+        "predictions": {
+            "fit": _file_record(fit_predictions_path),
+            "eval": _file_record(eval_predictions_path),
+        },
+        "hard_classes": {
+            "source_kind": hard_class_source["kind"],
+            "source": _file_record(hard_source_path),
+            "algorithm": hard_algorithm,
+            "parameters": hard_parameters,
+            "tie_break": hard_tie_break,
+        },
+        "confusion_pairs": {
+            "source_kind": confusion_pair_source["kind"],
+            "source": _file_record(pair_source_path),
+            "algorithm": pair_algorithm,
+            "parameters": {"max_pairs": max_confusion_pairs},
+            "tie_break": CONFUSION_PAIR_TIE_BREAK,
+        },
+        "routing": {
+            "module": routing_module,
+            "function": route_decision.__name__,
+            "mode": "image",
+            "module_sha256": sha256_file(routing_file) if routing_file.is_file() else None,
+        },
+        "policy_search": {
+            "auto_confidence_grid": [float(v) for v in AUTO_CONFIDENCE_GRID],
+            "suggest_confidence_grid": [float(v) for v in SUGGEST_CONFIDENCE_GRID],
+            "margin_grid": [float(v) for v in MARGIN_GRID],
+            "constraint": "suggest_confidence < auto_confidence",
+            "min_auto_accept_accuracy": MIN_AUTO_ACCEPT_ACCURACY,
+            "min_suggest_accuracy": MIN_SUGGEST_ACCURACY,
+            "objective": "2 * auto_accept_coverage + suggest_coverage - 0.5 * review_coverage",
+        },
+    }
+
+
+def format_provenance_summary(provenance: dict[str, object]) -> str:
+    """A short human-readable digest of `provenance` for the run log."""
+    splits = provenance["splits"]
+    predictions = provenance["predictions"]
+    hard = provenance["hard_classes"]
+    pairs = provenance["confusion_pairs"]
+    routing = provenance["routing"]
+    return "\n".join(
+        [
+            "Derivation provenance:",
+            f"  splits: fit={splits['fit']} eval={splits['eval']}",
+            f"  fit predictions:  {predictions['fit']['path']} "
+            f"(sha256 {predictions['fit']['sha256'][:12]})",
+            f"  eval predictions: {predictions['eval']['path']} "
+            f"(sha256 {predictions['eval']['sha256'][:12]})",
+            f"  hard classes: {hard['source_kind']} -> {hard['algorithm']} "
+            f"{hard['parameters']}",
+            f"  confusion pairs: {pairs['source_kind']} -> {pairs['algorithm']} "
+            f"{pairs['parameters']}",
+            f"  routing: {routing['module']}.{routing['function']}",
+        ]
+    )
+
+
 def report_unnamed_sidecars(
     results_dir: Path,
     fit_split: str,
@@ -1180,8 +1303,9 @@ def run_analysis(
         results_dir, hard_classes_file, class_report_file, fit_predictions
     )
     print(
-        f"Hard classes in use ({len(hard_classes)}, source: {hard_class_source}): "
-        f"{sorted(hard_classes)}"
+        f"Hard classes in use ({len(hard_classes)}, source: {hard_class_source['kind']}"
+        + (f" {hard_class_source['path']}" if "path" in hard_class_source else "")
+        + f"): {sorted(hard_classes)}"
     )
 
     # Derived from the fit split's predictions only -- never the eval split's
@@ -1202,6 +1326,21 @@ def run_analysis(
         + (f" {confusion_pair_source['path']}" if "path" in confusion_pair_source else "")
         + ")"
     )
+
+    provenance = build_provenance(
+        fit_split=fit_split,
+        eval_split=eval_split,
+        fit_predictions_path=resolve_predictions_path(
+            results_dir, fit_split, fit_predictions_file
+        ),
+        eval_predictions_path=resolve_predictions_path(
+            results_dir, eval_split, eval_predictions_file
+        ),
+        hard_class_source=hard_class_source,
+        confusion_pair_source=confusion_pair_source,
+        max_confusion_pairs=max_confusion_pairs,
+    )
+    print(format_provenance_summary(provenance))
 
     features_fit = build_features(fit_predictions, hard_classes, confusion_pairs)
     features_eval = build_features(eval_predictions, hard_classes, confusion_pairs)
@@ -1261,6 +1400,7 @@ def run_analysis(
     ]
     (output_dir / "confusion_pairs.json").write_text(json.dumps(confusion_records, indent=2))
     (output_dir / "hard_classes.json").write_text(json.dumps(sorted(hard_classes), indent=2))
+    (output_dir / PROVENANCE_FILE).write_text(json.dumps(provenance, indent=2) + "\n")
 
     confusion_df = pd.DataFrame(confusion_records)
     if not confusion_df.empty:
@@ -1290,6 +1430,7 @@ def run_analysis(
             "confusion_pairs.json",
             "hard_classes.json",
             "decision_policy.json",
+            PROVENANCE_FILE,
         ]
         with zipfile.ZipFile(zip_path, "w") as archive:
             for artifact_name in artifact_files:

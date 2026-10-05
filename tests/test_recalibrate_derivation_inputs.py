@@ -379,3 +379,101 @@ def test_class_report_override_invariant_to_row_order(tmp_path: Path) -> None:
         assert len(selected) == 5
         results.add(frozenset(selected))
     assert results == {frozenset(f"class_0{i}" for i in range(1, 6))}
+
+
+# --------------------------------------------------------------------------
+# D. Provenance record and the compatibility helper.
+# --------------------------------------------------------------------------
+
+COMPARE_PATH = SCRIPT_PATH.parent / "compare_provenance.py"
+_compare_spec = importlib.util.spec_from_file_location("compare_provenance", COMPARE_PATH)
+assert _compare_spec is not None and _compare_spec.loader is not None
+compare_provenance_module = importlib.util.module_from_spec(_compare_spec)
+_compare_spec.loader.exec_module(compare_provenance_module)
+
+
+def _provenance_for(results_dir: Path, *extra: str) -> dict:
+    import json
+
+    _run_main(results_dir, *extra)
+    return json.loads((results_dir / "out" / "derivation_provenance.json").read_text())
+
+
+def test_provenance_records_sources_settings_and_hashes(tmp_path: Path) -> None:
+    import hashlib
+
+    results_dir = _make_run_dir(tmp_path / "run")
+    provenance = _provenance_for(results_dir, "--max-confusion-pairs", "6")
+
+    fit_path = results_dir / "val_predictions.csv"
+    fit_hash = hashlib.sha256(fit_path.read_bytes()).hexdigest()
+    assert provenance["splits"] == {"fit": "val", "eval": "test"}
+    assert provenance["predictions"]["fit"] == {"path": str(fit_path), "sha256": fit_hash}
+    assert provenance["hard_classes"]["source_kind"] == "fit_predictions"
+    assert provenance["hard_classes"]["source"]["sha256"] == fit_hash
+    assert provenance["hard_classes"]["parameters"] == {"fraction": 0.1, "minimum": 5}
+    assert "class name ascending" in provenance["hard_classes"]["tie_break"]
+    assert provenance["confusion_pairs"]["source_kind"] == "fit_predictions"
+    assert provenance["confusion_pairs"]["parameters"] == {"max_pairs": 6}
+    assert "(actual, predicted) ascending" in provenance["confusion_pairs"]["tie_break"]
+    assert provenance["routing"]["module"] == "app.backend.decision_rules"
+    assert provenance["routing"]["function"] == "route_decision"
+    assert provenance["policy_search"]["auto_confidence_grid"][0] == 0.7
+
+
+def test_provenance_names_an_explicit_confusion_pair_file(tmp_path: Path) -> None:
+    results_dir = _make_run_dir(tmp_path / "run")
+    pd.DataFrame(
+        {"true_label": ["class_00"], "pred_label": ["class_19"], "count": [3]}
+    ).to_csv(results_dir / "val_confusion_pairs.csv", index=False)
+    provenance = _provenance_for(
+        results_dir, "--confusion-pairs-file", "val_confusion_pairs.csv"
+    )
+    assert provenance["confusion_pairs"]["source_kind"] == "confusion_pairs_file"
+    assert provenance["confusion_pairs"]["source"]["path"] == str(
+        results_dir / "val_confusion_pairs.csv"
+    )
+
+
+def test_compare_provenance_compatible_when_only_model_paths_and_hashes_differ(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    first = _provenance_for(_make_run_dir(tmp_path / "a", DEFAULT_ERRORS))
+    second = _provenance_for(_make_run_dir(tmp_path / "b", TIED_ERRORS))
+    incompatible, model_specific = compare_provenance_module.compare_provenance(first, second)
+    assert incompatible == []
+    assert "predictions.fit.sha256" in model_specific
+    assert "predictions.fit.path" in model_specific
+
+    (tmp_path / "a.json").write_text(json.dumps(first))
+    (tmp_path / "b.json").write_text(json.dumps(second))
+    assert compare_provenance_module.main([str(tmp_path / "a.json"), str(tmp_path / "b.json")]) == 0
+    assert capsys.readouterr().out.strip().endswith("compatible")
+
+
+def test_compare_provenance_incompatible_when_an_algorithm_parameter_differs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    first = _provenance_for(_make_run_dir(tmp_path / "a"))
+    second = _provenance_for(_make_run_dir(tmp_path / "b"), "--max-confusion-pairs", "3")
+    incompatible, _ = compare_provenance_module.compare_provenance(first, second)
+    assert incompatible == ["confusion_pairs.parameters.max_pairs"]
+
+    (tmp_path / "a.json").write_text(json.dumps(first))
+    (tmp_path / "b.json").write_text(json.dumps(second))
+    assert compare_provenance_module.main([str(tmp_path / "a.json"), str(tmp_path / "b.json")]) == 1
+    assert "incompatible: confusion_pairs.parameters.max_pairs" in capsys.readouterr().out
+
+
+def test_compare_provenance_incompatible_when_source_kind_differs(tmp_path: Path) -> None:
+    first = _provenance_for(_make_run_dir(tmp_path / "a"))
+    results_dir = _make_run_dir(tmp_path / "b")
+    (results_dir / "hard.json").write_text('["class_03"]')
+    second = _provenance_for(results_dir, "--hard-classes-file", "hard.json")
+    incompatible, _ = compare_provenance_module.compare_provenance(first, second)
+    assert "hard_classes.source_kind" in incompatible
+    assert "hard_classes.algorithm" in incompatible

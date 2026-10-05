@@ -271,6 +271,18 @@ python3 scripts/recalibrate_decision_layer.py \
   --eval-predictions-file results/accuracy_phase1/a3b_convnext_tiny_continued_224/test_predictions_rescored.csv
 ```
 
+Hard classes and confusion pairs are always derived from the fit-split
+predictions unless an override is named (`--hard-classes-file`,
+`--class-report-file`, `--confusion-pairs-file`). A `val_confusion_pairs.csv`
+or `val_class_report.csv` sitting in `--results-dir` is reported as present
+and ignored. Each run writes `derivation_provenance.json` to its output
+directory; before comparing two models' band metrics, check that their
+derivations are compatible:
+
+```bash
+python3 scripts/compare_provenance.py RUN_A/derivation_provenance.json RUN_B/derivation_provenance.json
+```
+
 #### Required `*_predictions.csv` schema
 
 `recalibrate_decision_layer.py` validates this schema up front and fails
