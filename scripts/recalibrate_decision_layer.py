@@ -211,8 +211,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help=(
             "Explicit override: a JSON list of hard-class names, used as-is. "
-            "Must exist and contain at least one name -- an empty or missing "
-            "file is an error, never a silent fallback. When omitted, hard "
+            "Must exist and decode to a non-empty list of non-empty, distinct "
+            "strings (compared after removing surrounding whitespace) -- "
+            "anything else is an error, never a silent fallback. When omitted, hard "
             "classes are derived from --class-report-file or, failing that, "
             "directly from the fit split's own predictions."
         ),
@@ -220,7 +221,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--confusion-pairs-file",
         default=None,
-        help="Optional CSV with confusion pairs and optional counts",
+        help=(
+            "Explicit override: a CSV of confusion pairs (actual/predicted label "
+            "columns, optional `count`). Must exist and be well-formed -- never a "
+            "silent fallback. When omitted, pairs are derived from the fit "
+            "split's own predictions; a `<fit-split>_confusion_pairs.csv` in "
+            "--results-dir is ignored unless named here."
+        ),
     )
     parser.add_argument(
         "--class-report-file",
@@ -228,8 +235,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Explicit override: a class-level report CSV (`class_name`, "
             "`f1-score` columns) to derive hard classes from -- the bottom "
-            "10%% of classes by F1 (at least 5). Must exist and have both "
-            "columns -- never a silent fallback. When omitted, hard classes "
+            "10%% of classes by F1 (at least 5). Must exist, have both "
+            "columns, at least one row, distinct class names and finite "
+            "numeric F1 values -- never a silent fallback. When omitted, hard classes "
             "are derived the same way directly from the fit split's own "
             "predictions, so two runs being compared always use the same "
             "derivation path regardless of which optional files happen to "
@@ -342,8 +350,18 @@ def normalize_actual_col(data: pd.DataFrame) -> tuple[pd.DataFrame, str, str]:
     return frame, "actual", "predicted"
 
 
+def normalize_class_name(name: object) -> str:
+    """The one normalisation applied to a class name read from any source.
+
+    Surrounding whitespace is dropped; nothing else (case is significant,
+    because names must match the predicted labels exactly). Duplicate and
+    empty checks on overrides are made on this normalised form.
+    """
+    return str(name).strip()
+
+
 def normalize_class_report(class_report: pd.DataFrame) -> pd.DataFrame:
-    if class_report.empty:
+    if len(class_report.columns) == 0:
         return class_report
 
     if "Unnamed: 0" in class_report.columns:
@@ -356,7 +374,17 @@ def normalize_class_report(class_report: pd.DataFrame) -> pd.DataFrame:
     return class_report
 
 
-class HardClassDerivationError(ValueError):
+class DerivationInputError(ValueError):
+    """Base class for a derived-input source that is missing or malformed.
+
+    Every subclass is caught by `main()` and reported as a one-line
+    `error: ...` with a non-zero exit, never a traceback. An explicitly named
+    override file that cannot be used always raises one of these; it never
+    silently falls back to deriving the input some other way.
+    """
+
+
+class HardClassDerivationError(DerivationInputError):
     """Raised when hard classes cannot be resolved without silently guessing.
 
     Both `--hard-classes-file` and `--class-report-file` are explicit,
@@ -443,9 +471,94 @@ def select_hard_classes_by_f1(class_report: pd.DataFrame) -> set[str]:
             "Class report must have `class_name` and `f1-score` columns; "
             f"found {', '.join(str(c) for c in class_report.columns) or '(none)'}."
         )
-    low_f1 = class_report.sort_values("f1-score", ascending=True)
+    if class_report.empty:
+        raise HardClassDerivationError(
+            "Class report has a header but no class rows; at least one class is required."
+        )
+
+    names = [
+        "" if pd.isna(name) else normalize_class_name(name)
+        for name in class_report["class_name"]
+    ]
+    empty_rows = [index for index, name in enumerate(names) if not name]
+    if empty_rows:
+        raise HardClassDerivationError(
+            f"Class report has empty `class_name` values (data rows {empty_rows[:5]})."
+        )
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise HardClassDerivationError(
+            "Class report has duplicate class names after normalisation "
+            f"(surrounding whitespace removed): {duplicates[:5]}. Each class "
+            "must appear once, or the bottom-k selection would silently pick "
+            "fewer than k classes."
+        )
+
+    f1_scores = pd.to_numeric(class_report["f1-score"], errors="coerce")
+    bad = [
+        f"{name}={raw!r}"
+        for name, raw, value in zip(names, class_report["f1-score"], f1_scores, strict=True)
+        if pd.isna(value) or not math.isfinite(float(value))
+    ]
+    if bad:
+        raise HardClassDerivationError(
+            "Class report `f1-score` values must be finite numbers; got "
+            f"{', '.join(bad[:5])}."
+        )
+
+    low_f1 = pd.DataFrame({"class_name": names, "f1-score": f1_scores.astype(float)})
+    low_f1 = low_f1.sort_values("f1-score", ascending=True)
     limit = max(5, math.ceil(0.1 * len(low_f1)))
-    return set(low_f1.head(limit)["class_name"].astype(str).tolist())
+    return set(low_f1.head(limit)["class_name"].tolist())
+
+
+def parse_hard_classes_json(text: str, path: Path) -> set[str]:
+    """Validate a `--hard-classes-file` body: a non-empty JSON list of names.
+
+    Rejects, rather than coerces: malformed JSON; any top-level value that
+    is not a list (a bare string used to be iterated into one-letter
+    classes, and an object into its keys); an empty list; any entry that is
+    not a string or is empty after normalisation; and duplicate names after
+    normalisation.
+
+    Raises:
+        HardClassDerivationError: On any of the above.
+    """
+    if not text.strip():
+        raise HardClassDerivationError(f"--hard-classes-file {path} is empty.")
+    try:
+        decoded = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise HardClassDerivationError(
+            f"--hard-classes-file {path} is not valid JSON: {exc}"
+        ) from exc
+    if not isinstance(decoded, list):
+        raise HardClassDerivationError(
+            f"--hard-classes-file {path} must be a JSON list of class names; "
+            f"got a JSON {type(decoded).__name__}."
+        )
+    if not decoded:
+        raise HardClassDerivationError(
+            f"--hard-classes-file {path} is an empty list; name at least one class."
+        )
+    non_strings = [entry for entry in decoded if not isinstance(entry, str)]
+    if non_strings:
+        raise HardClassDerivationError(
+            f"--hard-classes-file {path} entries must all be strings; got "
+            f"{non_strings[:5]!r}."
+        )
+    names = [normalize_class_name(entry) for entry in decoded]
+    if any(not name for name in names):
+        raise HardClassDerivationError(
+            f"--hard-classes-file {path} contains an empty or whitespace-only class name."
+        )
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise HardClassDerivationError(
+            f"--hard-classes-file {path} names a class more than once "
+            f"(after removing surrounding whitespace): {duplicates[:5]}."
+        )
+    return set(names)
 
 
 def load_hard_classes(
@@ -494,17 +607,7 @@ def load_hard_classes(
             path = results_dir / path
         if not path.exists():
             raise HardClassDerivationError(f"--hard-classes-file {path} does not exist.")
-        text = path.read_text().strip()
-        if not text:
-            raise HardClassDerivationError(f"--hard-classes-file {path} is empty.")
-        classes = {
-            entry.strip().strip('"\'') for entry in json.loads(text) if isinstance(entry, str)
-        }
-        if not classes:
-            raise HardClassDerivationError(
-                f"--hard-classes-file {path} contained no class names."
-            )
-        return classes, f"--hard-classes-file {path}"
+        return parse_hard_classes_json(path.read_text(), path), f"--hard-classes-file {path}"
 
     if class_report_file:
         path = Path(class_report_file)
@@ -512,8 +615,17 @@ def load_hard_classes(
             path = results_dir / path
         if not path.exists():
             raise HardClassDerivationError(f"--class-report-file {path} does not exist.")
-        report = normalize_class_report(pd.read_csv(path))
-        return select_hard_classes_by_f1(report), f"--class-report-file {path}"
+        try:
+            report = pd.read_csv(path)
+        except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError) as exc:
+            raise HardClassDerivationError(
+                f"--class-report-file {path} is not a readable CSV: {exc}"
+            ) from exc
+        try:
+            selected = select_hard_classes_by_f1(normalize_class_report(report))
+        except HardClassDerivationError as exc:
+            raise HardClassDerivationError(f"--class-report-file {path}: {exc}") from exc
+        return selected, f"--class-report-file {path}"
 
     if not {"actual", "predicted"} <= set(fit_predictions.columns):
         raise HardClassDerivationError(
@@ -528,75 +640,158 @@ def load_hard_classes(
     )
 
 
+class ConfusionPairsError(DerivationInputError):
+    """Raised when a named `--confusion-pairs-file` is missing or malformed.
+
+    Matches the hard-class override contract: a file the caller names must
+    be usable, or the run stops. It never falls back to deriving pairs from
+    the fit predictions instead.
+    """
+
+
+CONFUSION_PAIR_COLUMN_ALIASES = {
+    "true_label": "actual",
+    "actual_label": "actual",
+    "pred_label": "predicted",
+    "predicted_label": "predicted",
+}
+CONFUSION_PAIR_COUNT_COLUMNS = ("count", "support", "n")
+
+
+def read_confusion_pairs_file(path: Path) -> pd.DataFrame:
+    """Read and validate a named confusion-pair CSV into `actual`/`predicted`/`count`.
+
+    The file must have an actual-label column and a predicted-label column
+    (`actual`/`true_label`/`actual_label` and
+    `predicted`/`pred_label`/`predicted_label`), at least one row, no empty
+    label values and no duplicate pairs. A count column (`count`, `support`
+    or `n`, first found wins) is optional; when present every value must be
+    a finite number. Without one, every pair counts as 1, so the cutoff is
+    decided by the tie-break alone.
+
+    Raises:
+        ConfusionPairsError: If the file is missing, unreadable or fails any
+            of the checks above.
+    """
+    if not path.exists():
+        raise ConfusionPairsError(f"--confusion-pairs-file {path} does not exist.")
+    try:
+        frame = pd.read_csv(path)
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError) as exc:
+        raise ConfusionPairsError(
+            f"--confusion-pairs-file {path} is not a readable CSV: {exc}"
+        ) from exc
+
+    rename_map = {
+        source: target
+        for source, target in CONFUSION_PAIR_COLUMN_ALIASES.items()
+        if source in frame.columns and target not in frame.columns
+    }
+    frame = frame.rename(columns=rename_map)
+    if not {"actual", "predicted"} <= set(frame.columns):
+        found = ", ".join(str(col) for col in frame.columns) or "(none)"
+        raise ConfusionPairsError(
+            f"--confusion-pairs-file {path} needs actual and predicted label "
+            "columns (`actual`/`true_label`/`actual_label` and "
+            f"`predicted`/`pred_label`/`predicted_label`); found {found}."
+        )
+    if frame.empty:
+        raise ConfusionPairsError(
+            f"--confusion-pairs-file {path} has a header but no pair rows."
+        )
+
+    actual = ["" if pd.isna(v) else normalize_class_name(v) for v in frame["actual"]]
+    predicted = ["" if pd.isna(v) else normalize_class_name(v) for v in frame["predicted"]]
+    if any(not name for name in actual + predicted):
+        raise ConfusionPairsError(
+            f"--confusion-pairs-file {path} has empty actual or predicted label values."
+        )
+    pairs = list(zip(actual, predicted, strict=True))
+    duplicates = sorted({pair for pair in pairs if pairs.count(pair) > 1})
+    if duplicates:
+        raise ConfusionPairsError(
+            f"--confusion-pairs-file {path} lists a pair more than once: {duplicates[:5]}."
+        )
+
+    count_col = next((c for c in CONFUSION_PAIR_COUNT_COLUMNS if c in frame.columns), None)
+    if count_col is None:
+        counts = pd.Series([1.0] * len(frame))
+    else:
+        counts = pd.to_numeric(frame[count_col], errors="coerce").reset_index(drop=True)
+        bad = [
+            f"{pair}={raw!r}"
+            for pair, raw, value in zip(pairs, frame[count_col], counts, strict=True)
+            if pd.isna(value) or not math.isfinite(float(value))
+        ]
+        if bad:
+            raise ConfusionPairsError(
+                f"--confusion-pairs-file {path} `{count_col}` values must be "
+                f"finite numbers; got {', '.join(bad[:5])}."
+            )
+
+    return pd.DataFrame(
+        {"actual": actual, "predicted": predicted, "count": counts.astype(float)}
+    )
+
+
+def count_confusion_pairs(predictions: pd.DataFrame) -> pd.DataFrame:
+    """Count each `(actual, predicted)` error pair in `predictions`."""
+    wrong = predictions[~predictions["is_correct"].map(coerce_bool)]
+    if wrong.empty:
+        return pd.DataFrame({"actual": [], "predicted": [], "count": []})
+    return (
+        wrong.assign(
+            actual=wrong["actual"].astype(str),
+            predicted=wrong["predicted"].astype(str),
+        )
+        .groupby(["actual", "predicted"], as_index=False)
+        .size()
+        .rename(columns={"size": "count"})
+    )
+
+
 def load_confusion_pairs(
     predictions: pd.DataFrame,
     results_dir: Path,
     confusion_pairs_file: str | None,
     max_pairs: int,
-) -> set[tuple[str, str]]:
-    confusion_aliases = {
-        "actual": "actual",
-        "predicted": "predicted",
-        "true_label": "actual",
-        "actual_label": "actual",
-        "pred_label": "predicted",
-        "predicted_label": "predicted",
-    }
+) -> tuple[set[tuple[str, str]], dict[str, str]]:
+    """Resolve the confusion-pair set and where it came from.
 
-    dataframe = None
+    Pairs are derived from `predictions` (the fit split) unless
+    `confusion_pairs_file` names a file. Nothing is picked up because it
+    happens to sit in `results_dir`: a `<fit_split>_confusion_pairs.csv`
+    there is ignored unless named. A named file is validated by
+    `read_confusion_pairs_file()` and never silently replaced by derivation.
+
+    Returns:
+        `(pairs, source)` -- `source` has `kind` (`fit_predictions` or
+        `confusion_pairs_file`) and, for a named file, its resolved `path`.
+
+    Raises:
+        ConfusionPairsError: If a named file is missing or malformed.
+    """
     if confusion_pairs_file:
         path = Path(confusion_pairs_file)
         if not path.is_absolute():
             path = results_dir / path
-        if path.exists():
-            dataframe = pd.read_csv(path)
-            rename_map = {
-                source: target
-                for source, target in confusion_aliases.items()
-                if source in dataframe.columns and source != target
-            }
-            if rename_map:
-                dataframe = dataframe.rename(columns=rename_map)
-
-    if dataframe is None:
-        wrong = predictions[~predictions["is_correct"]]
-        if wrong.empty:
-            return set()
-        pair_frame = (
-            wrong.groupby(["actual", "predicted"], as_index=False)
-            .size()
-            .rename(columns={"size": "count"})
-            .sort_values("count", ascending=False)
-            .head(max(1, max_pairs))
-        )
+        pair_frame = read_confusion_pairs_file(path)
+        source = {"kind": "confusion_pairs_file", "path": str(path)}
     else:
-        if {"actual", "predicted"} <= set(dataframe.columns):
-            pair_frame = dataframe.copy()
-        elif {"true_label", "pred_label"} <= set(dataframe.columns):
-            pair_frame = dataframe.rename(
-                columns={"true_label": "actual", "pred_label": "predicted"}
-            )
-        elif {"actual_label", "predicted_label"} <= set(dataframe.columns):
-            pair_frame = dataframe.rename(
-                columns={"actual_label": "actual", "predicted_label": "predicted"}
-            )
-        else:
-            pair_frame = dataframe.copy()
+        pair_frame = count_confusion_pairs(predictions)
+        source = {"kind": "fit_predictions"}
 
-        for col in ("count", "support", "n"):
-            if col in pair_frame.columns:
-                pair_frame = pair_frame.sort_values(col, ascending=False)
-                break
+    if pair_frame.empty:
+        return set(), source
+    pair_frame = pair_frame.sort_values("count", ascending=False).head(max_pairs)
 
-        pair_frame = pair_frame.head(max_pairs)
-
-    pairs: set[tuple[str, str]] = set()
-    for actual, predicted in pair_frame[["actual", "predicted"]].itertuples(
-        index=False,
-        name=None,
-    ):
-        pairs.add((str(actual), str(predicted)))
-    return pairs
+    pairs = {
+        (str(actual), str(predicted))
+        for actual, predicted in pair_frame[["actual", "predicted"]].itertuples(
+            index=False, name=None
+        )
+    }
+    return pairs, source
 
 
 def assign_decision_band(
@@ -868,6 +1063,32 @@ def score_split(
     return scored, decision_band_metrics(scored)
 
 
+def report_unnamed_sidecars(
+    results_dir: Path,
+    fit_split: str,
+    hard_classes_file: str | None,
+    confusion_pairs_file: str | None,
+    class_report_file: str | None,
+) -> None:
+    """Print one informational line per conventional sidecar that is present but unused.
+
+    This changes nothing: the run derives the input from the fit predictions
+    either way. It only tells the reader that a file which looks like an
+    input was deliberately not read, so nobody assumes it was.
+    """
+    sidecars = []
+    if not confusion_pairs_file:
+        sidecars.append((f"{fit_split}_confusion_pairs.csv", "--confusion-pairs-file"))
+    if not hard_classes_file and not class_report_file:
+        sidecars.append((f"{fit_split}_class_report.csv", "--class-report-file"))
+    for name, flag in sidecars:
+        if (results_dir / name).exists():
+            print(
+                f"note: {results_dir / name} is present but ignored; the input is "
+                f"derived from the fit-split predictions. Name it with {flag} to use it."
+            )
+
+
 def run_analysis(
     results_dir: Path,
     fit_split: str,
@@ -894,8 +1115,6 @@ def run_analysis(
     fit_predictions = load_predictions_for_split(results_dir, fit_split, fit_predictions_file)
     eval_predictions = load_predictions_for_split(results_dir, eval_split, eval_predictions_file)
 
-    confusion_path = results_dir / f"{fit_split}_confusion_pairs.csv"
-
     # `class_report_file` is only ever what the caller explicitly passed --
     # unlike confusion pairs below, this is deliberately NOT auto-discovered
     # from a `<fit_split>_class_report.csv` convenience file in results_dir.
@@ -904,6 +1123,13 @@ def run_analysis(
     # other didn't) -- see load_hard_classes()'s docstring and
     # docs/9_agent_log.md's 2026-09-14 Codex review. With no override, hard
     # classes are always derived the same way: from fit_predictions itself.
+    report_unnamed_sidecars(
+        results_dir, fit_split, hard_classes_file, confusion_pairs_file, class_report_file
+    )
+    if max_confusion_pairs < 1:
+        raise ConfusionPairsError(
+            f"--max-confusion-pairs must be at least 1; got {max_confusion_pairs}."
+        )
     hard_classes, hard_class_source = load_hard_classes(
         results_dir, hard_classes_file, class_report_file, fit_predictions
     )
@@ -912,15 +1138,23 @@ def run_analysis(
         f"{sorted(hard_classes)}"
     )
 
-    if not confusion_pairs_file:
-        confusion_pairs_file = str(confusion_path) if confusion_path.exists() else None
-
-    # Derived from the fit split's predictions only -- never the eval split's.
-    confusion_pairs = load_confusion_pairs(
+    # Derived from the fit split's predictions only -- never the eval split's
+    # -- unless --confusion-pairs-file names a file. A conventional
+    # `<fit_split>_confusion_pairs.csv` sitting in results_dir is NOT
+    # auto-discovered: that is how the A3b and champion comparison runs ended
+    # up on different derivation paths (docs/9_agent_log.md, the 2026-09-22
+    # Codex review). It is mentioned below and otherwise ignored.
+    confusion_pairs, confusion_pair_source = load_confusion_pairs(
         fit_predictions,
         results_dir,
         confusion_pairs_file,
         max_pairs=max_confusion_pairs,
+    )
+    print(
+        f"Confusion pairs in use ({len(confusion_pairs)}, source: "
+        f"{confusion_pair_source['kind']}"
+        + (f" {confusion_pair_source['path']}" if "path" in confusion_pair_source else "")
+        + ")"
     )
 
     features_fit = build_features(fit_predictions, hard_classes, confusion_pairs)
@@ -1106,7 +1340,7 @@ def main(argv: list[str] | None = None) -> None:
             fit_predictions_file=fit_predictions_file,
             eval_predictions_file=eval_predictions_file,
         )
-    except (PredictionSchemaError, HardClassDerivationError) as exc:
+    except (PredictionSchemaError, DerivationInputError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1) from None
 
