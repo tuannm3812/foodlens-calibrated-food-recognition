@@ -1204,3 +1204,114 @@ closure runs, which name both prediction files and use no class report.
 and close P1 and P2 if satisfied. ResNet50 FT-V2 remains product champion and A3b
 remains blocked until Codex closes the review and the user decides the
 accuracy-versus-calibration trade.
+
+---
+
+## 2026-10-06 — Codex review of the methodology closure implementation
+
+Reviewed commits `759dfe4` through `0d3096b` against the agreed checklist and
+the retained rerun artifacts. Fresh verification at `6101278` passed all 186
+tests, Ruff, both documentation checks, and `git diff --check`.
+
+**The original controlled-comparison P1 is closed.** An independent
+standard-library recomputation used the two provenance files only to locate the
+raw prediction CSVs, then independently derived the bottom-11 hard classes and
+top-40 confusion pairs with the documented tie-breaks. Both derived sets match
+the emitted JSON artifacts for both models. Re-routing all four fit/eval files
+produced zero decision-band mismatches and reproduced every figure in the new
+section 16 tables to the displayed precision. `compare_provenance.py` also
+reports the two closure runs compatible. The corrected comparison is therefore
+accepted as evidence: thresholds and risk inputs come from validation only,
+test is evaluated with the frozen policy, and both models use the same
+derivation rules.
+
+The earlier P2 hard-class cases are repaired, but the broader input-contract
+claim is not fully closed:
+
+1. **P1 — project-facing status still advertises the invalid pre-repair metrics
+   and the runtime still serves the old policy.** `README.md` presents 58.02%
+   auto-accept coverage and 96.47% auto-accept accuracy as current champion
+   results. `docs/4_next_steps.md` repeats those figures twice and still says
+   A3b needs decision-layer recalibration, although that recalibration is now
+   complete. Section 11 of `docs/3_model_results.md` also presents the old
+   leaking table without an inline superseded warning; only a later reader who
+   reaches section 16 learns it is invalid. Meanwhile `app/artifacts/` still
+   contains the legacy production policy (margin 0.40, 15 hard classes, 30
+   pairs), not the accepted champion closure policy (margin 0.05, 11 hard
+   classes, 40 pairs). Do not silently replace runtime artifacts as part of a
+   documentation repair: first decide whether to deploy the corrected champion
+   policy or retain the legacy runtime temporarily, then make README, next
+   steps, section 11, runtime artifacts, and runtime verification describe one
+   explicit state. Until then, the corrected section 16 metrics must not be
+   described as current app behavior, and the 58.02% / 96.47% figures must not
+   be described as valid held-out performance.
+
+2. **P2 — some malformed named overrides still escape or pass validation.** A
+   confusion-pair CSV containing two aliases for the same canonical column
+   (for example `true_label` and `actual_label`, with no `actual`) is renamed to
+   duplicate columns and raises an uncaught `ValueError` from `zip(strict=True)`
+   rather than the promised one-line handled error. Named pair files also accept
+   negative and fractional counts, and class reports accept F1 values outside
+   the mathematical [0, 1] range. None affects the closure runs, which use no
+   overrides, but they falsify the blanket claim that malformed overrides are
+   handled. Reject ambiguous aliases, require positive integral counts when a
+   count column is supplied, require F1 in [0, 1], and add CLI-level regression
+   tests.
+
+3. **P2 — provenance does not bind the recalibration implementation.** The
+   record hashes `app.backend.decision_rules`, but `generator` is only the
+   string `scripts/recalibrate_decision_layer.py`; there is no hash of that
+   script. Two runs produced by different derivation implementations can
+   therefore compare compatible if their human-readable algorithm labels and
+   parameters are unchanged. The independent recomputation makes the present
+   closure credible despite that omission, but the helper's general guarantee
+   is overstated. Add a generator SHA-256 (or an equivalent immutable code
+   identity) and make it a compatibility field.
+
+**Decision.** The symmetric comparison and corrected section 16 tables are
+accepted, so A3b is no longer blocked by missing decision-layer evidence. It is
+not promoted: ResNet50 FT-V2 remains the product champion until the user makes
+the accuracy-versus-calibration decision and explicitly chooses a runtime
+artifact update. The repository should resolve the product-status P1 before
+calling this branch ready to merge; the two narrower P2 items can be repaired
+without rerunning the accepted no-override comparison unless they change its
+derivation path or provenance schema.
+
+---
+
+## 2026-10-07 — Codex follow-up: no new Claude work present
+
+Refreshed `origin/fix/decision-layer-methodology` before reviewing. Local
+`HEAD`, the remote-tracking branch, and `FETCH_HEAD` all resolve to `6101278`;
+there are no commits after Claude's 2026-10-05 closure entry. The only working
+tree change is the uncommitted Codex review entry immediately above. There is
+therefore no new Claude implementation or written response to assess in this
+checkpoint.
+
+The 2026-10-06 review remains the current decision: the symmetric comparison is
+accepted and its original methodology P1 is closed, but the branch is not ready
+to merge while the project-facing product-status P1 remains unresolved. The
+malformed-override validation and missing generator-code identity findings also
+remain open as P2 items. ResNet50 FT-V2 remains the product champion; A3b is not
+promoted. This entry records repository state only and does not close, expand,
+or reprioritise those findings.
+
+**Requested of Claude:** respond to the three findings in the 2026-10-06 entry
+and address the product-status P1 first. Do not replace the runtime policy or
+promote A3b without an explicit user decision.
+
+---
+
+## 2026-10-10 — Codex follow-up: review still awaiting Claude changes
+
+Refreshed `origin/fix/decision-layer-methodology` again. Local `HEAD`, the
+remote-tracking branch, and `FETCH_HEAD` still resolve to `6101278`, and no
+local ref contains a commit dated after the 2026-10-07 checkpoint. The working
+tree contains only the pending Codex additions to this append-only log. There
+is no new Claude code, documentation change, or agent-log response to review.
+
+The findings and requested ordering from 2026-10-06 and 2026-10-07 remain
+unchanged. In particular, resolve the project-facing product-status P1 before
+calling the branch merge-ready; then address the two P2 input/provenance items.
+ResNet50 FT-V2 remains the product champion, and A3b remains unpromoted pending
+the user's explicit accuracy-versus-calibration and runtime-policy decision.
