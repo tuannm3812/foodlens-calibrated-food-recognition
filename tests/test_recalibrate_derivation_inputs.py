@@ -181,7 +181,7 @@ def test_missing_named_confusion_pair_file_fails_through_handled_path(
     [
         ("label_a,label_b\nx,y\n", "needs actual and predicted label columns"),
         ("true_label,pred_label,count\n", "no pair rows"),
-        ("true_label,pred_label,count\nclass_00,class_01,many\n", "finite numbers"),
+        ("true_label,pred_label,count\nclass_00,class_01,many\n", "positive integers"),
         ("true_label,pred_label\nclass_00,\n", "empty actual or predicted"),
         (
             "true_label,pred_label\nclass_00,class_01\nclass_00 ,class_01\n",
@@ -277,6 +277,176 @@ def test_missing_named_override_files_fail_through_handled_path(
     _assert_handled_failure(
         capsys, results_dir, "--class-report-file", "nope.csv", needle="does not exist"
     )
+
+
+# --------------------------------------------------------------------------
+# B2. Override values and column roles (2026-10-06 Codex review, finding 2).
+#
+# Each case runs the real CLI (`main()` with its argument parser). A
+# subprocess test below also pins the process-level contract for the case
+# that used to escape as a traceback.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("header", "row", "columns"),
+    [
+        ("true_label,actual_label,predicted", "class_00,class_00,class_19",
+         "`true_label`, `actual_label`"),
+        ("actual,true_label,predicted", "class_00,class_00,class_19",
+         "`actual`, `true_label`"),
+        ("actual,pred_label,predicted_label", "class_00,class_19,class_19",
+         "`pred_label`, `predicted_label`"),
+    ],
+    ids=["two-actual-aliases", "canonical-plus-actual-alias", "two-predicted-aliases"],
+)
+def test_ambiguous_confusion_pair_label_columns_fail_through_handled_path(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], header: str, row: str, columns: str
+) -> None:
+    results_dir = _make_run_dir(tmp_path / "run")
+    (results_dir / "pairs.csv").write_text(f"{header},count\n{row},3\n")
+    err = _assert_handled_failure(
+        capsys, results_dir, "--confusion-pairs-file", "pairs.csv",
+        needle="label column",
+    )
+    assert columns in err
+
+
+def test_ambiguous_label_columns_exit_one_without_traceback_as_a_process(
+    tmp_path: Path,
+) -> None:
+    import subprocess
+    import sys
+
+    results_dir = _make_run_dir(tmp_path / "run")
+    (results_dir / "pairs.csv").write_text(
+        "true_label,actual_label,predicted,count\nclass_00,class_00,class_19,3\n"
+    )
+    completed = subprocess.run(
+        [
+            sys.executable, str(SCRIPT_PATH),
+            "--results-dir", str(results_dir),
+            "--output-dir", str(results_dir / "out"),
+            "--no-zip",
+            "--confusion-pairs-file", "pairs.csv",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 1
+    assert "Traceback" not in completed.stderr
+    error_lines = [line for line in completed.stderr.splitlines() if line.startswith("error: ")]
+    assert len(error_lines) == 1, completed.stderr
+    assert "`true_label`, `actual_label`" in error_lines[0]
+
+
+@pytest.mark.parametrize(
+    ("header", "row"),
+    [
+        ("true_label,pred_label", "class_00,class_19"),
+        ("actual_label,predicted_label", "class_00,class_19"),
+        ("actual,pred_label", "class_00,class_19"),
+    ],
+    ids=["true-pred", "actual-predicted-label", "canonical-plus-one-alias"],
+)
+def test_single_alias_per_label_role_is_still_accepted(
+    tmp_path: Path, header: str, row: str
+) -> None:
+    import json
+
+    results_dir = _make_run_dir(tmp_path / "run")
+    (results_dir / "pairs.csv").write_text(f"{header},count\n{row},3\n")
+    _run_main(results_dir, "--confusion-pairs-file", "pairs.csv")
+    pairs = json.loads((results_dir / "out" / "confusion_pairs.json").read_text())
+    assert pairs == [{"actual": "class_00", "predicted": "class_19"}]
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("count", "0"),
+        ("count", "-2"),
+        ("count", "1.5"),
+        ("count", ""),
+        ("count", "many"),
+        ("count", "inf"),
+        ("support", "-1"),
+        ("n", "2.25"),
+    ],
+    ids=["zero", "negative", "fractional", "blank", "non-numeric", "infinite",
+         "negative-support", "fractional-n"],
+)
+def test_non_positive_integer_pair_counts_fail_through_handled_path(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], column: str, value: str
+) -> None:
+    results_dir = _make_run_dir(tmp_path / "run")
+    (results_dir / "pairs.csv").write_text(
+        f"actual,predicted,{column}\nclass_00,class_19,3\nclass_01,class_18,{value}\n"
+    )
+    err = _assert_handled_failure(
+        capsys, results_dir, "--confusion-pairs-file", "pairs.csv",
+        needle=f"`{column}` values must be positive integers",
+    )
+    assert "class_01" in err
+
+
+def test_integral_pair_counts_written_as_floats_are_accepted(tmp_path: Path) -> None:
+    import json
+
+    results_dir = _make_run_dir(tmp_path / "run")
+    (results_dir / "pairs.csv").write_text(
+        "actual,predicted,count\nclass_00,class_19,3.0\nclass_01,class_18,1\n"
+        "class_02,class_17,2\n"
+    )
+    _run_main(results_dir, "--confusion-pairs-file", "pairs.csv", "--max-confusion-pairs", "2")
+    pairs = json.loads((results_dir / "out" / "confusion_pairs.json").read_text())
+    assert pairs == [
+        {"actual": "class_00", "predicted": "class_19"},
+        {"actual": "class_02", "predicted": "class_17"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "value", ["1.7", "-0.3", "1.0000001", "-inf"], ids=["above-one", "negative",
+                                                       "just-above-one", "minus-infinity"]
+)
+def test_out_of_range_class_report_f1_fails_through_handled_path(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], value: str
+) -> None:
+    results_dir = _make_run_dir(tmp_path / "run")
+    (results_dir / "report.csv").write_text(
+        f"class_name,f1-score\nclass_00,0.5\nclass_01,{value}\n"
+    )
+    err = _assert_handled_failure(
+        capsys, results_dir, "--class-report-file", "report.csv",
+        needle="finite numbers within [0, 1]",
+    )
+    assert "class_01" in err
+
+
+def test_class_report_f1_at_the_range_bounds_is_accepted(tmp_path: Path) -> None:
+    import json
+
+    results_dir = _make_run_dir(tmp_path / "run")
+    rows = "".join(f"{label},{1.0 if i % 2 else 0.0}\n" for i, label in enumerate(LABELS))
+    (results_dir / "report.csv").write_text("class_name,f1-score\n" + rows)
+    _run_main(results_dir, "--class-report-file", "report.csv")
+    hard = json.loads((results_dir / "out" / "hard_classes.json").read_text())
+    assert hard == ["class_00", "class_02", "class_04", "class_06", "class_08"]
+
+
+def test_class_report_with_index_and_class_name_columns_uses_class_name(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    results_dir = _make_run_dir(tmp_path / "run")
+    rows = "".join(f"{i},{label},{0.5 + i / 100}\n" for i, label in enumerate(LABELS))
+    (results_dir / "report.csv").write_text("Unnamed: 0,class_name,f1-score\n" + rows)
+    _run_main(results_dir, "--class-report-file", "report.csv")
+    hard = json.loads((results_dir / "out" / "hard_classes.json").read_text())
+    assert hard == LABELS[:5]
 
 
 # --------------------------------------------------------------------------

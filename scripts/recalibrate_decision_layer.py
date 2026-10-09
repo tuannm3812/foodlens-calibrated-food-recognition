@@ -243,11 +243,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--confusion-pairs-file",
         default=None,
         help=(
-            "Explicit override: a CSV of confusion pairs (actual/predicted label "
-            "columns, optional `count`). Must exist and be well-formed -- never a "
-            "silent fallback. When omitted, pairs are derived from the fit "
-            "split's own predictions; a `<fit-split>_confusion_pairs.csv` in "
-            "--results-dir is ignored unless named here."
+            "Explicit override: a CSV of confusion pairs (one actual and one "
+            "predicted label column, optional positive-integer `count`). Must "
+            "exist and be well-formed -- never a silent fallback. When "
+            "omitted, pairs are derived from the fit split's own predictions; "
+            "a `<fit-split>_confusion_pairs.csv` in --results-dir is ignored "
+            "unless named here."
         ),
     )
     parser.add_argument(
@@ -258,7 +259,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "`f1-score` columns) to derive hard classes from -- the bottom "
             "10%% of classes by F1 (at least 5). Must exist, have both "
             "columns, at least one row, distinct class names and finite "
-            "numeric F1 values -- never a silent fallback. When omitted, hard classes "
+            "F1 values within [0, 1] -- never a silent fallback. When omitted, hard classes "
             "are derived the same way directly from the fit split's own "
             "predictions, so two runs being compared always use the same "
             "derivation path regardless of which optional files happen to "
@@ -390,7 +391,10 @@ def normalize_class_report(class_report: pd.DataFrame) -> pd.DataFrame:
     if len(class_report.columns) == 0:
         return class_report
 
-    if "Unnamed: 0" in class_report.columns:
+    # An explicit `class_name` column wins over the unnamed index column a
+    # `to_csv()` with the index leaves behind; renaming the index too would
+    # produce two `class_name` columns.
+    if "Unnamed: 0" in class_report.columns and "class_name" not in class_report.columns:
         class_report = class_report.rename(columns={"Unnamed: 0": "class_name"})
 
     if "class_name" not in class_report.columns:
@@ -500,7 +504,7 @@ def select_hard_classes_by_f1(class_report: pd.DataFrame) -> set[str]:
         HardClassDerivationError: If `class_report` lacks `class_name` or
             `f1-score` columns, has no rows, has empty or duplicate
             (normalised) class names, or has an F1 that is not a finite
-            number.
+            number within [0, 1].
     """
     if not {"class_name", "f1-score"} <= set(class_report.columns):
         raise HardClassDerivationError(
@@ -534,12 +538,12 @@ def select_hard_classes_by_f1(class_report: pd.DataFrame) -> set[str]:
     bad = [
         f"{name}={raw!r}"
         for name, raw, value in zip(names, class_report["f1-score"], f1_scores, strict=True)
-        if pd.isna(value) or not math.isfinite(float(value))
+        if pd.isna(value) or not math.isfinite(float(value)) or not 0 <= float(value) <= 1
     ]
     if bad:
         raise HardClassDerivationError(
-            "Class report `f1-score` values must be finite numbers; got "
-            f"{', '.join(bad[:5])}."
+            "Class report `f1-score` values must be finite numbers within "
+            f"[0, 1]; got {', '.join(bad[:5])}."
         )
 
     ordered = sorted(
@@ -696,16 +700,27 @@ CONFUSION_PAIR_COLUMN_ALIASES = {
 CONFUSION_PAIR_COUNT_COLUMNS = ("count", "support", "n")
 
 
+def _is_positive_integer(value: object) -> bool:
+    """True for a finite whole number >= 1 (`3` or `3.0`), as a pair count must be."""
+    if pd.isna(value):
+        return False
+    number = float(value)
+    return math.isfinite(number) and number >= 1 and number.is_integer()
+
+
 def read_confusion_pairs_file(path: Path) -> pd.DataFrame:
     """Read and validate a named confusion-pair CSV into `actual`/`predicted`/`count`.
 
-    The file must have an actual-label column and a predicted-label column
-    (`actual`/`true_label`/`actual_label` and
-    `predicted`/`pred_label`/`predicted_label`), at least one row, no empty
-    label values and no duplicate pairs. A count column (`count`, `support`
-    or `n`, first found wins) is optional; when present every value must be
-    a finite number. Without one, every pair counts as 1, so the cutoff is
-    decided by the tie-break alone.
+    The file must have exactly one actual-label column and exactly one
+    predicted-label column (`actual`/`true_label`/`actual_label` and
+    `predicted`/`pred_label`/`predicted_label`) -- two columns claiming the
+    same role, such as `true_label` beside `actual_label`, are ambiguous and
+    rejected rather than one being picked. It must also have at least one
+    row, no empty label values and no duplicate pairs. A count column
+    (`count`, `support` or `n`, first found wins) is optional; when present
+    every value must be a positive integer (`3` and `3.0` are accepted; `0`,
+    negatives, fractions, blanks and non-numbers are not). Without one, every
+    pair counts as 1, so the cutoff is decided by the tie-break alone.
 
     Raises:
         ConfusionPairsError: If the file is missing, unreadable or fails any
@@ -720,12 +735,25 @@ def read_confusion_pairs_file(path: Path) -> pd.DataFrame:
             f"--confusion-pairs-file {path} is not a readable CSV: {exc}"
         ) from exc
 
-    rename_map = {
-        source: target
-        for source, target in CONFUSION_PAIR_COLUMN_ALIASES.items()
-        if source in frame.columns and target not in frame.columns
-    }
-    frame = frame.rename(columns=rename_map)
+    for target in ("actual", "predicted"):
+        claimants = [
+            str(col)
+            for col in frame.columns
+            if col == target or CONFUSION_PAIR_COLUMN_ALIASES.get(col) == target
+        ]
+        if len(claimants) > 1:
+            raise ConfusionPairsError(
+                f"--confusion-pairs-file {path} has more than one `{target}` "
+                f"label column ({', '.join(f'`{c}`' for c in claimants)}); keep "
+                "exactly one, so the label source is not guessed."
+            )
+    frame = frame.rename(
+        columns={
+            source: target
+            for source, target in CONFUSION_PAIR_COLUMN_ALIASES.items()
+            if source in frame.columns
+        }
+    )
     if not {"actual", "predicted"} <= set(frame.columns):
         found = ", ".join(str(col) for col in frame.columns) or "(none)"
         raise ConfusionPairsError(
@@ -759,12 +787,12 @@ def read_confusion_pairs_file(path: Path) -> pd.DataFrame:
         bad = [
             f"{pair}={raw!r}"
             for pair, raw, value in zip(pairs, frame[count_col], counts, strict=True)
-            if pd.isna(value) or not math.isfinite(float(value))
+            if not _is_positive_integer(value)
         ]
         if bad:
             raise ConfusionPairsError(
                 f"--confusion-pairs-file {path} `{count_col}` values must be "
-                f"finite numbers; got {', '.join(bad[:5])}."
+                f"positive integers; got {', '.join(bad[:5])}."
             )
 
     return pd.DataFrame(
