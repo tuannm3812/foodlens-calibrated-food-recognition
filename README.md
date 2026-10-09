@@ -103,12 +103,20 @@ agents with shared acceptance criteria.
 | Test top-1 accuracy | 78.28% |
 | Test top-5 accuracy | 92.65% |
 | Test calibration ECE | 0.0265 |
-| Auto-accept coverage | 58.02% |
-| Auto-accept top-1 accuracy | 96.47% |
-| Suggestion-band top-5 containment | 100.00% |
+| Auto-accept coverage | 61.20% |
+| Auto-accept top-1 accuracy | 94.58% |
+| Suggestion-band top-5 containment | 89.24% |
 | Parameters | 24.7M |
 | Model size | 94.48 MB |
 | T4 latency | 5.35 ms/image |
+
+Decision-layer rows are the deployed runtime policy, measured on the held-out
+test split with thresholds and risk sets fitted on validation only (2026-10
+symmetric closure run). They replace earlier figures of 58.02% / 96.47% /
+100.00%, which were withdrawn: that method used the true label during routing
+and selected thresholds on the test set, and the 100% suggestion figure was
+true by construction. Details and provenance: section 16 of
+[docs/3_model_results.md](docs/3_model_results.md).
 
 ### Model Comparison
 

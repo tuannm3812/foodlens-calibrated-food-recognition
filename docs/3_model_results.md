@@ -336,6 +336,14 @@ Interpretation:
 
 ## 11. Confidence Decision Layer Results
 
+> **Superseded — do not quote these figures as held-out performance.** The
+> decision-band results in this section came from a method that used the true
+> label during routing and selected thresholds and risk sets on the test split
+> it then reported on; the 100.00% suggestion-band containment was true by
+> construction. They are kept as the historical record of Notebook 5. The
+> corrected figures, and the policy the app now serves, are in
+> [section 16](#16-controlled-champion-vs-a3b-decision-layer-comparison).
+
 Notebook 5 converts calibrated predictions into practical product actions. The
 selected policy is intentionally simple and auditable:
 

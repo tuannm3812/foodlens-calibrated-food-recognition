@@ -4,8 +4,7 @@ Calibrated food **image recognition**: Food-101 classifiers whose confidence is
 temperature-scaled and routed through a decision layer (auto-accept / suggest /
 confirm / review), plus a FastAPI + React workbench for multi-food analysis.
 
-Not to be confused with `1. Study/ai-meal-planner`, another food-domain FastAPI
-+ ML repo: that one plans meals from user profiles. Neither shares code.
+Not `1. Study/ai-meal-planner` (also food + FastAPI + ML, but plans meals).
 
 ## Standards
 
@@ -32,10 +31,11 @@ Project-specific rules and deliberate overrides: @docs/0_coding_standards.md
 
 ## Current state
 
-As of 2026-09-10: product champion is **ResNet50 FT-V2** (83.90% is A3b's
-number, not the champion's — see `docs/3_model_results.md`). **A3b
-ConvNeXt-Tiny is the accuracy leader but is blocked from promotion** pending
-decision-layer recalibration. Do not promote it without redoing calibration.
+As of 2026-10-10: champion **ResNet50 FT-V2** serves the corrected decision
+policy (§16 of `docs/3_model_results.md`). Deploy policies only with
+`scripts/deploy_decision_policy.py`; copying run files breaks the backend
+silently. A3b recalibration is done (more accurate, ECE 0.0556 vs 0.0265);
+promoting it is the user's call and has not been made.
 
 ## Open risks
 

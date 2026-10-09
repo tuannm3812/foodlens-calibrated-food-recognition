@@ -9,9 +9,10 @@ The production gate is calibrated behavior, not raw top-1 alone:
 
 - strong top-5 behavior supports ranked suggestions;
 - stable calibration keeps post-decision confidence reliable;
-- current decision policy balances auto-accept/suggest/confirm/review safely;
-- ConvNeXt-Tiny is strong on accuracy but remains blocked from promotion until E2
-  recalibration and coverage/accuracy checks are completed.
+- the deployed decision policy is fitted on validation and measured once on
+  test (section 16 of `3_model_results.md`);
+- ConvNeXt-Tiny (A3b) is stronger on accuracy and its recalibration is complete;
+  promotion waits on an explicit decision about its looser calibration.
 
 The project now has a clear champion and a trustworthy evaluation layer.
 
@@ -28,17 +29,25 @@ The project now has a clear champion and a trustworthy evaluation layer.
 | A3b ConvNeXt-Tiny continued fine-tune | 95.78% test top-5 |
 | E1 expanded taxonomy baseline | 86.10% test top-1 across 130 classes |
 | E1 expanded taxonomy baseline | 96.88% test top-5 across 130 classes |
-| Decision layer | 58.02% auto-accept coverage at 96.47% top-1 |
+| Decision layer (deployed) | 61.20% auto-accept coverage at 94.58% top-1 on test, fitted on validation |
 
-The current production reference remains **ResNet50 FT-V2** because its
-calibrated decision layer is stronger. A3b ConvNeXt-Tiny is now the accuracy
-leader, but it needs decision-layer recalibration before product promotion.
+The product champion is **ResNet50 FT-V2**, serving the corrected decision
+policy deployed in October 2026 (auto 0.70, suggest 0.35, margin 0.05; 11 hard
+classes and 40 confusion pairs fitted on validation). Section 16 of
+[`3_model_results.md`](3_model_results.md) holds the measured figures.
+
+A3b ConvNeXt-Tiny's decision-layer recalibration is **complete**: it was put
+through the same symmetric pipeline as the champion and the comparison was
+accepted as evidence. A3b leads on every measured figure except review-band
+top-5 containment and calibration (test ECE 0.0556 against 0.0265). Promotion
+is now a product decision about that accuracy-versus-calibration trade, not a
+missing-evidence block, and has not been made.
 
 The active model-improvement direction is now:
 
-> Keep ResNet50 FT-V2 as the product baseline, continue the ConvNeXt-Tiny
-> accuracy phase, recalibrate the decision layer before promotion, and improve
-> the expanded 130-class classifier with controlled fine-tuning.
+> Keep ResNet50 FT-V2 as the product champion, decide the A3b
+> accuracy-versus-calibration trade explicitly, and improve the expanded
+> 130-class classifier with controlled fine-tuning.
 
 The detailed execution plan is maintained in
 [`7_accuracy_improvement_plan.md`](7_accuracy_improvement_plan.md).
@@ -201,14 +210,19 @@ Expected outputs:
 
 ## 6. Next After Decision-Layer Work
 
-Notebook 5 has produced the selected decision thresholds and band metrics:
+Notebook 5 produced the first decision thresholds and band metrics. Those
+figures (58.02% auto-accept at 96.47% top-1) are **withdrawn**: the method used
+the true label during routing and selected thresholds on the test set. The
+deployed policy, refitted on validation and scored once on test, gives:
 
 | Decision band | Coverage | Key signal |
 | --- | ---: | --- |
-| Auto-accept | 58.02% | 96.47% top-1 accuracy |
-| Suggest | 20.78% | 100.00% top-5 containment |
-| Confirm | 18.99% | low top-1 accuracy, user input needed |
-| Review | 2.21% | known hard-confusion cases |
+| Auto-accept | 61.20% | 94.58% top-1 accuracy |
+| Suggest | 23.38% | 89.24% top-5 containment |
+| Confirm | 12.88% | 35.28% top-1, user input needed |
+| Review | 2.54% | known hard-confusion cases |
+
+See section 16 of [`3_model_results.md`](3_model_results.md) for provenance.
 
 Notebook 6 now implements the final demo workflow and exports:
 

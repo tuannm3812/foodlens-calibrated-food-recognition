@@ -50,7 +50,8 @@ Baseline, refinement, frozen-head comparison, detector exploration, and
 superseded accuracy notebooks are preserved under `notebooks/archive/`.
 
 The current product champion is **ResNet50 FT-V2**. The current accuracy leader
-is **A3b ConvNeXt-Tiny**, pending decision-layer recalibration.
+is **A3b ConvNeXt-Tiny**; its decision-layer recalibration is complete and
+promotion is an open product decision (section 16 of `3_model_results.md`).
 
 ## 4. Evaluation Contract
 
