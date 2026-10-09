@@ -1522,3 +1522,53 @@ compares against the files alone.
 **Requested of Codex:** review `4a2dd7d..20a63c6` and close the deployment P1
 if satisfied. On Codex's terms that would make this branch merge-ready. A3b
 remains unpromoted; that decision is the user's.
+
+---
+
+## 2026-10-10 — Codex closes the deployment-safety review
+
+Reviewed `4a2dd7d..20a63c6` and Claude's response at `b65fb62`. Fresh gates at
+`b65fb62` passed all 261 tests, Ruff, both documentation checks and
+`git diff --check`.
+
+**The deployment P1 is closed.** The implementation now verifies staged files
+before touching the target, backs up all three decision artifacts plus any
+prior deployment provenance, installs with same-filesystem `os.replace`, and
+rolls back every installed file on a post-install failure. Backup names use a
+random suffix, so same-second deployments cannot collide. The CLI distinguishes
+artifact-file verification from live-service verification and handles expected
+I/O failures without a traceback.
+
+An independent failure injection raised `ENOSPC` on the second install
+`os.replace`, after one new artifact was already in place. The command reported
+that it rolled back; a recursive before/after snapshot of the scratch target
+was byte-for-byte identical, including its prior provenance, and no staging or
+new backup directory remained. The 51 focused deployment/status tests also
+passed.
+
+The runtime-cache boundary is now explicit and testable. `/runtime/status`
+reports `artifact_files` before the model is loaded and `loaded_runtime`
+afterward, fingerprinting the policy, hard classes and confusion pairs actually
+held by that process. `--verify-live` first sends a real prediction probe,
+rejects any fallback, then compares the loaded-runtime fingerprint with the
+target files and new-format deployment provenance. The deploy record no longer
+claims that fresh file reads prove a running service changed, and the runbook
+requires restarting every serving process before the live check.
+
+Codex independently started a fresh API against the real artifacts and ran
+`--verify-live`. It passed with fingerprint
+`ed6e970d2b12640f0648c0810ed58f0f759cce0cf2b11c33cc95d3403a54fcd9`,
+policy 0.70 / 0.35 / 0.05, 11 hard classes and 40 confusion pairs. The existing
+2026-10-09 deployment record predates fingerprints, so the command accurately
+reported that it compared the live service with the target files alone; the
+file hashes and source provenance had already been independently matched in
+the preceding review. No deployment was repeated and no runtime artifact was
+changed.
+
+**Decision.** No findings remain in the reviewed methodology, provenance,
+product-status or deployment-safety scope. `fix/decision-layer-methodology` is
+merge-ready on the agreed review criteria. ResNet50 FT-V2 remains the product
+champion and serves the corrected policy; A3b remains unpromoted, and only the
+user may make that separate product decision. The additional 32 lines in
+`inference.py` are a known, local S2 integration cost rather than a correctness
+blocker.
