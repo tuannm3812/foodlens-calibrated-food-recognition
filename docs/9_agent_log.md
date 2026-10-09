@@ -1572,3 +1572,74 @@ champion and serves the corrected policy; A3b remains unpromoted, and only the
 user may make that separate product decision. The additional 32 lines in
 `inference.py` are a known, local S2 integration cost rather than a correctness
 blocker.
+
+---
+
+## 2026-10-10 — Claude: pre-merge integration check found a cross-stack break
+
+Codex's closing entry was committed on its own (`e85004f`). Its decision is
+accepted: no findings remain in the reviewed scope, and
+`fix/decision-layer-methodology` is merge-ready on the agreed criteria.
+
+Before recommending the merge, the whole stack was merged locally, in the
+intended order, into a scratch worktree from `origin/main`:
+#3 → #4 → #8 → #9 → #10 → #5 → #7 → #6. Every PR was individually green on CI
+and individually mergeable against its own base. **The integrated result was
+not**:
+
+- one textual conflict, `app/backend/inference.py`, when #5 (S2) meets #10; and
+- once that was resolved, **24 failed tests** — after git had reported the
+  remaining merges (#7, #6) as clean.
+
+**One root cause.** S2 moved `read_temperature`, `read_policy`,
+`read_hard_classes` and `read_confusion_pairs` into `artifacts.py` with a
+*required* `artifact_dir` and re-exported them unchanged — the deviation the S2
+design recorded in its §9, where the review at the time noted thin wrappers
+would have preserved the signatures. `scripts/deploy_decision_policy.py`,
+written weeks later on the other stack, calls `inference.read_policy()` with no
+argument. Each branch was correct alone; together, the production deploy tool
+and the runtime-status tests broke. Per-PR CI could never see it, because no CI
+run ever executes the two stacks together.
+
+**Fix, on #5 (`4ab2fe6`), propagated to #7 (`f983bcf`).** `inference.py` now
+wraps the four readers with an optional `artifact_dir` defaulting to
+`artifact_dir_path()`, restoring the public surface S2's §5 said must not
+change. `artifacts.py` keeps its explicit parameter and still never imports
+`inference`. A regression test pins the no-argument form. S2's own suite: 113
+pass; #7: 116 pass. The fix makes monkeypatching `inference.read_policy` *more*
+effective, since `load_runtime()` now calls the local wrapper.
+
+**Re-run of the integrated stack with the fix:** 321 backend tests pass, ruff
+and both doc checks pass, the frontend typechecks and passes 79 tests, and the
+integrated backend serving the real `app/artifacts/` passes `--verify-live`
+with fingerprint `ed6e970d…` (artifacts unchanged).
+
+**The one conflict that remains, and its exact resolution.** When #5 merges
+after #10, `app/backend/inference.py` conflicts in two hunks:
+
+1. *Imports* — keep both: S2's block (`.demo`, `.detection`,
+   `.detector_policy`, `.imaging`) **and** `from .policy_fingerprint import
+   decision_layer_fingerprint`.
+2. *Function block* — take S2's side (those functions moved to modules) but
+   **keep #10's `decision_layer_status()` helper verbatim**. With the wrappers
+   above, its no-argument reader calls work unchanged; without them it would
+   need editing, which is how this break would have been reintroduced.
+
+**Merge procedure, which matters for a stack this deep:**
+
+- Use **"Create a merge commit"** for every PR. Squash or rebase rewrites the
+  parent's commits, and every child PR still carries the originals, which would
+  turn into conflicts across the whole stack.
+- `delete_branch_on_merge` is **off** on this repository, so GitHub will *not*
+  retarget child PRs after a parent merges. After merging each PR, either delete
+  its branch (GitHub then retargets the children) or change the children's base
+  to `main` by hand. Otherwise a child merges into a stale branch instead of
+  `main`.
+- Order: #3 → #4 → #8 → #9 → #10 → #5 (resolve as above) → #7 → #6.
+
+**Process lesson worth keeping:** for stacked work, green per-PR CI is not
+evidence the stack works. Run the full merge order once, locally, and the full
+suite on the result, before merging anything.
+
+**Requested of Codex:** review `4ab2fe6` on #5 — it falls outside the scope
+just closed — and the merge procedure above.
