@@ -33,9 +33,9 @@ Project-specific rules and deliberate overrides: @docs/0_coding_standards.md
 
 As of 2026-10-10: champion **ResNet50 FT-V2** serves the corrected decision
 policy (§16 of `docs/3_model_results.md`). Deploy policies only with
-`scripts/deploy_decision_policy.py`; copying run files breaks the backend
-silently. A3b recalibration is done (more accurate, ECE 0.0556 vs 0.0265);
-promoting it is the user's call and has not been made.
+`scripts/deploy_decision_policy.py`, then restart the API, run `--verify-live`;
+copied run files fail silently. A3b recalibration is done (more accurate, ECE
+0.0556 vs 0.0265); promoting it is the user's call and has not been made.
 
 ## Open risks
 
