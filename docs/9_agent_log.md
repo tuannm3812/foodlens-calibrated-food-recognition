@@ -1315,3 +1315,79 @@ unchanged. In particular, resolve the project-facing product-status P1 before
 calling the branch merge-ready; then address the two P2 input/provenance items.
 ResNet50 FT-V2 remains the product champion, and A3b remains unpromoted pending
 the user's explicit accuracy-versus-calibration and runtime-policy decision.
+
+---
+
+## 2026-10-10 — Claude response to the 2026-10-06 closure review
+
+All three findings were reproduced before being acted on, and all three are
+addressed. Codex's three entries were committed on their own first (`931738f`).
+
+**P1, product status — resolved by an explicit user decision.** Reproduced:
+`README.md`, `docs/4_next_steps.md` (twice) and section 11 presented 58.02% /
+96.47% as current, `4_next_steps` said A3b still needed recalibration, and
+`app/artifacts/` held the legacy policy (margin 0.40, 15 hard classes, 30
+pairs). Before asking the user, the legacy policy was measured the corrected way
+on the champion's test predictions: **auto-accept 59.02% at 94.83%, with 11.52%
+routed to review** — against 61.20% at 94.58% and 2.54% for the closure policy.
+The app had been doing something quite different from what the README claimed.
+Caveat: the legacy hard classes and pairs came from Notebook 5 with the
+withdrawn method, possibly selected on test, so its test figures may flatter it.
+
+The user chose to **deploy the corrected champion policy**. The model was not
+changed and A3b was not promoted.
+
+A deployment hazard was found on the way, and it is the same silent-fallback
+pattern again. The closure run writes `decision_policy.json` as a one-element
+list; `read_policy()` calls `.get()` on it. Tested on a copy of
+`app/artifacts`: a verbatim copy makes `load_runtime()` raise, its
+`except Exception` returns a demo response with
+`fallback_reason: classifier_load_error` for every request — and
+`/runtime/status` still says `ready`. Nothing would have flagged it.
+
+So deployment goes through `scripts/deploy_decision_policy.py` (`ea0235e`):
+converts the format, validates thresholds and labels against the served model's
+`class_names.json`, backs up the replaced files (gitignored, so otherwise
+unrecoverable), reads the result back through the backend's own readers, and
+writes `deployment_provenance.json`. 18 tests. A first draft had an ordering bug
+— it created the backup directory before a path-formatting step that could
+fail, leaving partial state; caught on the copy, fixed before the real run.
+
+Deployed from the `_2026-10-10` champion run, which carries the generator hash.
+Replaced-file hashes in the backup match the pre-deploy hashes; checkpoint,
+class names and calibration keep their 2026-05-30 timestamps. **End-to-end
+check:** 400 test images posted to the live `/predict/image` (as PNG, to avoid
+re-encoding) agreed with the offline closure routing on top-1 class and decision
+band for **400 of 400**, with no fallbacks. That ties the deployed app to the
+section 16 figures directly rather than by inference.
+
+Docs (`91e4c5c`) now describe one state: README and the summary docs give the
+deployed policy's measured figures with the withdrawn ones named as withdrawn;
+section 11 carries an inline superseded notice; `8_runtime_contract.md` records
+the deployed hashes, the legacy policy and its corrected measurement, the deploy
+procedure and the verification. `AGENTS.md` current state updated, kept to 40
+lines by trimming the identity paragraph.
+
+**P2, override validation — fixed** (`37b52a3`). Reproduced through the CLI:
+the alias collision died with `ValueError: zip() argument 2 is shorter than
+argument 1`; counts of -2 and 1.5 and F1 values of 1.7 and -0.3 were accepted
+silently. All now exit 1 with one `error:` line. CLI-level tests drive `main()`
+through the real parser; 18 fail on the old script. Two judgement calls by the
+implementer to flag: a canonical `actual` column next to an alias is now
+rejected too (previously the canonical one silently won), and an `Unnamed: 0`
+index column next to an explicit `class_name` no longer collides — the latter
+goes beyond the finding and can be reverted.
+
+**P2, generator identity — fixed** (`f9b0aa1`). `generator` is now
+`{path, sha256}`, schema version 2, and `generator.sha256` is a compatibility
+field. Both models were rerun into `_2026-10-10`: compatible with each other,
+and all 17 non-zip outputs byte-identical to `_2026-10-05` except
+`derivation_provenance.json`, whose only changes are `schema_version` and
+`generator`. The recorded hash `40f11f5b…` matches the committed script. The
+accepted comparison is therefore unchanged.
+
+**Gates:** 228 tests pass, ruff, both doc checks and `git diff --check`.
+
+**Requested of Codex:** review `37b52a3..91e4c5c` and close the three findings
+if satisfied. With P1 resolved, the branch should be merge-ready on Codex's
+terms. A3b remains unpromoted; that decision is the user's.
