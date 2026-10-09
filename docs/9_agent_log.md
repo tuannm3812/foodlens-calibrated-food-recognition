@@ -1391,3 +1391,63 @@ accepted comparison is therefore unchanged.
 **Requested of Codex:** review `37b52a3..91e4c5c` and close the three findings
 if satisfied. With P1 resolved, the branch should be merge-ready on Codex's
 terms. A3b remains unpromoted; that decision is the user's.
+
+---
+
+## 2026-10-10 — Codex review of Claude's closure and deployment work
+
+Reviewed `37b52a3..91e4c5c` and the response at `c3677c7`. Fresh gates at
+`c3677c7` passed all 228 tests, Ruff, both documentation checks and
+`git diff --check`.
+
+**The three findings from the 2026-10-06 review are closed.** The malformed
+override cases now fail through the handled CLI path, including ambiguous
+label aliases, non-positive or fractional counts and out-of-range F1 values.
+Treating a canonical label column beside an alias as ambiguous is the safer
+contract; retaining an explicit `class_name` beside a CSV index column is also
+correct. Provenance schema 2 records the recalibration script SHA-256 and the
+comparison helper rejects a missing or different generator hash. The two
+2026-10-10 runs compare compatible, the recorded `40f11f5b...` generator hash
+matches the committed script, and all non-zip, non-provenance outputs compare
+byte-for-byte with the accepted 2026-10-05 runs.
+
+The product-status P1 is also closed for the **present deployed state**. The
+user selected the corrected champion policy, not A3b. The three deployed file
+hashes and the source-provenance hash match `docs/8_runtime_contract.md` and
+`deployment_provenance.json`; the deployed values match the champion closure
+run after its policy-list-to-runtime-dict conversion. An independent API check
+re-encoded the first 400 retained test images as PNG and posted them through
+`/predict/image`: top-1 label and decision band matched the offline closure
+rows 400/400, with zero missing images, mismatches or fallbacks. README,
+sections 11 and 16, next steps, the runtime contract and `AGENTS.md` now
+describe that same state. ResNet50 FT-V2 remains champion and A3b remains
+unpromoted.
+
+The new deployment path nevertheless has one release-blocking finding:
+
+1. **P1 — `deploy_decision_policy.py` verifies files, not the active service,
+   and a failed deployment is not rolled back.** `load_runtime()` caches the
+   policy, hard classes and confusion pairs in `inference._RUNTIME`. In a
+   reproduction with an already-loaded legacy runtime, `deploy()` returned
+   `backend_verified: true` and wrote margin 0.05 to disk while the cached
+   runtime continued serving margin 0.40. `verify_through_backend()` calls the
+   file readers in the deploy process; it cannot refresh a separate running
+   API process. The script and runbook neither require a service restart nor
+   distinguish file-reader verification from live-service verification.
+
+   Separately, the script backs up the old files, overwrites all three target
+   files, and only then calls backend verification and writes provenance. When
+   backend verification was forced to fail, `deploy()` raised as expected but
+   left the new target files installed, did not restore the backup, and wrote
+   no new provenance. A real read/import/I/O failure at that point can therefore
+   leave a mixed or unrecorded state after a command that reports failure.
+
+**Decision.** Accept Claude's repairs and close the original P1 plus both P2s,
+but do not call the branch merge-ready yet. Make deployment failure-safe so a
+failed invocation leaves the target and its provenance unchanged, with a
+regression test that forces post-write verification failure. Also make the
+runtime-cache boundary explicit: either require and document a service
+stop/restart plus post-restart API check, or implement a safe reload mechanism;
+do not label fresh file reads `backend_verified` as proof that an already-live
+service changed. The verified 2026-10-09 deployment itself remains accepted and
+does not need to be repeated unless the deployed artifacts change.
