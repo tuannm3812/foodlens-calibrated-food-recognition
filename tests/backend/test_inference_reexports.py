@@ -181,3 +181,35 @@ def test_build_multi_food_mock_patch_changes_multi_food_response(
     result = inference.predict_multi_food_image_bytes(b"not-a-real-image")
 
     assert result is sentinel_response
+
+
+def test_artifact_readers_keep_their_no_argument_signature(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`inference.read_*()` must still work with no argument.
+
+    The decomposition moved these readers into `artifacts.py` with a required
+    `artifact_dir` parameter. Code outside the package -- the policy deploy
+    script -- calls them with no argument, so every PR passed on its own while
+    the integrated stack failed 24 tests. The wrappers default to
+    `artifact_dir_path()`; this pins that.
+    """
+    (tmp_path / "decision_policy.json").write_text(
+        '{"auto_confidence": 0.8, "suggest_confidence": 0.3, "margin_threshold": 0.1}'
+    )
+    (tmp_path / "hard_classes.json").write_text('["steak"]')
+    (tmp_path / "confusion_pairs.json").write_text(
+        '[{"actual": "steak", "predicted": "filet_mignon"}]'
+    )
+    (tmp_path / "calibration.json").write_text('{"temperature": 1.25}')
+    monkeypatch.setattr(inference, "artifact_dir_path", lambda: tmp_path)
+
+    assert inference.read_policy() == {
+        "auto_confidence": 0.8,
+        "suggest_confidence": 0.3,
+        "margin_threshold": 0.1,
+    }
+    assert inference.read_hard_classes() == {"steak"}
+    assert inference.read_confusion_pairs() == {("steak", "filet_mignon")}
+    assert inference.read_temperature() == 1.25
+    assert inference.read_policy(tmp_path) == inference.read_policy()
