@@ -11,12 +11,24 @@ outputs in the analysis format, which is not the format the backend reads:
 - ``hard_classes.json`` and ``confusion_pairs.json`` already match the runtime
   format and are validated, not converted.
 
-This script converts and validates the three files, backs up whatever it is
-about to replace (``app/artifacts/`` is gitignored, so an overwritten file is
-otherwise unrecoverable), writes them, then loads them back through the
-backend's own readers and fails unless the backend sees exactly the deployed
-values. It also writes ``deployment_provenance.json`` recording the source run,
-its derivation provenance, and the hash of every deployed file.
+This script converts and validates the three files, then:
+
+1. stages them in a hidden directory inside the target and reads them back
+   through the backend's own readers -- the target is untouched until this
+   passes;
+2. backs up whatever it is about to replace, including any existing
+   ``deployment_provenance.json`` (``app/artifacts/`` is gitignored, so an
+   overwritten file is otherwise unrecoverable), in a collision-free
+   ``replaced_<UTC stamp>_<suffix>/`` directory;
+3. installs each file with an atomic ``os.replace`` and writes
+   ``deployment_provenance.json`` recording the source run, its derivation
+   provenance and the hash of every deployed file;
+4. reads the installed target back through the backend readers.
+
+If anything fails after installation starts, every original file is restored,
+files that did not exist before are removed, the new backup directory is
+deleted, and the command fails saying the deployment was rolled back. A failed
+invocation therefore leaves the target exactly as it was.
 
 Only decision-layer artifacts are touched. The model checkpoint, class names and
 calibration are never modified, so deploying a policy can never change which
@@ -33,8 +45,10 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import shutil
 import sys
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -43,6 +57,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TARGET = REPO_ROOT / "app" / "artifacts"
 POLICY_KEYS = ("auto_confidence", "suggest_confidence", "margin_threshold")
 DEPLOYED_FILES = ("decision_policy.json", "hard_classes.json", "confusion_pairs.json")
+PROVENANCE_FILE = "deployment_provenance.json"
 
 
 class DeployError(Exception):
@@ -167,8 +182,8 @@ def verify_through_backend(
     This is the check that would have caught the list-vs-dict mismatch: it does
     not trust the files, it trusts what the runtime actually reads from them.
     """
-    sys.path.insert(0, str(REPO_ROOT))
-    import os
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
 
     previous = os.environ.get("FOODLENS_ARTIFACT_DIR")
     os.environ["FOODLENS_ARTIFACT_DIR"] = str(target)
@@ -196,8 +211,117 @@ def verify_through_backend(
         raise DeployError("Backend read a different confusion-pair set than was deployed.")
 
 
+def write_json_file(path: Path, value: Any) -> None:
+    """Write indented JSON with a trailing newline."""
+    path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+
+
+def rollback(
+    target: Path, staging: Path, backup: Path | None, prior: dict[str, str | None]
+) -> None:
+    """Restore every installed file to its pre-deploy bytes, then drop the backup.
+
+    Args:
+        target: The runtime artifact directory.
+        staging: The staging directory, used to stage restored copies so each
+            restore is an atomic same-filesystem ``os.replace``.
+        backup: Directory holding the pre-deploy copies, or ``None`` when no
+            installed file existed before.
+        prior: For each installed file name, the SHA-256 it had before the
+            deploy, or ``None`` if it did not exist.
+
+    Raises:
+        DeployError: If any file cannot be restored. The backup directory is
+            then left in place and named, because it holds the only copy.
+    """
+    try:
+        for name, digest in prior.items():
+            if digest is None:
+                (target / name).unlink(missing_ok=True)
+                continue
+            if backup is None:
+                raise DeployError(f"no backup holds the original {name}")
+            restored = staging / f"restore-{name}"
+            shutil.copy2(backup / name, restored)
+            os.replace(restored, target / name)
+            if sha256(target / name) != digest:
+                raise DeployError(f"restored {name} does not match its pre-deploy hash")
+    except Exception as exc:
+        where = display(backup) if backup is not None else "(no backup was needed)"
+        raise DeployError(
+            f"ROLLBACK FAILED ({exc}). The target {display(target)} may hold a mixed "
+            f"state. The pre-deploy files are preserved in {where}; restore them by hand."
+        ) from exc
+    if backup is not None:
+        shutil.rmtree(backup)
+
+
+def install(
+    target: Path,
+    staging: Path,
+    record: dict[str, Any],
+    policy: dict[str, float],
+    hard: list[str],
+    pairs: list[dict[str, str]],
+) -> None:
+    """Back up, atomically install the staged files and provenance, and re-check.
+
+    If anything fails after the first file is replaced, every original file
+    (including ``deployment_provenance.json``) is restored, files that did not
+    exist before are removed, and the backup directory created here is deleted,
+    so a failed deploy leaves the target exactly as it was.
+    """
+    installed = (*DEPLOYED_FILES, PROVENANCE_FILE)
+    prior = {
+        name: sha256(target / name) if (target / name).exists() else None
+        for name in installed
+    }
+    backup: Path | None = None
+    if any(digest is not None for digest in prior.values()):
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        backup = Path(tempfile.mkdtemp(prefix=f"replaced_{stamp}_", dir=target))
+        try:
+            for name, digest in prior.items():
+                if digest is not None:
+                    shutil.copy2(target / name, backup / name)
+        except Exception:
+            shutil.rmtree(backup, ignore_errors=True)
+            raise
+        record["backup_dir"] = display(backup)
+        record["replaced_files_sha256"] = {
+            name: prior[name] for name in DEPLOYED_FILES if prior[name] is not None
+        }
+        if prior[PROVENANCE_FILE] is not None:
+            record["replaced_provenance_sha256"] = prior[PROVENANCE_FILE]
+
+    try:
+        for name in DEPLOYED_FILES:
+            os.replace(staging / name, target / name)
+        write_json_file(staging / PROVENANCE_FILE, record)
+        os.replace(staging / PROVENANCE_FILE, target / PROVENANCE_FILE)
+
+        # Post-install check: the target, not the staged copy, is what the
+        # backend will read.
+        verify_through_backend(target, policy, hard, pairs)
+        for name, digest in record["deployed_files_sha256"].items():
+            if sha256(target / name) != digest:
+                raise DeployError(f"installed {name} does not match the staged file")
+    except BaseException as exc:
+        rollback(target, staging, backup, prior)
+        if not isinstance(exc, Exception):
+            raise
+        raise DeployError(
+            f"Deployment rolled back; {display(target)} is unchanged. Cause: {exc}"
+        ) from exc
+
+
 def deploy(source: Path, target: Path, dry_run: bool) -> dict[str, Any]:
-    """Validate, back up, write and verify; return the deployment record."""
+    """Validate, stage, verify, back up, install and re-verify; return the record.
+
+    A failure at any step leaves ``target`` byte-for-byte as it was: staged files
+    are verified before the target is touched, and a failure after installation
+    starts is rolled back.
+    """
     provenance_path = source / "derivation_provenance.json"
     # Refuse a source without derivation provenance: a deployed policy must trace
     # back to the run that produced it.
@@ -225,25 +349,21 @@ def deploy(source: Path, target: Path, dry_run: bool) -> dict[str, Any]:
         record["dry_run"] = True
         return record
 
-    # Everything that can fail on bad input has already run; only file I/O remains.
-    existing = [name for name in DEPLOYED_FILES if (target / name).exists()]
-    if existing:
-        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        backup = target / f"replaced_{stamp}"
-        record["backup_dir"] = display(backup)
-        record["replaced_files_sha256"] = {name: sha256(target / name) for name in existing}
-        backup.mkdir()
-        for name in existing:
-            shutil.copy2(target / name, backup / name)
-
-    (target / "decision_policy.json").write_text(json.dumps(policy, indent=2) + "\n")
-    (target / "hard_classes.json").write_text(json.dumps(hard, indent=2) + "\n")
-    (target / "confusion_pairs.json").write_text(json.dumps(pairs, indent=2) + "\n")
-    record["deployed_files_sha256"] = {name: sha256(target / name) for name in DEPLOYED_FILES}
-
-    verify_through_backend(target, policy, hard, pairs)
-    record["backend_verified"] = True
-    (target / "deployment_provenance.json").write_text(json.dumps(record, indent=2) + "\n")
+    # Stage inside the target so every install step is a same-filesystem
+    # os.replace, and verify the staged files before the target is touched.
+    staging = Path(tempfile.mkdtemp(prefix=".deploy-staging-", dir=target))
+    try:
+        write_json_file(staging / "decision_policy.json", policy)
+        write_json_file(staging / "hard_classes.json", hard)
+        write_json_file(staging / "confusion_pairs.json", pairs)
+        verify_through_backend(staging, policy, hard, pairs)
+        record["deployed_files_sha256"] = {
+            name: sha256(staging / name) for name in DEPLOYED_FILES
+        }
+        record["backend_verified"] = True
+        install(target, staging, record, policy, hard, pairs)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
     return record
 
 
@@ -256,7 +376,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         record = deploy(args.source, args.target, args.dry_run)
-    except DeployError as exc:
+    except (DeployError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(record, indent=2))

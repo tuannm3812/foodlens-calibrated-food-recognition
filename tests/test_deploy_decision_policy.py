@@ -147,3 +147,171 @@ def test_malformed_json_is_a_handled_error(source, target, capsys):
     (source / "confusion_pairs.json").write_text("[{")
     assert deploy_mod.main(["--source", str(source), "--target", str(target)]) == 1
     assert "not valid JSON" in capsys.readouterr().err
+
+
+# --- Failure safety: a failed deploy leaves the target exactly as it was ------
+
+
+def snapshot(directory: Path) -> dict[str, bytes | None]:
+    """Every entry in a directory: file bytes, or None for a subdirectory."""
+    return {
+        p.name: (None if p.is_dir() else p.read_bytes()) for p in sorted(directory.iterdir())
+    }
+
+
+@pytest.fixture
+def deployed_target(target: Path) -> Path:
+    """A target that already carries provenance from an earlier deployment."""
+    write_json(target / "deployment_provenance.json", {"deployed_at": "earlier"})
+    return target
+
+
+def fail_when_reading(directory: Path):
+    """A verify_through_backend stand-in that fails only for one directory."""
+    real = deploy_mod.verify_through_backend
+
+    def verify(where, *args):
+        if Path(where).resolve() == directory.resolve():
+            raise OSError("simulated backend read failure")
+        return real(where, *args)
+
+    return verify
+
+
+def test_post_install_verification_failure_rolls_back(
+    source, deployed_target, monkeypatch, capsys
+):
+    before = snapshot(deployed_target)
+    monkeypatch.setattr(
+        deploy_mod, "verify_through_backend", fail_when_reading(deployed_target)
+    )
+    assert deploy_mod.main(["--source", str(source), "--target", str(deployed_target)]) == 1
+    err = capsys.readouterr().err
+    assert "rolled back" in err
+    assert "simulated backend read failure" in err
+    assert snapshot(deployed_target) == before
+
+
+def test_failure_on_second_replace_rolls_back_mixed_state(source, deployed_target, monkeypatch):
+    before = snapshot(deployed_target)
+    real_replace = deploy_mod.os.replace
+    calls = {"n": 0}
+
+    def flaky_replace(src, dst):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise OSError("simulated replace failure")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(deploy_mod.os, "replace", flaky_replace)
+    with pytest.raises(deploy_mod.DeployError, match="rolled back"):
+        deploy_mod.deploy(source, deployed_target, dry_run=False)
+    assert calls["n"] > 2, "the first file was installed, so rollback must have replaced it"
+    assert snapshot(deployed_target) == before
+
+
+def test_staging_verification_failure_leaves_target_untouched(source, target, monkeypatch):
+    before = snapshot(target)
+    staged: list[Path] = []
+
+    def fail_on_staging(where, *args):
+        staged.append(Path(where))
+        raise deploy_mod.DeployError("staged files read back wrong")
+
+    monkeypatch.setattr(deploy_mod, "verify_through_backend", fail_on_staging)
+    with pytest.raises(deploy_mod.DeployError, match="read back wrong"):
+        deploy_mod.deploy(source, target, dry_run=False)
+    assert staged and staged[0].name.startswith(".deploy-staging-")
+    assert snapshot(target) == before
+
+
+def test_prior_provenance_is_restored_on_rollback(source, deployed_target, monkeypatch):
+    prior = (deployed_target / "deployment_provenance.json").read_bytes()
+    monkeypatch.setattr(
+        deploy_mod, "verify_through_backend", fail_when_reading(deployed_target)
+    )
+    with pytest.raises(deploy_mod.DeployError):
+        deploy_mod.deploy(source, deployed_target, dry_run=False)
+    assert (deployed_target / "deployment_provenance.json").read_bytes() == prior
+
+
+def test_rollback_removes_provenance_that_did_not_exist(source, target, monkeypatch):
+    monkeypatch.setattr(deploy_mod, "verify_through_backend", fail_when_reading(target))
+    with pytest.raises(deploy_mod.DeployError):
+        deploy_mod.deploy(source, target, dry_run=False)
+    assert not (target / "deployment_provenance.json").exists()
+
+
+def test_failed_rollback_names_the_preserved_backup(source, target, monkeypatch):
+    monkeypatch.setattr(deploy_mod, "verify_through_backend", fail_when_reading(target))
+    monkeypatch.setattr(
+        deploy_mod.shutil,
+        "copy2",
+        _copy_then_fail_on_restore(deploy_mod.shutil.copy2),
+    )
+    with pytest.raises(deploy_mod.DeployError, match="ROLLBACK FAILED") as info:
+        deploy_mod.deploy(source, target, dry_run=False)
+    backups = [p for p in target.iterdir() if p.name.startswith("replaced_")]
+    assert len(backups) == 1
+    assert backups[0].name in str(info.value)
+    assert (backups[0] / "decision_policy.json").exists()
+
+
+def _copy_then_fail_on_restore(real_copy):
+    def copy(src, dst, *args, **kwargs):
+        if Path(dst).name.startswith("restore-"):
+            raise OSError("simulated restore failure")
+        return real_copy(src, dst, *args, **kwargs)
+
+    return copy
+
+
+def test_back_to_back_deploys_get_distinct_backups(source, target, monkeypatch):
+    class FrozenDatetime(deploy_mod.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return deploy_mod.datetime(2026, 10, 10, 12, 0, 0, tzinfo=tz)
+
+    monkeypatch.setattr(deploy_mod, "datetime", FrozenDatetime)
+    first = deploy_mod.deploy(source, target, dry_run=False)
+    second = deploy_mod.deploy(source, target, dry_run=False)
+    assert first["backup_dir"] != second["backup_dir"]
+    backups = sorted(p.name for p in target.iterdir() if p.name.startswith("replaced_"))
+    assert len(backups) == 2
+    assert all(name.startswith("replaced_20261010T120000Z_") for name in backups)
+
+
+def test_an_existing_backup_name_does_not_collide(source, target, monkeypatch):
+    class FrozenDatetime(deploy_mod.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return deploy_mod.datetime(2026, 10, 10, 12, 0, 0, tzinfo=tz)
+
+    monkeypatch.setattr(deploy_mod, "datetime", FrozenDatetime)
+    (target / "replaced_20261010T120000Z").mkdir()
+    assert deploy_mod.main(["--source", str(source), "--target", str(target)]) == 0
+
+
+def test_second_backup_preserves_first_deployments_provenance(source, target):
+    deploy_mod.deploy(source, target, dry_run=False)
+    first_provenance = (target / "deployment_provenance.json").read_bytes()
+    record = deploy_mod.deploy(source, target, dry_run=False)
+    backup = Path(record["backup_dir"])
+    assert (backup / "deployment_provenance.json").read_bytes() == first_provenance
+    assert record["replaced_provenance_sha256"] == deploy_mod.sha256(
+        backup / "deployment_provenance.json"
+    )
+
+
+def test_successful_deploy_leaves_no_staging_directory(source, target):
+    deploy_mod.deploy(source, target, dry_run=False)
+    assert not any(p.name.startswith(".deploy-staging-") for p in target.iterdir())
+
+
+def test_unexpected_os_error_is_a_handled_error(source, target, monkeypatch, capsys):
+    def no_space(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(deploy_mod.tempfile, "mkdtemp", no_space)
+    assert deploy_mod.main(["--source", str(source), "--target", str(target)]) == 1
+    assert "No space left on device" in capsys.readouterr().err
