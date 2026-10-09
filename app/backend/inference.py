@@ -20,12 +20,12 @@ from .artifacts import (
     TEMPERATURE,
     artifact_file_status,
     classifier_artifacts_ready,
-    read_confusion_pairs,
-    read_hard_classes,
     read_json,
-    read_policy,
-    read_temperature,
 )
+from .artifacts import read_confusion_pairs as _read_confusion_pairs
+from .artifacts import read_hard_classes as _read_hard_classes
+from .artifacts import read_policy as _read_policy
+from .artifacts import read_temperature as _read_temperature
 from .classifier import build_predictions, make_classifier_head
 from .decision import DEFAULT_HARD_CLASSES, DEFAULT_POLICY, build_decision
 from .demo import (
@@ -142,6 +142,32 @@ def artifact_dir_path() -> Path:
             return candidate_path
 
     return ARTIFACT_DIR
+
+
+# The artifact readers in `artifacts.py` take the directory explicitly so that
+# module never has to import this one. These wrappers keep the original
+# `inference.read_*()` signatures, where the directory is optional and defaults
+# to `artifact_dir_path()`. Callers outside this package -- notably
+# `scripts/deploy_decision_policy.py` -- call them with no argument, and the
+# S2 design's §5 requires that the public `inference` surface not change.
+def read_temperature(artifact_dir: Path | None = None) -> float:
+    """Read the calibrated temperature; defaults to the resolved artifact dir."""
+    return _read_temperature(artifact_dir_path() if artifact_dir is None else artifact_dir)
+
+
+def read_policy(artifact_dir: Path | None = None) -> dict[str, float]:
+    """Read decision thresholds; defaults to the resolved artifact dir."""
+    return _read_policy(artifact_dir_path() if artifact_dir is None else artifact_dir)
+
+
+def read_hard_classes(artifact_dir: Path | None = None) -> set[str]:
+    """Read hard classes; defaults to the resolved artifact dir."""
+    return _read_hard_classes(artifact_dir_path() if artifact_dir is None else artifact_dir)
+
+
+def read_confusion_pairs(artifact_dir: Path | None = None) -> set[tuple[str, str]]:
+    """Read confusion pairs; defaults to the resolved artifact dir."""
+    return _read_confusion_pairs(artifact_dir_path() if artifact_dir is None else artifact_dir)
 
 
 def detector_weights_path() -> str:
