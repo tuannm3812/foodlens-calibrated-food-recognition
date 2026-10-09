@@ -30,6 +30,18 @@ files that did not exist before are removed, the new backup directory is
 deleted, and the command fails saying the deployment was rolled back. A failed
 invocation therefore leaves the target exactly as it was.
 
+**The file check is not proof of the live service.** Step 4 reads the files
+freshly in the deploy process. A running API process caches the policy, hard
+classes and confusion pairs in ``inference._RUNTIME`` on first use and keeps
+serving them until it restarts, so the record says ``artifact_files_verified``
+and carries a ``live_service`` note, never a claim about the service. After a
+deploy, stop/restart every API process, then run ``--verify-live URL``: it
+sends one synthetic image to ``/predict/image`` (so a restarted process loads
+its runtime, and a demo fallback fails the check), then requires
+``/runtime/status`` to report ``decision_layer.source == "loaded_runtime"`` with
+the same decision-layer fingerprint as the target files and, when it records
+one, ``deployment_provenance.json``.
+
 Only decision-layer artifacts are touched. The model checkpoint, class names and
 calibration are never modified, so deploying a policy can never change which
 model is served.
@@ -37,18 +49,26 @@ model is served.
 Usage:
     python scripts/deploy_decision_policy.py \\
         --source results/accuracy_phase1/champion_resnet50_ft_v2/decision_layer_closure_2026-10-10
+    # stop/restart every API process, then:
+    python scripts/deploy_decision_policy.py --verify-live http://127.0.0.1:8000
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import math
 import os
 import shutil
 import sys
 import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -58,6 +78,7 @@ DEFAULT_TARGET = REPO_ROOT / "app" / "artifacts"
 POLICY_KEYS = ("auto_confidence", "suggest_confidence", "margin_threshold")
 DEPLOYED_FILES = ("decision_policy.json", "hard_classes.json", "confusion_pairs.json")
 PROVENANCE_FILE = "deployment_provenance.json"
+HTTP_TIMEOUT_SECONDS = 180  # the first prediction after a restart loads the model
 
 
 class DeployError(Exception):
@@ -174,34 +195,58 @@ def check_class_coverage(target: Path, hard: list[str], pairs: list[dict[str, st
         )
 
 
-def verify_through_backend(
-    target: Path, policy: dict[str, float], hard: list[str], pairs: list[dict[str, str]]
-) -> None:
-    """Load the deployed files through the backend's own readers and compare.
-
-    This is the check that would have caught the list-vs-dict mismatch: it does
-    not trust the files, it trusts what the runtime actually reads from them.
-    """
+def backend_modules() -> tuple[Any, Any]:
+    """Import the backend inference module and the fingerprint function."""
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
+    from app.backend import inference
+    from app.backend.policy_fingerprint import decision_layer_fingerprint
 
+    return inference, decision_layer_fingerprint
+
+
+def read_through_backend(directory: Path) -> tuple[dict[str, float], set[str], set[Any], str]:
+    """Read a directory's decision layer through the backend's own readers.
+
+    Returns:
+        The policy, hard classes and confusion pairs exactly as ``load_runtime()``
+        would cache them, plus their decision-layer fingerprint.
+
+    Raises:
+        DeployError: If the backend resolves a different artifact directory.
+    """
+    inference, fingerprint = backend_modules()
     previous = os.environ.get("FOODLENS_ARTIFACT_DIR")
-    os.environ["FOODLENS_ARTIFACT_DIR"] = str(target)
+    os.environ["FOODLENS_ARTIFACT_DIR"] = str(directory)
     try:
-        from app.backend import inference
-
-        observed_policy = inference.read_policy()
-        observed_hard = inference.read_hard_classes()
-        observed_pairs = inference.read_confusion_pairs()
+        policy = inference.read_policy()
+        hard = inference.read_hard_classes()
+        pairs = inference.read_confusion_pairs()
         resolved = inference.artifact_dir_path()
     finally:
         if previous is None:
             os.environ.pop("FOODLENS_ARTIFACT_DIR", None)
         else:
             os.environ["FOODLENS_ARTIFACT_DIR"] = previous
+    if resolved.resolve() != directory.resolve():
+        raise DeployError(f"Backend resolved artifacts to {resolved}, not {directory}.")
+    return policy, hard, pairs, fingerprint(policy, hard, pairs)
 
-    if resolved.resolve() != target.resolve():
-        raise DeployError(f"Backend resolved artifacts to {resolved}, not {target}.")
+
+def verify_through_backend(
+    target: Path, policy: dict[str, float], hard: list[str], pairs: list[dict[str, str]]
+) -> str:
+    """Load the deployed files through the backend's own readers and compare.
+
+    This is the check that would have caught the list-vs-dict mismatch: it does
+    not trust the files, it trusts what the runtime reads from them. It reads
+    them freshly in *this* process, so it says nothing about what an
+    already-running API process has cached -- that is ``--verify-live``'s job.
+
+    Returns:
+        The decision-layer fingerprint of what the backend read.
+    """
+    observed_policy, observed_hard, observed_pairs, fingerprint = read_through_backend(target)
     if observed_policy != policy:
         raise DeployError(f"Backend read policy {observed_policy}, expected {policy}.")
     if observed_hard != set(hard):
@@ -209,6 +254,18 @@ def verify_through_backend(
     expected_pairs = {(p["actual"], p["predicted"]) for p in pairs}
     if observed_pairs != expected_pairs:
         raise DeployError("Backend read a different confusion-pair set than was deployed.")
+    return fingerprint
+
+
+def live_service_note(target: Path) -> str:
+    """The record's statement of what the file check does not prove."""
+    return (
+        "NOT verified by this deploy. artifact_files_verified means the files were "
+        "read back freshly in the deploy process; a running API process keeps the "
+        "decision layer it cached at load time until it is restarted. Stop/restart "
+        "every API process, then run: python scripts/deploy_decision_policy.py "
+        f"--target {display(target)} --verify-live <API base URL>"
+    )
 
 
 def write_json_file(path: Path, value: Any) -> None:
@@ -302,7 +359,9 @@ def install(
 
         # Post-install check: the target, not the staged copy, is what the
         # backend will read.
-        verify_through_backend(target, policy, hard, pairs)
+        installed_fingerprint = verify_through_backend(target, policy, hard, pairs)
+        if installed_fingerprint != record["decision_layer_fingerprint"]:
+            raise DeployError("installed decision layer fingerprint differs from the staged one")
         for name, digest in record["deployed_files_sha256"].items():
             if sha256(target / name) != digest:
                 raise DeployError(f"installed {name} does not match the staged file")
@@ -356,30 +415,197 @@ def deploy(source: Path, target: Path, dry_run: bool) -> dict[str, Any]:
         write_json_file(staging / "decision_policy.json", policy)
         write_json_file(staging / "hard_classes.json", hard)
         write_json_file(staging / "confusion_pairs.json", pairs)
-        verify_through_backend(staging, policy, hard, pairs)
+        fingerprint = verify_through_backend(staging, policy, hard, pairs)
         record["deployed_files_sha256"] = {
             name: sha256(staging / name) for name in DEPLOYED_FILES
         }
-        record["backend_verified"] = True
+        # A fresh read of the files in this process -- not proof that a running
+        # API process serves them (see live_service).
+        record["artifact_files_verified"] = True
+        record["decision_layer_fingerprint"] = fingerprint
+        record["live_service"] = live_service_note(target)
         install(target, staging, record, policy, hard, pairs)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     return record
 
 
-def main(argv: list[str] | None = None) -> int:
+Fetch = Callable[[str, str, bytes | None, dict[str, str]], Any]
+
+
+def http_fetch(method: str, url: str, body: bytes | None, headers: dict[str, str]) -> Any:
+    """Send one HTTP request with the standard library and decode its JSON body."""
+    request = urllib.request.Request(url, data=body, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+            payload = response.read()
+    except urllib.error.HTTPError as exc:
+        raise DeployError(f"{method} {url} returned HTTP {exc.code}.") from exc
+    except OSError as exc:
+        raise DeployError(f"{method} {url} failed: {exc}") from exc
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise DeployError(f"{method} {url} did not return JSON: {exc}") from exc
+
+
+def probe_image() -> bytes:
+    """A small synthetic PNG, built in memory, for the warm-up prediction."""
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise DeployError("--verify-live needs Pillow to build its probe image.") from exc
+    buffer = io.BytesIO()
+    Image.new("RGB", (64, 64), color=(200, 120, 60)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def multipart_file(field: str, filename: str, content: bytes, content_type: str):
+    """Encode one file as a multipart/form-data body; return (body, headers)."""
+    boundary = uuid.uuid4().hex
+    head = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode()
+    body = head + content + f"\r\n--{boundary}--\r\n".encode()
+    return body, {"Content-Type": f"multipart/form-data; boundary={boundary}"}
+
+
+def verify_live(url: str, target: Path, fetch: Fetch = http_fetch) -> dict[str, Any]:
+    """Prove that a running API process routes with the target's decision layer.
+
+    1. POST a synthetic image to ``/predict/image`` so a freshly restarted
+       process loads its runtime; any ``fallback_reason`` fails the check,
+       because a silent demo fallback is exactly the hazard being ruled out.
+    2. GET ``/runtime/status`` and require ``decision_layer.source ==
+       "loaded_runtime"`` with a fingerprint equal to the target files' and to
+       ``deployment_provenance.json``'s, when that records one.
+
+    Args:
+        url: Base URL of the running API, e.g. ``http://127.0.0.1:8000``.
+        target: The artifact directory the service is meant to serve.
+        fetch: HTTP transport, injectable so tests need no network.
+
+    Returns:
+        The verification record.
+
+    Raises:
+        DeployError: On any mismatch, fallback or transport failure.
+    """
+    base = url.rstrip("/")
+    if urllib.parse.urlparse(base).scheme not in {"http", "https"}:
+        raise DeployError(f"--verify-live needs an http(s) URL, got {url!r}.")
+    missing = [name for name in DEPLOYED_FILES if not (target / name).exists()]
+    if missing:
+        raise DeployError(
+            f"{display(target)} is missing {', '.join(missing)}; the backend would "
+            "serve built-in defaults, so there is no deployed policy to verify."
+        )
+    _, _, _, files_fingerprint = read_through_backend(target)
+
+    result: dict[str, Any] = {"url": base, "target": display(target)}
+    provenance_path = target / PROVENANCE_FILE
+    recorded = None
+    if provenance_path.exists():
+        provenance = read_json(provenance_path)
+        if not isinstance(provenance, dict):
+            raise DeployError(f"{provenance_path} must hold a provenance object.")
+        recorded = provenance.get("decision_layer_fingerprint")
+    if recorded is None:
+        result["provenance_check"] = (
+            f"{PROVENANCE_FILE} records no decision_layer_fingerprint (deployments before "
+            "2026-10-10 did not); compared against the target files alone."
+        )
+    elif recorded != files_fingerprint:
+        raise DeployError(
+            f"The target files (fingerprint {files_fingerprint}) no longer match "
+            f"{PROVENANCE_FILE} (fingerprint {recorded}); they changed after deployment. "
+            "Redeploy before verifying the service."
+        )
+    else:
+        result["provenance_check"] = "target files match deployment_provenance.json"
+
+    body, headers = multipart_file("file", "verify-live-probe.png", probe_image(), "image/png")
+    prediction = fetch("POST", f"{base}/predict/image", body, headers)
+    if not isinstance(prediction, dict):
+        kind = type(prediction).__name__
+        raise DeployError(f"{base}/predict/image returned {kind}, not an object.")
+    if prediction.get("fallback_reason") or prediction.get("artifact_status") != "ready":
+        raise DeployError(
+            f"The probe prediction fell back (fallback_reason="
+            f"{prediction.get('fallback_reason')!r}, artifact_status="
+            f"{prediction.get('artifact_status')!r}): the service is serving demo output, "
+            "not the model. Check its artifacts and logs, then restart it."
+        )
+
+    status = fetch("GET", f"{base}/runtime/status", None, {})
+    layer = status.get("decision_layer") if isinstance(status, dict) else None
+    if not isinstance(layer, dict):
+        raise DeployError(
+            f"{base}/runtime/status reports no decision_layer; the service runs code that "
+            "predates the live check. Restart it on the current code."
+        )
+    if layer.get("source") != "loaded_runtime":
+        raise DeployError(
+            f"The service reports decision_layer.source={layer.get('source')!r}, not "
+            "'loaded_runtime', so it has not loaded a runtime to compare. Restart it and retry."
+        )
+    served = layer.get("fingerprint")
+    if served != files_fingerprint:
+        raise DeployError(
+            f"The live service routes with fingerprint {served}, but the target files have "
+            f"{files_fingerprint}. The service is still serving a cached decision layer: "
+            "stop/restart every API process, then rerun --verify-live."
+        )
+    result.update(
+        {
+            "live_service_verified": True,
+            "decision_layer_fingerprint": served,
+            "served_policy": layer.get("policy"),
+            "hard_class_count": layer.get("hard_class_count"),
+            "confusion_pair_count": layer.get("confusion_pair_count"),
+        }
+    )
+    return result
+
+
+def main(argv: list[str] | None = None, fetch: Fetch = http_fetch) -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--source", type=Path, required=True, help="Recalibration run output dir")
+    parser.add_argument("--source", type=Path, help="Recalibration run output dir to deploy")
     parser.add_argument("--target", type=Path, default=DEFAULT_TARGET, help="Runtime artifact dir")
     parser.add_argument("--dry-run", action="store_true", help="Validate only; write nothing")
+    parser.add_argument(
+        "--verify-live",
+        metavar="URL",
+        help="Check a restarted API at URL serves the target's policy (run on its own)",
+    )
     args = parser.parse_args(argv)
+    if args.verify_live and (args.source or args.dry_run):
+        parser.error(
+            "--verify-live runs on its own: deploy, restart every API process, then verify."
+        )
+    if not args.verify_live and args.source is None:
+        parser.error("one of --source or --verify-live is required")
     try:
-        record = deploy(args.source, args.target, args.dry_run)
+        if args.verify_live:
+            result = verify_live(args.verify_live, args.target, fetch)
+        else:
+            result = deploy(args.source, args.target, args.dry_run)
     except (DeployError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    print(json.dumps(record, indent=2))
+    print(json.dumps(result, indent=2))
+    if args.verify_live:
+        print("live service verified: it routes with the target's decision layer.", file=sys.stderr)
+    elif not args.dry_run:
+        print(
+            "NOTE: only the artifact files were verified, not the live service. Running "
+            "API processes keep their cached decision layer until restarted: restart every "
+            "API process, then run with --verify-live <API base URL>.",
+            file=sys.stderr,
+        )
     return 0
 
 

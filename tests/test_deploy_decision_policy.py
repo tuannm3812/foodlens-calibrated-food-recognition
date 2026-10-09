@@ -66,7 +66,7 @@ def test_deploy_converts_list_policy_to_the_dict_the_backend_reads(source, targe
 
 def test_deploy_verifies_values_through_the_backend_readers(source, target):
     record = deploy_mod.deploy(source, target, dry_run=False)
-    assert record["backend_verified"] is True
+    assert record["artifact_files_verified"] is True
     assert record["hard_class_count"] == 2
     assert record["confusion_pair_count"] == 2
 
@@ -315,3 +315,141 @@ def test_unexpected_os_error_is_a_handled_error(source, target, monkeypatch, cap
     monkeypatch.setattr(deploy_mod.tempfile, "mkdtemp", no_space)
     assert deploy_mod.main(["--source", str(source), "--target", str(target)]) == 1
     assert "No space left on device" in capsys.readouterr().err
+
+
+# --- The record names what it verified, and what it did not ------------------
+
+
+def test_record_claims_file_verification_not_live_service(source, target, capsys):
+    assert deploy_mod.main(["--source", str(source), "--target", str(target)]) == 0
+    out, err = capsys.readouterr()
+    written = json.loads((target / "deployment_provenance.json").read_text())
+    for record in (json.loads(out), written):
+        assert "backend_verified" not in record
+        assert record["artifact_files_verified"] is True
+        assert record["decision_layer_fingerprint"] == files_fingerprint(target)
+        assert "restart" in record["live_service"]
+        assert "--verify-live" in record["live_service"]
+    assert "not the live service" in err
+
+
+# --- --verify-live, driven through an injected fetch -------------------------
+
+
+def files_fingerprint(directory: Path) -> str:
+    return deploy_mod.read_through_backend(directory)[3]
+
+
+def fake_service(fingerprint: str, source: str = "loaded_runtime", fallback=None):
+    """An injectable fetch standing in for a running API process."""
+    calls: list[tuple[str, str]] = []
+
+    def fetch(method, url, body, headers):
+        calls.append((method, url))
+        if url.endswith("/predict/image"):
+            assert method == "POST"
+            assert headers["Content-Type"].startswith("multipart/form-data; boundary=")
+            assert b"\x89PNG" in body
+            return {
+                "artifact_status": "mock" if fallback else "ready",
+                "fallback_reason": fallback,
+            }
+        if url.endswith("/runtime/status"):
+            return {"decision_layer": {"source": source, "fingerprint": fingerprint}}
+        raise AssertionError(url)
+
+    fetch.calls = calls
+    return fetch
+
+
+def verify_live(target, fetch):
+    return deploy_mod.main(
+        ["--target", str(target), "--verify-live", "http://api.test:8000/"], fetch=fetch
+    )
+
+
+def test_verify_live_passes_when_the_service_serves_the_deployed_layer(
+    source, target, capsys
+):
+    deploy_mod.deploy(source, target, dry_run=False)
+    capsys.readouterr()
+    fetch = fake_service(files_fingerprint(target))
+    assert verify_live(target, fetch) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["live_service_verified"] is True
+    assert result["provenance_check"] == "target files match deployment_provenance.json"
+    assert fetch.calls == [
+        ("POST", "http://api.test:8000/predict/image"),
+        ("GET", "http://api.test:8000/runtime/status"),
+    ]
+
+
+def test_verify_live_fails_on_a_stale_cached_fingerprint(source, target, capsys):
+    legacy = files_fingerprint(target)
+    deploy_mod.deploy(source, target, dry_run=False)
+    capsys.readouterr()
+    assert verify_live(target, fake_service(legacy)) == 1
+    err = capsys.readouterr().err
+    assert legacy in err
+    assert files_fingerprint(target) in err
+    assert "restart" in err
+
+
+def test_verify_live_fails_when_no_runtime_is_loaded(source, target, capsys):
+    deploy_mod.deploy(source, target, dry_run=False)
+    capsys.readouterr()
+    fetch = fake_service(files_fingerprint(target), source="artifact_files")
+    assert verify_live(target, fetch) == 1
+    assert "'artifact_files'" in capsys.readouterr().err
+
+
+def test_verify_live_fails_on_a_fallback_probe(source, target, capsys):
+    deploy_mod.deploy(source, target, dry_run=False)
+    capsys.readouterr()
+    fetch = fake_service(files_fingerprint(target), fallback="classifier_load_error")
+    assert verify_live(target, fetch) == 1
+    assert "classifier_load_error" in capsys.readouterr().err
+    assert fetch.calls == [("POST", "http://api.test:8000/predict/image")]
+
+
+def test_verify_live_without_a_recorded_fingerprint_compares_files_alone(target, capsys):
+    # Provenance as the 2026-10-09 deployment wrote it: no fingerprint.
+    write_json(target / "deployment_provenance.json", {"backend_verified": True})
+    assert verify_live(target, fake_service(files_fingerprint(target))) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert "compared against the target files alone" in result["provenance_check"]
+
+
+def test_verify_live_fails_when_files_drift_from_provenance(source, target, capsys):
+    deploy_mod.deploy(source, target, dry_run=False)
+    write_json(target / "hard_classes.json", ["pizza"])
+    capsys.readouterr()
+    assert verify_live(target, fake_service(files_fingerprint(target))) == 1
+    assert "changed after deployment" in capsys.readouterr().err
+
+
+def test_verify_live_transport_failure_is_a_handled_error(target, capsys):
+    def unreachable(method, url, body, headers):
+        raise deploy_mod.DeployError(f"{method} {url} failed: connection refused")
+
+    assert verify_live(target, unreachable) == 1
+    assert "connection refused" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [],
+        ["--verify-live", "http://x", "--source", "run"],
+        ["--verify-live", "http://x", "--dry-run"],
+    ],
+)
+def test_verify_live_runs_on_its_own(argv):
+    with pytest.raises(SystemExit) as info:
+        deploy_mod.main(argv)
+    assert info.value.code == 2
+
+
+def test_verify_live_rejects_non_http_urls(target, capsys):
+    assert deploy_mod.main(["--target", str(target), "--verify-live", "file:///etc/passwd"]) == 1
+    assert "http(s)" in capsys.readouterr().err
