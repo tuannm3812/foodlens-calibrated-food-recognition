@@ -1141,7 +1141,12 @@ def score_split(
 
 
 PROVENANCE_FILE = "derivation_provenance.json"
-PROVENANCE_SCHEMA_VERSION = 1
+# 2: `generator` became `{path, sha256}` -- the hash binds a run to the exact
+# derivation code that produced it (2026-10-06 Codex review, finding 3).
+PROVENANCE_SCHEMA_VERSION = 2
+# Repo-relative, so the recorded path compares equal across checkouts; the
+# sha256 beside it is what identifies the implementation.
+GENERATOR_PATH = "scripts/recalibrate_decision_layer.py"
 
 
 def sha256_file(path: Path) -> str:
@@ -1168,11 +1173,14 @@ def build_provenance(
 ) -> dict[str, object]:
     """Record every input and derivation setting that shapes the policy.
 
-    Deliberately limited to inputs and derivation settings, not general run
-    management. Two runs are *compatible* (see scripts/compare_provenance.py)
-    when everything matches except the model-specific `path`/`sha256` of the
-    prediction files and override sources -- those differ between models by
-    construction and are recorded for traceability, not for equality.
+    Deliberately limited to inputs, derivation settings and the code that
+    applies them, not general run management. `generator.sha256` hashes this
+    script's bytes, as `routing.module_sha256` hashes the routing rule, so two
+    runs from different derivation code never compare compatible. Two runs
+    are *compatible* (see scripts/compare_provenance.py) when everything
+    matches except the model-specific `path`/`sha256` of the prediction files
+    and override sources -- those differ between models by construction and
+    are recorded for traceability, not for equality.
     """
     if hard_class_source["kind"] == "fit_predictions":
         hard_source_path = fit_predictions_path
@@ -1198,7 +1206,10 @@ def build_provenance(
     routing_file = Path(sys.modules[routing_module].__file__ or "")
     return {
         "schema_version": PROVENANCE_SCHEMA_VERSION,
-        "generator": "scripts/recalibrate_decision_layer.py",
+        "generator": {
+            "path": GENERATOR_PATH,
+            "sha256": sha256_file(Path(__file__).resolve()),
+        },
         "splits": {"fit": fit_split, "eval": eval_split},
         "predictions": {
             "fit": _file_record(fit_predictions_path),
@@ -1256,6 +1267,8 @@ def format_provenance_summary(provenance: dict[str, object]) -> str:
             f"  confusion pairs: {pairs['source_kind']} -> {pairs['algorithm']} "
             f"{pairs['parameters']}",
             f"  routing: {routing['module']}.{routing['function']}",
+            f"  generator: {provenance['generator']['path']} "
+            f"(sha256 {provenance['generator']['sha256'][:12]})",
         ]
     )
 

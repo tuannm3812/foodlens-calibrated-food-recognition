@@ -589,6 +589,11 @@ def test_provenance_records_sources_settings_and_hashes(tmp_path: Path) -> None:
     assert provenance["routing"]["module"] == "app.backend.decision_rules"
     assert provenance["routing"]["function"] == "route_decision"
     assert provenance["policy_search"]["auto_confidence_grid"][0] == 0.7
+    assert provenance["schema_version"] == 2
+    assert provenance["generator"] == {
+        "path": "scripts/recalibrate_decision_layer.py",
+        "sha256": hashlib.sha256(SCRIPT_PATH.read_bytes()).hexdigest(),
+    }
 
 
 def test_provenance_names_an_explicit_confusion_pair_file(tmp_path: Path) -> None:
@@ -616,6 +621,11 @@ def test_compare_provenance_compatible_when_only_model_paths_and_hashes_differ(
     assert incompatible == []
     assert "predictions.fit.sha256" in model_specific
     assert "predictions.fit.path" in model_specific
+    assert all(
+        compare_provenance_module.is_model_specific(tuple(name.split(".")))
+        for name in model_specific
+    )
+    assert first["generator"] == second["generator"]
 
     (tmp_path / "a.json").write_text(json.dumps(first))
     (tmp_path / "b.json").write_text(json.dumps(second))
@@ -647,3 +657,47 @@ def test_compare_provenance_incompatible_when_source_kind_differs(tmp_path: Path
     incompatible, _ = compare_provenance_module.compare_provenance(first, second)
     assert "hard_classes.source_kind" in incompatible
     assert "hard_classes.algorithm" in incompatible
+
+
+def test_compare_provenance_incompatible_when_the_generator_code_differs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same labels and parameters, different derivation code: not comparable.
+
+    The second run is produced as if by an edited copy of the script -- the
+    module's `__file__` points at it -- so only the generator hash changes.
+    """
+    import json
+
+    first = _provenance_for(_make_run_dir(tmp_path / "a"))
+    edited_script = tmp_path / "recalibrate_decision_layer.py"
+    edited_script.write_bytes(SCRIPT_PATH.read_bytes() + b"\n# a different implementation\n")
+    monkeypatch.setattr(recalibrate_decision_layer, "__file__", str(edited_script))
+    second = _provenance_for(_make_run_dir(tmp_path / "b"))
+
+    assert first["generator"]["path"] == second["generator"]["path"]
+    incompatible, _ = compare_provenance_module.compare_provenance(first, second)
+    assert incompatible == ["generator.sha256"]
+
+    (tmp_path / "a.json").write_text(json.dumps(first))
+    (tmp_path / "b.json").write_text(json.dumps(second))
+    assert compare_provenance_module.main([str(tmp_path / "a.json"), str(tmp_path / "b.json")]) == 1
+    assert "incompatible: generator.sha256" in capsys.readouterr().out
+
+
+def test_compare_provenance_requires_a_generator_hash_on_both_sides(tmp_path: Path) -> None:
+    current = _provenance_for(_make_run_dir(tmp_path / "a"))
+    # Schema version 1 recorded the generator as a bare path string.
+    legacy = {
+        **current,
+        "schema_version": 1,
+        "generator": "scripts/recalibrate_decision_layer.py",
+    }
+
+    incompatible, _ = compare_provenance_module.compare_provenance(current, legacy)
+    assert "generator.sha256" in incompatible
+
+    # Two records that both predate the hash cannot show they share
+    # derivation code, so they must not compare vacuously equal.
+    incompatible, _ = compare_provenance_module.compare_provenance(legacy, dict(legacy))
+    assert incompatible == ["generator.sha256"]

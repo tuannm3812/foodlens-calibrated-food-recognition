@@ -8,6 +8,14 @@ sources. Those differ between models by construction; they are recorded so
 each result traces to its inputs, not so the two files compare equal (see
 docs/9_agent_log.md, the 2026-09-27 Codex response on methodology closure).
 
+The code identities are compatibility fields, never expected differences:
+`generator.sha256` (the recalibration script) and `routing.module_sha256`
+(the routing rule). `generator.sha256` must also be *present* in both
+records -- two records that both predate it (schema version 1) cannot show
+they came from the same derivation code, so they are reported incompatible
+rather than vacuously equal (see docs/9_agent_log.md, the 2026-10-06 Codex
+review, finding 3).
+
 Usage:
     python scripts/compare_provenance.py RUN_A/derivation_provenance.json \
         RUN_B/derivation_provenance.json
@@ -31,6 +39,9 @@ MODEL_SPECIFIC_SECTIONS = (
     ("confusion_pairs", "source"),
 )
 MODEL_SPECIFIC_KEYS = ("path", "sha256")
+
+# Code-identity fields that must be recorded on both sides to compare at all.
+REQUIRED_FIELDS = (("generator", "sha256"),)
 
 
 def _flatten(value: object, prefix: tuple[str, ...] = ()) -> dict[tuple[str, ...], object]:
@@ -61,10 +72,16 @@ def compare_provenance(
         fields that differ (or exist on one side only). The runs are
         compatible exactly when `incompatible_fields` is empty;
         `model_specific_fields` lists the expected path/hash differences.
+        A `REQUIRED_FIELDS` entry missing from either record is incompatible
+        even when it is missing from both.
     """
     flat_first = _flatten(first)
     flat_second = _flatten(second)
-    incompatible: list[str] = []
+    incompatible: list[str] = [
+        ".".join(field)
+        for field in REQUIRED_FIELDS
+        if field not in flat_first and field not in flat_second
+    ]
     model_specific: list[str] = []
     for field in sorted(set(flat_first) | set(flat_second)):
         if flat_first.get(field, _MISSING) == flat_second.get(field, _MISSING):
