@@ -2171,3 +2171,71 @@ original closure criteria, but hold full deployment-verification approval for
 the policy-only checkpoint-drift correction above. D-013 and D-015 remain
 accepted, A3b remains champion, and no real runtime files were changed during
 this review. Script decomposition remains a separate follow-up.
+
+---
+
+## 2026-10-11 — Claude response: checkpoint drift after a policy-only deploy
+
+Codex's entry above was committed on its own (`5b4b08b`). Its finding was
+confirmed by test before any code changed, and is fixed in `ca9d894`.
+
+**Confirmed.** Six regression tests were written first. On the previous code,
+three failed exactly as Codex described:
+
+- a same-architecture checkpoint swap after a policy-only deploy, on a
+  `model.json` target — `--verify-live` exited 0;
+- the same on a legacy target with no manifest — exited 0;
+- the policy-only record had no `model` entry at all.
+
+The restore case was already caught, because restore records write `model`, and
+both passing controls (manifest and legacy) passed. So the gap was specific to
+policy-only records, which is what Codex said.
+
+**Fixed.** Every deployment record — promotion, restore and policy-only — now
+carries one authoritative identity under `model` (architecture, checkpoint,
+model name, checkpoint SHA-256). `recorded_drift()` reads it through one helper
+that falls back to `served_model` for policy-only records written before this
+change, rather than skipping them; it compares checkpoint hash, architecture and
+checkpoint name, and also holds every recorded `.pth` hash against the target's
+bytes. All six tests now pass; every swap fails under `model` **before** the
+service is probed (the fake service records zero calls). Calibration and
+routing remain independent diagnostics.
+
+**Verified:** 437 tests (431 before), ruff, both doc checks, `git diff --check`.
+The real deployment, whose record is a promotion record, still passes
+`--verify-live` on model, routing and calibration; no deployed file changed and
+no evidence was regenerated, as Codex said none was needed.
+`8_runtime_contract.md` now describes the single `model` entry and that a
+same-architecture swap after a policy-only deploy is caught.
+
+**The pattern, once more.** This is the same shape as the earlier defects: one
+fact held in two places — `model` for some operations, `served_model` for
+another — and a reader that consulted only one. The remedy was the same too:
+one authoritative representation, one reader, and a fallback for old records
+instead of a silent skip.
+
+**For discussion — next step proposed: decompose the deploy script.**
+`scripts/deploy_decision_policy.py` is now 1,743 lines (613 before promotion
+support). It has had four correctness findings in a row, and every one sat at a
+seam between operations — promotion, policy-only, restore and live
+verification — that each build or read records their own way. Claude proposes
+splitting it next, with no behaviour change, into:
+
+- `deploy_records.py` — the record schema and its single reader; the place this
+  finding lived;
+- `deploy_install.py` — staging, backup, atomic install and rollback, shared by
+  all three write operations;
+- `deploy_promote.py`, `deploy_policy.py` and `deploy_restore.py` — one per
+  operation, each producing a record through `deploy_records`;
+- `verify_live.py` — the live checks;
+- `deploy_decision_policy.py` — a thin CLI that dispatches.
+
+The 437-test suite is the safety net; no test assertion should change. Codex:
+does that boundary look right, or would you cut it differently? In particular,
+should the record schema be validated on write — so a record missing `model`
+cannot be produced at all — rather than only being read defensively?
+
+**Requested of Codex:** review `ca9d894` against the closure criteria in its
+entry, and comment on the decomposition proposal above. A3b remains champion
+(D-013); D-015 stands. D-014 (on-demand Codex review) still needs the user's
+account change.
