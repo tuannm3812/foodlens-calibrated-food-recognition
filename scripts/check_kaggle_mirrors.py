@@ -1,11 +1,14 @@
 """Report how far each kaggle/*/ training script has drifted from its notebook.
 
 Every `kaggle/<run>/` directory that holds a `foodlens_*.py` training script
-also holds a `.ipynb` that Kaggle actually executes (`kernel-metadata.json`
-names the notebook as `code_file`). The `.py` is meant to mirror the
-notebook's code cells, but the two have never been kept in sync -- not before
-this script existed and not after. This script makes that drift measurable
-instead of leaving it invisible.
+also holds a `.ipynb`. Exactly one of the two is the record of what ran: the
+file `kernel-metadata.json` names as `code_file`. For A1, A3 and A3b that is the
+notebook and the `.py` is its mirror. **For A4 it is the reverse** -- a `script`
+kernel whose `.py` is the code file and whose notebook is the mirror -- so the
+report names the authoritative side for each run rather than assuming one.
+
+The two have never been kept in sync -- not before this script existed and not
+after. This script makes that drift measurable instead of leaving it invisible.
 
 This check is report-only by design and always exits 0 for drift, no matter
 how large. It does not fail the build. The mirrors are already out of sync
@@ -77,6 +80,30 @@ def find_pair(script_path: Path) -> Path | None:
     return notebooks[0]
 
 
+def authoritative_side(script_path: Path, notebook_path: Path) -> str:
+    """Name which file Kaggle executed, according to the run's kernel metadata.
+
+    The record of what ran is whichever file `kernel-metadata.json` names as
+    `code_file`, not a fixed convention: most runs execute the notebook, but A4
+    is a `script` kernel whose `.py` is the code file and whose notebook is the
+    mirror.
+
+    Returns:
+        "script", "notebook", or a short explanation when the metadata is
+        missing, unreadable, or names neither file.
+    """
+    metadata_path = script_path.parent / "kernel-metadata.json"
+    try:
+        code_file = json.loads(metadata_path.read_text(encoding="utf-8")).get("code_file")
+    except (OSError, json.JSONDecodeError):
+        return "unknown (kernel-metadata.json missing or unreadable)"
+    if code_file == script_path.name:
+        return "script"
+    if code_file == notebook_path.name:
+        return "notebook"
+    return f"unknown (code_file is {code_file!r})"
+
+
 def report_pair(script_path: Path, notebook_path: Path, show_diff: bool) -> float:
     """Print the line-count and similarity report for one script/notebook pair.
 
@@ -98,6 +125,7 @@ def report_pair(script_path: Path, notebook_path: Path, show_diff: bool) -> floa
     print(f"  script:   {script_path.relative_to(REPO_ROOT)} ({len(py_lines)} lines)")
     print(f"  notebook: {notebook_path.relative_to(REPO_ROOT)} ({len(nb_lines)} lines)")
     print(f"  similarity ratio: {ratio:.4f}")
+    print(f"  record of what ran: {authoritative_side(script_path, notebook_path)}")
 
     if show_diff:
         diff = difflib.unified_diff(
