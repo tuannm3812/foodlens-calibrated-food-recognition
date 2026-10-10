@@ -193,6 +193,18 @@ def checkpoint_sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def class_names_sha256(class_names: list[str]) -> str:
+    """SHA-256 of an ordered class-name list, the order that maps output indices to labels.
+
+    The canonical form is the list's compact JSON (``separators=(",", ":")``,
+    ASCII-escaped) in UTF-8, so a reordered list hashes differently. The deploy
+    script, the evidence sidecar the rescorer writes and ``load_runtime()`` all
+    hash with this form.
+    """
+    canonical = json.dumps(list(class_names), ensure_ascii=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def classifier_artifacts_ready(artifact_dir: Path) -> bool:
     """Return whether the required classifier artifacts exist in a directory.
 
