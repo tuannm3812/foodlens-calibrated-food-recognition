@@ -56,6 +56,8 @@ def target(tmp_path: Path) -> Path:
     write_json(art / "decision_policy.json", {**POLICY, "margin_threshold": 0.4})
     write_json(art / "hard_classes.json", ["pizza"])
     write_json(art / "confusion_pairs.json", [{"actual": "pizza", "predicted": "sushi"}])
+    # The checkpoint --verify-live compares with the service's model identity.
+    (art / "resnet50_ft_v2_best.pth").write_bytes(b"checkpoint")
     return art
 
 
@@ -340,7 +342,12 @@ def files_fingerprint(directory: Path) -> str:
     return deploy_mod.read_through_backend(directory)[3]
 
 
-def fake_service(fingerprint: str, source: str = "loaded_runtime", fallback=None):
+def served_model(target: Path) -> dict:
+    """The status model block of a service that loaded the target's model."""
+    return {"source": "loaded_runtime", **deploy_mod.target_model_identity(target)}
+
+
+def fake_service(fingerprint: str, source: str = "loaded_runtime", fallback=None, model=None):
     """An injectable fetch standing in for a running API process."""
     calls: list[tuple[str, str]] = []
 
@@ -355,7 +362,10 @@ def fake_service(fingerprint: str, source: str = "loaded_runtime", fallback=None
                 "fallback_reason": fallback,
             }
         if url.endswith("/runtime/status"):
-            return {"decision_layer": {"source": source, "fingerprint": fingerprint}}
+            status = {"decision_layer": {"source": source, "fingerprint": fingerprint}}
+            if model is not None:
+                status["model"] = model
+            return status
         raise AssertionError(url)
 
     fetch.calls = calls
@@ -373,7 +383,7 @@ def test_verify_live_passes_when_the_service_serves_the_deployed_layer(
 ):
     deploy_mod.deploy(source, target, dry_run=False)
     capsys.readouterr()
-    fetch = fake_service(files_fingerprint(target))
+    fetch = fake_service(files_fingerprint(target), model=served_model(target))
     assert verify_live(target, fetch) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["live_service_verified"] is True
@@ -388,7 +398,7 @@ def test_verify_live_fails_on_a_stale_cached_fingerprint(source, target, capsys)
     legacy = files_fingerprint(target)
     deploy_mod.deploy(source, target, dry_run=False)
     capsys.readouterr()
-    assert verify_live(target, fake_service(legacy)) == 1
+    assert verify_live(target, fake_service(legacy, model=served_model(target))) == 1
     err = capsys.readouterr().err
     assert legacy in err
     assert files_fingerprint(target) in err
@@ -398,7 +408,9 @@ def test_verify_live_fails_on_a_stale_cached_fingerprint(source, target, capsys)
 def test_verify_live_fails_when_no_runtime_is_loaded(source, target, capsys):
     deploy_mod.deploy(source, target, dry_run=False)
     capsys.readouterr()
-    fetch = fake_service(files_fingerprint(target), source="artifact_files")
+    fetch = fake_service(
+        files_fingerprint(target), source="artifact_files", model=served_model(target)
+    )
     assert verify_live(target, fetch) == 1
     assert "'artifact_files'" in capsys.readouterr().err
 
@@ -415,7 +427,8 @@ def test_verify_live_fails_on_a_fallback_probe(source, target, capsys):
 def test_verify_live_without_a_recorded_fingerprint_compares_files_alone(target, capsys):
     # Provenance as the 2026-10-09 deployment wrote it: no fingerprint.
     write_json(target / "deployment_provenance.json", {"backend_verified": True})
-    assert verify_live(target, fake_service(files_fingerprint(target))) == 0
+    fetch = fake_service(files_fingerprint(target), model=served_model(target))
+    assert verify_live(target, fetch) == 0
     result = json.loads(capsys.readouterr().out)
     assert "compared against the target files alone" in result["provenance_check"]
 
@@ -424,7 +437,8 @@ def test_verify_live_fails_when_files_drift_from_provenance(source, target, caps
     deploy_mod.deploy(source, target, dry_run=False)
     write_json(target / "hard_classes.json", ["pizza"])
     capsys.readouterr()
-    assert verify_live(target, fake_service(files_fingerprint(target))) == 1
+    fetch = fake_service(files_fingerprint(target), model=served_model(target))
+    assert verify_live(target, fetch) == 1
     assert "changed after deployment" in capsys.readouterr().err
 
 
