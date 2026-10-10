@@ -223,15 +223,22 @@ def model_status(runtime: dict[str, Any] | None, artifact_dir: Path) -> dict[str
     """Describe the model a process serves, for the /runtime/status ``model`` block.
 
     Once the runtime has loaded, report the identity cached at load time,
-    including the checkpoint SHA-256 hashed then -- never re-hashed here. Before
-    that, report what the artifact files would load, without hashing the
-    checkpoint.
+    including the checkpoint SHA-256 hashed then -- never re-hashed here -- and
+    the effective calibration: the temperature the runtime scales logits by and
+    the SHA-256 of the ordered class names it maps outputs to, both captured at
+    load. Before that, report what the artifact files would load: the manifest
+    and the temperature ``calibration.json`` would give, with no hashes.
     """
     if runtime is not None:
         identity = runtime.get("model_identity")
         if identity is None:
             return {"source": "loaded_runtime", "error": "the loaded runtime has no model identity"}
-        return {"source": "loaded_runtime", **identity}
+        return {
+            "source": "loaded_runtime",
+            **identity,
+            "temperature": runtime.get("temperature"),
+            "class_names_sha256": runtime.get("class_names_sha256"),
+        }
     source = manifest_source(artifact_dir)
     try:
         manifest = read_model_manifest(artifact_dir)
@@ -242,5 +249,10 @@ def model_status(runtime: dict[str, Any] | None, artifact_dir: Path) -> dict[str
         "manifest": source,
         **manifest,
         "checkpoint_sha256": None,
-        "note": "not loaded yet: the checkpoint is hashed once, when the runtime loads",
+        "temperature": read_temperature(artifact_dir),
+        "class_names_sha256": None,
+        "note": (
+            "not loaded yet: the checkpoint and class names are hashed once, when the runtime "
+            "loads; temperature is what calibration.json would load"
+        ),
     }

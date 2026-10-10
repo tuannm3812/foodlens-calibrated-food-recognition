@@ -40,9 +40,12 @@ stop/restart every API process, then run ``--verify-live URL``: it sends one
 synthetic image to ``/predict/image`` (so a restarted process loads its runtime,
 and a demo fallback fails the check), then requires ``/runtime/status`` to
 report, as ``loaded_runtime``, the same decision-layer fingerprint as the target
-files (and ``deployment_provenance.json``, when it records one) and the same
+files (and ``deployment_provenance.json``, when it records one), the same
 model identity -- architecture, model name and checkpoint SHA-256 -- as the
-target's ``model.json`` and checkpoint.
+target's ``model.json`` and checkpoint, and the same calibration: the probe's
+temperature, the status block's cached temperature and the target's
+``calibration.json`` must agree exactly, and the cached class-order hash must
+match the target's. Model, routing and calibration are reported separately.
 
 **Policy-only mode** (``--source`` alone) touches only the three decision-layer
 files and the provenance record. The model checkpoint, class names, calibration
@@ -125,6 +128,8 @@ BACKUP_RECORD_FILE = "backup_record.json"
 RESERVED_NAMES = frozenset((*DEPLOYED_FILES, *MODEL_FILES, PROVENANCE_FILE, BACKUP_RECORD_FILE))
 CLASS_COUNT = 101
 IDENTITY_KEYS = ("architecture", "model_name", "checkpoint_sha256")
+# What --verify-live checks, each reported on its own.
+CHECK_NAMES = ("model", "routing", "calibration")
 HTTP_TIMEOUT_SECONDS = 180  # the first prediction after a restart loads the model
 
 
@@ -1348,17 +1353,147 @@ def live_model_problem(served: Any, expected: Mapping[str, str]) -> str | None:
     )
 
 
-def verify_live(url: str, target: Path, fetch: Fetch = http_fetch) -> dict[str, Any]:
-    """Prove that a running API process serves the target's model and decision layer.
+def target_calibration(target: Path) -> dict[str, Any]:
+    """The calibration a target holds: its validated temperature and class-order hash."""
+    return {
+        "temperature": target_temperature(target),
+        "class_names_sha256": prediction_evidence.class_names_sha256(target_class_names(target)),
+    }
 
-    1. POST a synthetic image to ``/predict/image`` so a freshly restarted
+
+def live_calibration_problems(
+    prediction: Mapping[str, Any], served: Any, expected: Mapping[str, Any]
+) -> list[str]:
+    """Compare the runtime's cached calibration with the target's; describe each mismatch.
+
+    The temperature is cached by ``load_runtime()`` and is part of neither the
+    model identity nor the routing fingerprint, so it is checked on its own:
+    the probe response's ``temperature`` (what the runtime just scaled logits
+    by) must equal the status ``model`` block's, and both must equal the
+    target's validated ``calibration.json``, exactly. The class-order hash the
+    runtime computed at load must equal the target's.
+    """
+    if not isinstance(served, dict) or served.get("source") != "loaded_runtime":
+        return ["/runtime/status reports no loaded model block, so no cached calibration."]
+    restart = "stop/restart every API process, then rerun --verify-live."
+    problems = []
+    status_temperature = served.get("temperature")
+    probe_temperature = prediction.get("temperature")
+    if status_temperature is None:
+        problems.append(
+            "/runtime/status reports no temperature in its model block; the service runs code "
+            "that predates the calibration check. Restart it on the current code."
+        )
+    elif probe_temperature != status_temperature:
+        problems.append(
+            f"The probe response was scaled by temperature {probe_temperature!r}, but the "
+            f"status model block reports {status_temperature!r}."
+        )
+    if status_temperature is not None and status_temperature != expected["temperature"]:
+        problems.append(
+            f"The live service scales logits by cached temperature {status_temperature!r}, but "
+            f"the target's calibration.json holds {expected['temperature']!r}. It is still "
+            f"running the calibration it loaded before the files changed: {restart}"
+        )
+    served_names = served.get("class_names_sha256")
+    if served_names != expected["class_names_sha256"]:
+        problems.append(
+            f"class_names_sha256: service {served_names!r}, target "
+            f"{expected['class_names_sha256']!r}. A different class order mislabels every "
+            f"prediction: {restart}"
+        )
+    return problems
+
+
+def recorded_drift(
+    provenance: Mapping[str, Any],
+    target: Path,
+    files_fingerprint: str,
+    expected_model: Mapping[str, str],
+    expected_calibration: Mapping[str, Any],
+) -> dict[str, list[str]]:
+    """Each way the target's files changed after the deployment record was written.
+
+    Returns:
+        Problems by check (``model``, ``routing``, ``calibration``); a record
+        that predates a field is not held against the target.
+    """
+    redeploy = "it changed after deployment. Redeploy before verifying the service."
+    drift: dict[str, list[str]] = {name: [] for name in CHECK_NAMES}
+    recorded = provenance.get("decision_layer_fingerprint")
+    if recorded is not None and recorded != files_fingerprint:
+        drift["routing"].append(
+            f"The target files (fingerprint {files_fingerprint}) no longer match "
+            f"{PROVENANCE_FILE} (fingerprint {recorded}); they changed after deployment. "
+            "Redeploy before verifying the service."
+        )
+    recorded_model = provenance.get("model")
+    if isinstance(recorded_model, dict) and recorded_model.get("checkpoint_sha256") not in (
+        None,
+        expected_model["checkpoint_sha256"],
+    ):
+        drift["model"].append(
+            f"The target checkpoint (sha256 {expected_model['checkpoint_sha256']}) no longer "
+            f"matches {PROVENANCE_FILE} (sha256 {recorded_model['checkpoint_sha256']}); "
+            + redeploy
+        )
+    for key in ("deployed_files_sha256", "served_model_files_sha256"):
+        hashes = provenance.get(key)
+        if not isinstance(hashes, dict):
+            continue
+        for name in ("calibration.json", "class_names.json"):
+            if name in hashes and hashes[name] != sha256(target / name):
+                drift["calibration"].append(
+                    f"The target's {name} (sha256 {sha256(target / name)}) no longer matches "
+                    f"{PROVENANCE_FILE}'s {key} (sha256 {hashes[name]}); " + redeploy
+                )
+    temperatures = [provenance.get("calibration_temperature")]
+    if isinstance(provenance.get("served_model"), dict):
+        temperatures.append(provenance["served_model"].get("temperature"))
+    for value in temperatures:
+        if value is not None and value != expected_calibration["temperature"]:
+            drift["calibration"].append(
+                f"The target's temperature {expected_calibration['temperature']!r} differs from "
+                f"the {value!r} {PROVENANCE_FILE} recorded; " + redeploy
+            )
+    drift["calibration"] = list(dict.fromkeys(drift["calibration"]))
+    return drift
+
+
+def verification_failure(
+    problems: Mapping[str, list[str]], stage: str, passed: str = "passed"
+) -> DeployError:
+    """One error naming every check's outcome, so a failure says which one broke."""
+    lines = [f"--verify-live failed ({stage})."]
+    for name in CHECK_NAMES:
+        if problems[name]:
+            lines.append(f"{name}: FAILED")
+            lines.extend(f"  - {problem}" for problem in problems[name])
+        else:
+            lines.append(f"{name}: {passed}")
+    return DeployError("\n".join(lines))
+
+
+def verify_live(url: str, target: Path, fetch: Fetch = http_fetch) -> dict[str, Any]:
+    """Prove that a running API process serves the target's model, routing and calibration.
+
+    1. Check the target's files against ``deployment_provenance.json``, when it
+       records them: the decision-layer fingerprint, the checkpoint hash, and
+       the hashes of ``calibration.json`` and ``class_names.json`` (and the
+       recorded temperature), so files edited after deployment are caught.
+    2. POST a synthetic image to ``/predict/image`` so a freshly restarted
        process loads its runtime; any ``fallback_reason`` fails the check,
        because a silent demo fallback is exactly the hazard being ruled out.
-    2. GET ``/runtime/status`` and require ``decision_layer.source ==
-       "loaded_runtime"`` with a fingerprint equal to the target files' and to
-       ``deployment_provenance.json``'s, when that records one, and a ``model``
-       block, also ``loaded_runtime``, whose architecture, model name and
-       checkpoint SHA-256 equal the target's.
+    3. GET ``/runtime/status`` and check, independently:
+
+       - **routing**: ``decision_layer.source == "loaded_runtime"`` with a
+         fingerprint equal to the target files';
+       - **model**: a ``loaded_runtime`` model block whose architecture, model
+         name and checkpoint SHA-256 equal the target's;
+       - **calibration**: the probe response's temperature equals the model
+         block's cached temperature, both equal the target's validated
+         ``calibration.json`` exactly, and the cached class-order hash equals
+         the target's.
 
     Args:
         url: Base URL of the running API, e.g. ``http://127.0.0.1:8000``.
@@ -1366,11 +1501,11 @@ def verify_live(url: str, target: Path, fetch: Fetch = http_fetch) -> dict[str, 
         fetch: HTTP transport, injectable so tests need no network.
 
     Returns:
-        The verification record.
+        The verification record, with a ``checks`` entry per check.
 
     Raises:
-        DeployError: On any mismatch, fallback or transport failure. Every
-            mismatch found in the status is named, not just the first.
+        DeployError: On any mismatch, fallback or transport failure, naming
+            each check as passed or FAILED with every problem found.
     """
     base = url.rstrip("/")
     if urllib.parse.urlparse(base).scheme not in {"http", "https"}:
@@ -1383,39 +1518,31 @@ def verify_live(url: str, target: Path, fetch: Fetch = http_fetch) -> dict[str, 
         )
     _, _, _, files_fingerprint = read_through_backend(target)
     expected_model = target_model_identity(target)
+    expected_calibration = target_calibration(target)
 
     result: dict[str, Any] = {"url": base, "target": display(target)}
     provenance_path = target / PROVENANCE_FILE
-    recorded = None
-    recorded_model = None
+    provenance: dict[str, Any] = {}
     if provenance_path.exists():
         provenance = read_json(provenance_path)
         if not isinstance(provenance, dict):
             raise DeployError(f"{provenance_path} must hold a provenance object.")
-        recorded = provenance.get("decision_layer_fingerprint")
-        recorded_model = provenance.get("model")
-    if recorded is None:
+    drift = recorded_drift(
+        provenance, target, files_fingerprint, expected_model, expected_calibration
+    )
+    if any(drift.values()):
+        raise verification_failure(
+            drift,
+            "the target's files changed after deployment; the service was not probed",
+            passed="target files match the deployment record",
+        )
+    if provenance.get("decision_layer_fingerprint") is None:
         result["provenance_check"] = (
             f"{PROVENANCE_FILE} records no decision_layer_fingerprint (deployments before "
             "2026-10-10 did not); compared against the target files alone."
         )
-    elif recorded != files_fingerprint:
-        raise DeployError(
-            f"The target files (fingerprint {files_fingerprint}) no longer match "
-            f"{PROVENANCE_FILE} (fingerprint {recorded}); they changed after deployment. "
-            "Redeploy before verifying the service."
-        )
     else:
         result["provenance_check"] = "target files match deployment_provenance.json"
-    if isinstance(recorded_model, dict) and recorded_model.get("checkpoint_sha256") not in (
-        None,
-        expected_model["checkpoint_sha256"],
-    ):
-        raise DeployError(
-            f"The target checkpoint (sha256 {expected_model['checkpoint_sha256']}) no longer "
-            f"matches {PROVENANCE_FILE} (sha256 {recorded_model['checkpoint_sha256']}); it "
-            "changed after deployment. Redeploy before verifying the service."
-        )
 
     body, headers = multipart_file("file", "verify-live-probe.png", probe_image(), "image/png")
     prediction = fetch("POST", f"{base}/predict/image", body, headers)
@@ -1431,20 +1558,20 @@ def verify_live(url: str, target: Path, fetch: Fetch = http_fetch) -> dict[str, 
         )
 
     status = fetch("GET", f"{base}/runtime/status", None, {})
-    problems: list[str] = []
+    problems: dict[str, list[str]] = {name: [] for name in CHECK_NAMES}
     layer = status.get("decision_layer") if isinstance(status, dict) else None
     if not isinstance(layer, dict):
-        problems.append(
+        problems["routing"].append(
             f"{base}/runtime/status reports no decision_layer; the service runs code that "
             "predates the live check. Restart it on the current code."
         )
     elif layer.get("source") != "loaded_runtime":
-        problems.append(
+        problems["routing"].append(
             f"The service reports decision_layer.source={layer.get('source')!r}, not "
             "'loaded_runtime', so it has not loaded a runtime to compare. Restart it and retry."
         )
     elif layer.get("fingerprint") != files_fingerprint:
-        problems.append(
+        problems["routing"].append(
             f"The live service routes with fingerprint {layer.get('fingerprint')}, but the "
             f"target files have {files_fingerprint}. The service is still serving a cached "
             "decision layer: stop/restart every API process, then rerun --verify-live."
@@ -1452,18 +1579,34 @@ def verify_live(url: str, target: Path, fetch: Fetch = http_fetch) -> dict[str, 
     served_model = status.get("model") if isinstance(status, dict) else None
     model_problem = live_model_problem(served_model, expected_model)
     if model_problem:
-        problems.append(model_problem)
-    if problems:
-        raise DeployError("\n".join(problems))
+        problems["model"].append(model_problem)
+    problems["calibration"] = live_calibration_problems(
+        prediction, served_model, expected_calibration
+    )
+    if any(problems.values()):
+        raise verification_failure(problems, "the live service differs from the target")
 
     result.update(
         {
             "live_service_verified": True,
+            "checks": {
+                "model": "passed: architecture, model_name and checkpoint_sha256 match",
+                "routing": "passed: the loaded decision-layer fingerprint matches",
+                "calibration": (
+                    "passed: probe and status temperature equal calibration.json exactly; "
+                    "class_names_sha256 matches"
+                ),
+            },
             "decision_layer_fingerprint": layer.get("fingerprint"),
             "served_policy": layer.get("policy"),
             "hard_class_count": layer.get("hard_class_count"),
             "confusion_pair_count": layer.get("confusion_pair_count"),
             "model": {key: served_model.get(key) for key in ("checkpoint", *IDENTITY_KEYS)},
+            "calibration": {
+                "temperature": served_model.get("temperature"),
+                "probe_temperature": prediction.get("temperature"),
+                "class_names_sha256": served_model.get("class_names_sha256"),
+            },
         }
     )
     return result
@@ -1536,7 +1679,8 @@ def main(argv: list[str] | None = None, fetch: Fetch = http_fetch) -> int:
     print(json.dumps(result, indent=2))
     if args.verify_live:
         print(
-            "live service verified: it serves the target's model and decision layer.",
+            "live service verified: it serves the target's model, decision layer and "
+            "calibration.",
             file=sys.stderr,
         )
     elif not args.dry_run:

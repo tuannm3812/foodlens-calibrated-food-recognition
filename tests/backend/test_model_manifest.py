@@ -267,6 +267,10 @@ def test_status_after_load_reports_the_hash_computed_once(
             "manifest": "model.json",
             **CONVNEXT_MANIFEST,
             "checkpoint_sha256": digest,
+            # The effective calibration, captured at load (no calibration.json
+            # here, so the backend default).
+            "temperature": artifacts.TEMPERATURE,
+            "class_names_sha256": artifacts.class_names_sha256(CLASS_NAMES),
         }
 
 
@@ -282,6 +286,26 @@ def test_status_keeps_the_loaded_identity_after_the_files_change(
     block = inference.runtime_status()["model"]
     assert block["architecture"] == "convnext_tiny"
     assert block["checkpoint_sha256"] == digest
+
+
+def test_status_reports_the_calibration_cached_at_load(
+    artifact_dir: Path, builds: list[str]
+) -> None:
+    (artifact_dir / "calibration.json").write_text('{"temperature": 0.884}')
+    write_checkpoint(artifact_dir / "resnet50_ft_v2_best.pth")
+
+    before = inference.runtime_status()["model"]
+    assert before["temperature"] == 0.884
+    assert before["class_names_sha256"] is None
+
+    response = inference.predict_image_bytes(png_bytes())
+    # A deployment rewrites the files under the running process.
+    (artifact_dir / "calibration.json").write_text('{"temperature": 2.0}')
+    (artifact_dir / "class_names.json").write_text(json.dumps(CLASS_NAMES[::-1]))
+    block = inference.runtime_status()["model"]
+
+    assert response.temperature == block["temperature"] == 0.884
+    assert block["class_names_sha256"] == artifacts.class_names_sha256(CLASS_NAMES)
 
 
 # --- Real architecture construction (no weights, no download) ------------------

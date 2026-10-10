@@ -412,8 +412,12 @@ def files_fingerprint(directory: Path) -> str:
 
 
 def served_model(target: Path) -> dict:
-    """The status model block of a service that loaded the target's model."""
-    return {"source": "loaded_runtime", **deploy_mod.target_model_identity(target)}
+    """The status model block of a service that loaded the target's model and calibration."""
+    return {
+        "source": "loaded_runtime",
+        **deploy_mod.target_model_identity(target),
+        **deploy_mod.target_calibration(target),
+    }
 
 
 def fake_service(fingerprint: str, source: str = "loaded_runtime", fallback=None, model=None):
@@ -429,6 +433,8 @@ def fake_service(fingerprint: str, source: str = "loaded_runtime", fallback=None
             return {
                 "artifact_status": "mock" if fallback else "ready",
                 "fallback_reason": fallback,
+                # A real runtime reports the temperature it cached at load.
+                "temperature": (model or {}).get("temperature"),
             }
         if url.endswith("/runtime/status"):
             status = {"decision_layer": {"source": source, "fingerprint": fingerprint}}
@@ -536,3 +542,39 @@ def test_verify_live_runs_on_its_own(argv):
 def test_verify_live_rejects_non_http_urls(target, capsys):
     assert deploy_mod.main(["--target", str(target), "--verify-live", "file:///etc/passwd"]) == 1
     assert "http(s)" in capsys.readouterr().err
+
+
+# --- --verify-live calibration (policy-only deploys) ---------------------------
+
+
+def test_verify_live_reports_model_routing_and_calibration_separately(source, target, capsys):
+    deploy_mod.deploy(source, target, dry_run=False)
+    capsys.readouterr()
+    fetch = fake_service(files_fingerprint(target), model=served_model(target))
+    assert verify_live(target, fetch) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert list(result["checks"]) == ["model", "routing", "calibration"]
+    assert result["calibration"]["temperature"] == TEMPERATURE
+
+
+def test_verify_live_catches_calibration_drift_after_a_policy_deploy(source, target, capsys):
+    deploy_mod.deploy(source, target, dry_run=False)
+    write_json(target / "calibration.json", {"temperature": 2.0})
+    capsys.readouterr()
+    fetch = fake_service(files_fingerprint(target), model=served_model(target))
+    assert verify_live(target, fetch) == 1
+    err = capsys.readouterr().err
+    assert "calibration: FAILED" in err and "served_model_files_sha256" in err
+    assert fetch.calls == []
+
+
+def test_verify_live_rejects_a_stale_temperature_with_matching_model_and_routing(
+    source, target, capsys
+):
+    deploy_mod.deploy(source, target, dry_run=False)
+    capsys.readouterr()
+    stale = {**served_model(target), "temperature": 0.884}
+    assert verify_live(target, fake_service(files_fingerprint(target), model=stale)) == 1
+    err = capsys.readouterr().err
+    assert "model: passed" in err and "routing: passed" in err
+    assert "cached temperature 0.884" in err

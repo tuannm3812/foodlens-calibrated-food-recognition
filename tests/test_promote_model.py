@@ -597,3 +597,71 @@ def test_verify_live_fails_when_the_checkpoint_changed_after_deployment(runs, ta
     assert verify(target, service(target, loaded(target))) == 1
     assert "changed after deployment" in capsys.readouterr().err
 
+
+# --- --verify-live calibration -------------------------------------------------
+#
+# Codex's 2026-10-10 review, finding 2: temperature is cached at load and is in
+# neither the model identity nor the routing fingerprint.
+
+
+def test_verify_live_rejects_a_cached_old_temperature(runs, target, capsys):
+    promote(runs, target)
+    capsys.readouterr()
+    stale = {**loaded(target), "temperature": 0.958111}
+    assert verify(target, service(target, stale)) == 1
+    err = capsys.readouterr().err
+    assert "calibration: FAILED" in err
+    assert "model: passed" in err and "routing: passed" in err
+    assert "0.958111" in err and "0.884" in err
+
+
+def test_verify_live_rejects_a_probe_temperature_unlike_the_status(runs, target, capsys):
+    promote(runs, target)
+    capsys.readouterr()
+    assert verify(target, service(target, loaded(target), probe_temperature=0.958111)) == 1
+    err = capsys.readouterr().err
+    assert "calibration: FAILED" in err
+    assert "probe" in err
+
+
+def test_verify_live_rejects_calibration_drift_after_deployment(runs, target, capsys):
+    promote(runs, target)
+    write_json(target / "calibration.json", {"temperature": 2.0})
+    capsys.readouterr()
+    # Even a service restarted on the drifted file must not pass.
+    assert verify(target, service(target, loaded(target))) == 1
+    err = capsys.readouterr().err
+    assert "calibration" in err
+    assert "changed after deployment" in err
+
+
+def test_verify_live_rejects_a_class_names_mismatch(runs, target, capsys):
+    promote(runs, target)
+    capsys.readouterr()
+    served = {**loaded(target), "class_names_sha256": artifacts.class_names_sha256(CLASSES[::-1])}
+    assert verify(target, service(target, served)) == 1
+    err = capsys.readouterr().err
+    assert "calibration: FAILED" in err
+    assert "class_names_sha256" in err
+
+
+def test_verify_live_rejects_a_service_reporting_no_temperature(runs, target, capsys):
+    promote(runs, target)
+    capsys.readouterr()
+    old_code = {key: value for key, value in loaded(target).items() if key != "temperature"}
+    assert verify(target, service(target, old_code, probe_temperature=0.884)) == 1
+    assert "reports no temperature" in capsys.readouterr().err
+
+
+def test_verify_live_accepts_a_matching_restarted_runtime(runs, target, capsys):
+    promote(runs, target)
+    capsys.readouterr()
+    assert verify(target, service(target, loaded(target))) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["live_service_verified"] is True
+    assert set(result["checks"]) == {"model", "routing", "calibration"}
+    assert all(check.startswith("passed") for check in result["checks"].values())
+    assert result["calibration"]["temperature"] == 0.884
+    assert result["calibration"]["class_names_sha256"] == runtime_calibration(target)[
+        "class_names_sha256"
+    ]
