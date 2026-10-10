@@ -329,8 +329,8 @@ def policy_evidence(provenance: Any, provenance_path: Path) -> dict[str, Any]:
             raise EvidenceError(
                 f"{provenance_path} records no producer evidence for its {split} predictions, "
                 "so nothing shows which checkpoint, class order and temperature produced the "
-                "confidences this policy was fitted to (policies recalibrated before "
-                "2026-10-11 have none). Directory membership is not evidence. "
+                "confidences this policy was fitted to (no policy recalibrated before the "
+                "evidence sidecar existed has any). Directory membership is not evidence. "
                 + REGENERATE_HINT
             )
         record = validate_record(evidence.get("record"), f"{provenance_path} ({split} evidence)")
