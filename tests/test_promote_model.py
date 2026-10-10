@@ -23,7 +23,7 @@ from evidence_fixtures import provenance_with_evidence, write_scored_split
 from torch import nn
 
 from app.backend import artifacts
-from app.deployment import identity, install, paths
+from app.deployment import identity, install, paths, records
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "deploy_decision_policy.py"
 _spec = importlib.util.spec_from_file_location("deploy_decision_policy_promote", SCRIPT)
@@ -768,3 +768,76 @@ def test_verify_live_passes_after_a_legacy_policy_only_deploy(runs, target, caps
     deploy_mod.deploy(runs["champion_policy"], target, dry_run=False)
     capsys.readouterr()
     assert verify(target, service(target, loaded(target))) == 0
+
+
+# --- Schema on write ----------------------------------------------------------
+#
+# Codex's closure review (2026-10-10): validate new records on write, so a record
+# a reader would have to skip -- a policy-only record without `model` -- cannot
+# be produced. Each operation's written record must pass the strict schema.
+
+
+def written_record(target: Path) -> dict:
+    return json.loads((target / "deployment_provenance.json").read_text())
+
+
+def assert_schema_valid(target: Path, operation: str) -> dict:
+    written = written_record(target)
+    assert written["schema_version"] == records.SCHEMA_VERSION
+    assert written["operation"] == operation
+    records.validate_record(written, "final")
+    return written
+
+
+def test_a_policy_only_deploy_to_a_promoted_target_writes_a_schema_valid_record(runs, target):
+    promote(runs, target)
+    deploy_mod.deploy(runs["a3b_policy"], target, dry_run=False)
+    written = assert_schema_valid(target, "policy_deploy")
+    assert written["model"]["checkpoint"] == "a3b_best.pth"
+    assert written["calibration"]["temperature"] == 0.884
+    assert written["calibration"]["files_sha256"]["calibration.json"] == paths.sha256(
+        target / "calibration.json"
+    )
+
+
+def test_a_policy_only_deploy_to_a_legacy_target_writes_a_schema_valid_record(runs, target):
+    write_json(target / "calibration.json", {"temperature": 0.884})
+    deploy_mod.deploy(runs["champion_policy"], target, dry_run=False)
+    written = assert_schema_valid(target, "policy_deploy")
+    assert written["model"]["checkpoint"] == "resnet50_ft_v2_best.pth"
+    assert "policy_belongs_to_served_model" not in written
+
+
+def test_a_promotion_writes_a_schema_valid_record(runs, target):
+    promote(runs, target)
+    written = assert_schema_valid(target, "model_promotion")
+    assert written["calibration"]["files_sha256"]["class_names.json"] == paths.sha256(
+        target / "class_names.json"
+    )
+
+
+def test_a_restore_writes_a_schema_valid_record(runs, target):
+    promoted = promote(runs, target)
+    deploy_mod.restore(backup_path(promoted), target, False)
+    written = assert_schema_valid(target, "restore")
+    # The restored state's calibration, named by the hashes of the restored files.
+    assert written["calibration"] == {
+        "temperature": 0.958111,
+        "files_sha256": {
+            "calibration.json": paths.sha256(target / "calibration.json"),
+            "class_names.json": paths.sha256(target / "class_names.json"),
+        },
+    }
+
+
+def test_a_restore_to_a_state_without_calibration_is_refused(runs, target, capsys):
+    record = promote(runs, target)
+    backup = backup_path(record)
+    backup_record = json.loads((backup / "backup_record.json").read_text())
+    backup_record["files"]["calibration.json"] = None
+    (backup / "calibration.json").unlink()
+    write_json(backup / "backup_record.json", backup_record)
+    promoted = tree(target)
+    assert deploy_mod.main(["--target", str(target), "--restore", str(backup)]) == 1
+    assert "would have no calibration.json" in capsys.readouterr().err
+    assert tree(target) == promoted

@@ -109,8 +109,13 @@ def restore(backup: Path, target: Path, dry_run: bool) -> dict[str, Any]:
         raise DeployError("The restored state would have no class_names.json.")
     class_names = identity.validated_class_names(read_json(names_path), names_path)
     calibration_path = resulting("calibration.json")
-    if calibration_path is not None:
-        identity.validated_temperature(read_json(calibration_path), calibration_path)
+    if calibration_path is None:
+        raise DeployError(
+            "The restored state would have no calibration.json: the backend would silently "
+            "serve its built-in default temperature, and no record could name the calibration "
+            "served."
+        )
+    temperature = identity.validated_temperature(read_json(calibration_path), calibration_path)
     policy_paths = {name: resulting(name) for name in DEPLOYED_FILES}
     missing_policy = [name for name, path in policy_paths.items() if path is None]
     if missing_policy:
@@ -138,6 +143,11 @@ def restore(backup: Path, target: Path, dry_run: bool) -> dict[str, Any]:
             "checkpoint": manifest["checkpoint"],
             "model_name": manifest["model_name"],
             "checkpoint_sha256": files.get(manifest["checkpoint"]) or sha256(checkpoint_path),
+        },
+        calibration_temperature=temperature,
+        calibration_files_sha256={
+            "calibration.json": sha256(calibration_path),
+            "class_names.json": sha256(names_path),
         },
         policy=policy,
         hard=hard,
