@@ -8,9 +8,10 @@ package holds the logic it dispatches to. Modules, from the bottom up:
 - ``identity``: what a model and a policy are -- manifest interpretation,
   checkpoint fit, class-order, temperature and policy validation, the adapters
   to the backend's own readers, and producer-evidence comparison.
-- ``records``: the deployment record's shape. Builds records from values it is
-  given and reads historical ones; it never touches a target directory or
-  loads a model.
+- ``records``: the deployment record's schema. Builds records from values it
+  is given, validates them strictly before they are written, and normalises
+  historical ones for readers, with explicit limits; it never touches a
+  target directory or loads a model.
 - ``install``: staging, backup, atomic ``os.replace`` install, the post-install
   callback and rollback. It does not know what a model or a policy is.
 - ``policy``, ``promote``, ``restore``: one operation each. Each decides what

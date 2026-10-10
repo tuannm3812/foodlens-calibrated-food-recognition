@@ -372,18 +372,85 @@ operation (`policy.py`, `promote.py`, `restore.py`), and `verify_live.py` the
 live check, which imports no write operation. The backend never imports
 `app/deployment/`.
 
+**The deployment record.** `deployment_provenance.json` follows an explicit
+schema, declared as data in `app/deployment/records.py` (schema version 1,
+from 2026-10-11). Every record carries:
+
+- `schema_version` (`1`) and an `operation` discriminator: `policy_deploy`,
+  `model_promotion` or `restore` — the names `backup_record.json` already used;
+- the model identity under `model` (`architecture`, `checkpoint`,
+  `model_name`, `checkpoint_sha256`);
+- the calibration under `calibration`: the `temperature` and the SHA-256 of
+  `calibration.json` and `class_names.json` (`files_sha256`) as the target
+  holds them afterwards;
+- the routing: `policy`, `hard_class_count`, `confusion_pair_count` and
+  `decision_layer_fingerprint`;
+- a timestamp (`deployed_at`, or `restored_at` for a restore) and the file
+  check: `deployed_files_sha256`, `artifact_files_verified`, `live_service`.
+
+Each operation adds its own fields. A policy deploy and a promotion record the
+policy run and its evidence binding (`source_run`, `source_provenance_sha256`,
+`source_files_sha256`, `policy_evidence`); a policy deploy also records the
+served model it was checked against (`served_model`,
+`served_model_files_sha256`, `policy_evidence_matches_served_model`,
+`untouched`), and a promotion its model run, checks and `previous_model`. A
+restore records `restored_from`, the backup's operation and time, the restored
+and removed files, `previous_model` and the embedded
+`restored_deployment_provenance`. Promotion and restore always replace files,
+so their record must name its backup (`backup_dir`, `replaced_files_sha256`);
+a policy deploy names one whenever it made one.
+
+**Validation on write.** Every operation validates its record twice: the
+complete record before any backup is made, and the final record, naming its
+backup, after the backup and before any target file is replaced. A missing or
+malformed field — a record without `model`, a non-hex checkpoint hash, a
+non-finite temperature, an unknown `operation` or `schema_version` — fails
+the operation with an error naming each field, and the target is left exactly
+as it was: no file changed, and no `replaced_*` or `.deploy-staging-*`
+directory left behind. A record that a later reader would have to skip can
+therefore no longer be written. A restore to a state with no
+`calibration.json` is refused for the same reason: the backend would serve a
+built-in default temperature that no record could name.
+
+**Reading historical records.** Records written before the schema have no
+`schema_version`. `--verify-live` reads every record through
+`records.normalise_record`, which maps a historical record into the schema's
+shape from the record's own fields only — `model` from `model`, else
+`served_model` (policy-only records of 2026-10-10); the temperature from
+`calibration_temperature` or `served_model.temperature`; the calibration file
+hashes from `deployed_files_sha256` or `served_model_files_sha256`; a missing
+`operation` inferred as `policy_deploy` from `untouched`, which only policy
+deploys wrote — and lists every field it never captured as an explicit limit
+(`"no decision_layer_fingerprint recorded"`). Nothing is filled from today's
+target files: a limit means that check has no recorded value to compare. A
+record that declares schema version 1 but no longer matches it fails
+`--verify-live` before the service is probed. The result reports the record's
+`operation`, whether it is historical, and its limits under
+`deployment_record`. The three historical records on this machine normalise
+as follows:
+
+| Record | Operation | Limits |
+| --- | --- | --- |
+| `app/artifacts/deployment_provenance.json` (2026-10-10 promotion) | `model_promotion` | `policy_evidence`; `checks.policy_evidence_matches_model` |
+| `replaced_20261010T015403Z_alsevy57/` (2026-10-09 policy-only) | `policy_deploy` (inferred) | `model`, `calibration`, `decision_layer_fingerprint`, `artifact_files_verified`, `live_service`, `policy_evidence`, `policy_evidence_matches_served_model`, `served_model`, `served_model_files_sha256` |
+| `replaced_20261009T224436Z/` (no record) | none | everything: no `deployment_provenance.json` was written |
+
+On 2026-10-11 `--verify-live` passed against a server on the real
+`app/artifacts/`, reading its 2026-10-10 record through this path.
+
 **Why the restart.** `load_runtime()` caches the model, policy, hard classes
 and confusion pairs in the process on first use, so a running API keeps
 serving the old model, decision layer and temperature after the files change.
 The deploy record's `artifact_files_verified` therefore covers the files only.
 
 `--verify-live` first checks the target's files against
-`deployment_provenance.json`, where it records them: the decision-layer
-fingerprint; the model's architecture, checkpoint name and checkpoint hash
-(from the record's `model` entry, which every kind of deployment writes — older
-policy-only records are read from `served_model`); every recorded checkpoint,
-`calibration.json` and `class_names.json` hash (`deployed_files_sha256` or
-`served_model_files_sha256`); and the recorded temperature. A file changed
+`deployment_provenance.json`, read through the normalisation above, where it
+records them: the decision-layer fingerprint; the model's architecture,
+checkpoint name and checkpoint hash (from the record's `model` entry, which
+every kind of deployment writes — older policy-only records are read from
+`served_model`); every recorded checkpoint, `calibration.json` and
+`class_names.json` hash (`deployed_files_sha256`, `served_model_files_sha256`
+or `calibration.files_sha256`); and the recorded temperature. A file changed
 after deployment fails here, including a checkpoint swapped for different
 weights of the same architecture after a policy-only deploy,
 before the service is probed, even if a restarted service would agree with
