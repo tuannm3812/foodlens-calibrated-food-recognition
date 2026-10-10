@@ -1,14 +1,77 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+// styles.css is an entry file of `@import` statements (see src/styles/*.css).
+// This resolves those imports, in order, and concatenates the partials back
+// into one stylesheet so cssRule() can keep matching against the full text.
+function readImportOrder(entryPath: string): string[] {
+  const entry = readFileSync(entryPath, "utf8");
+  const importPattern = /@import\s+["']([^"']+)["']\s*;/g;
+  const importPaths: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = importPattern.exec(entry)) !== null) {
+    importPaths.push(match[1]);
+  }
+
+  return importPaths;
+}
+
+function concatenatedStylesheet(): string {
+  const entryPath = resolve(__dirname, "styles.css");
+  const baseDir = dirname(entryPath);
+
+  return readImportOrder(entryPath)
+    .map((importPath) => readFileSync(resolve(baseDir, importPath), "utf8"))
+    .join("\n");
+}
+
 function cssRule(selector: string): string {
-  const css = readFileSync(resolve(__dirname, "styles.css"), "utf8");
+  const css = concatenatedStylesheet();
   const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = css.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`));
 
   return match?.[1] ?? "";
+}
+
+// Extracts the ordered sequence of selectors (and at-rules like `@media`)
+// from a stylesheet, so the split can be checked for a faithful reordering
+// rather than just spot-checked rule by rule.
+function extractSelectorSequence(css: string): string[] {
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const selectorPattern = /([^{}]+)\{/g;
+  const selectors: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = selectorPattern.exec(withoutComments)) !== null) {
+    const selector = match[1].replace(/\s+/g, " ").trim();
+    if (selector) {
+      selectors.push(selector);
+    }
+  }
+
+  return selectors;
+}
+
+// The pre-split selector order lives in a checked-in fixture rather than
+// being read from history via the version control CLI: CI runners use a
+// shallow clone (actions/checkout) and do not have the pre-split commit in
+// their object store, so invoking the VCS to read that historical blob
+// passed on every developer machine (full history) and failed only in CI.
+// Reading a fixture from the working tree makes the test hermetic instead.
+//
+// If this test fails, it means the split partials were reordered or a rule
+// was dropped when src/styles.css was divided into src/styles/*.css. Fix
+// the CSS split to match the fixture -- do NOT regenerate the fixture to
+// make a failing test pass.
+function originalSelectorOrder(): string[] {
+  const fixturePath = resolve(__dirname, "styles/__fixtures__/pre-split-selector-order.txt");
+  const contents = readFileSync(fixturePath, "utf8");
+
+  return contents
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"));
 }
 
 describe("decision card visual density", () => {
@@ -95,5 +158,14 @@ describe("workbench layout alignment", () => {
     expect(cssRule(".source-context")).toContain("width: fit-content");
     expect(cssRule(".source-context strong")).toContain("text-overflow: ellipsis");
     expect(cssRule(".source-context strong")).toContain("white-space: nowrap");
+  });
+});
+
+describe("styles.css split", () => {
+  it("reproduces the pre-split stylesheet's rule order when its partials are concatenated", () => {
+    const originalSelectors = originalSelectorOrder();
+    const splitSelectors = extractSelectorSequence(concatenatedStylesheet());
+
+    expect(splitSelectors).toEqual(originalSelectors);
   });
 });

@@ -1,0 +1,189 @@
+# Baseline selector order for src/styles.test.ts's stylesheet-split guard.
+#
+# This is the ordered sequence of CSS selectors (and at-rules such as
+# @media) extracted from app/frontend/src/styles.css as it existed at
+# commit e729880, before it was split into the src/styles/*.css partials.
+# It was generated with:
+#
+#   git show e729880:app/frontend/src/styles.css
+#
+# ...and then run through the same extractSelectorSequence() parsing the
+# test uses, so this file is a checked-in, hermetic stand-in for that git
+# object (CI runners use a shallow clone and cannot reach it).
+#
+# If the order test fails, it means the split partials were reordered or a
+# rule was dropped when src/styles.css was divided into src/styles/*.css.
+# Fix the CSS split to match this order -- do NOT regenerate this fixture
+# to make a failing test pass. Lines starting with "#" are comments and are
+# ignored by the test.
+:root
+*
+body
+button, input
+button
+button:hover:not(:disabled), .upload-button:hover:not(.is-disabled)
+button:focus-visible, .upload-button:focus-within
+button:disabled, .upload-button.is-disabled
+h1, h2, h3, p
+h1
+h2
+h3
+.app-shell
+.product-header
+.product-brand
+.product-brand::before
+.product-nav
+.product-nav button
+.product-nav button.is-active
+.product-header__meta
+.workbench-shell
+.workbench-title-row
+.workbench-subtitle
+.status-notice
+.status-notice__label
+.status-notice__message
+.status-notice--loading
+.status-notice--loading .status-notice__label
+.status-notice--ready
+.status-notice--ready .status-notice__label
+.status-notice--error
+.status-notice--error .status-notice__label
+.workbench-layout
+.workbench-primary
+.preview-stage
+.preview-stage__frame
+.preview-stage__frame--video
+.preview-image-layer
+.preview-image-layer:not([style])
+.preview-image-layer--video
+.preview-stage__image
+.preview-image-layer--video .preview-stage__image
+.preview-overlay-layer
+.preview-stage__empty
+.preview-stage__empty strong
+.preview-stage__empty-icon
+.bbox-overlay
+.bbox-overlay--selected
+.upload-controls
+.upload-controls__input-row
+.segmented-control, .control-row
+.segmented-control
+.segmented-control button
+.segmented-control button.is-active
+.control-row button
+.upload-controls__action-row
+.source-context
+.source-context span
+.source-context strong
+.url-control
+.url-control label
+.url-control__field
+.url-control__field svg
+.url-control__field input
+.url-control__field button
+.upload-button
+.upload-button input
+.decision-card
+.decision-card--empty
+.decision-card__topline
+.decision-card__prediction
+.decision-card__prediction h2
+.decision-card__prediction p, .muted-copy
+.decision-context
+.decision-context span
+.decision-badge
+.decision-badge--auto_accept
+.decision-badge--suggest
+.decision-badge--confirm
+.decision-badge--review
+.confidence-metric
+.confidence-metric strong
+.confidence-track
+.confidence-track span
+.ranking-list, .prediction-ranking
+.prediction-ranking h3
+.prediction-ranking__list
+.prediction-ranking__row
+meter
+.model-metadata
+.model-metadata div
+.metric-label, .model-metadata dt, .eyebrow
+.metric-label
+.eyebrow
+.model-metadata dd
+.model-metadata dt
+.decision-policy
+.decision-policy__tile
+.decision-policy__tile strong
+.decision-policy__dot
+.decision-policy__tile--auto .decision-policy__dot
+.decision-policy__tile--suggest .decision-policy__dot
+.decision-policy__tile--confirm .decision-policy__dot
+.decision-policy__tile--review .decision-policy__dot
+.runtime-status
+.runtime-status > div:first-child
+.runtime-status strong
+.runtime-status__checks
+.runtime-status__checks span
+.secondary-panel, .models-view
+.secondary-panel
+.review-summary
+.review-summary div
+.review-summary dt
+.review-summary dd
+.model-metadata--standalone
+.crop-review
+.crop-review__body
+.section-heading
+.crop-grid
+.crop-grid--balanced
+.crop-review--video .crop-grid
+.crop-card
+.crop-card--selected
+.crop-card__button
+.crop-card__button:hover
+.crop-card__media
+.crop-card__media img
+.crop-review--video .crop-card__media
+.crop-card__body
+.crop-review--video .crop-card__body
+.crop-card__body h3
+.crop-review--video .crop-card__body h3
+.crop-card__body p
+.crop-confidence
+.crop-confidence__track
+.crop-confidence__track span
+.crop-confidence__track--detail
+.crop-status-pill
+.crop-status-pill--fallback
+.crop-source-pill
+.crop-detail
+.crop-detail strong
+.crop-detail__summary
+.crop-detail__list
+.crop-detail__list div
+.crop-detail__list dt
+.crop-detail__list dd
+@media (max-width: 900px)
+.product-header, .workbench-title-row, .workbench-layout, .crop-review__body
+.product-nav
+.decision-policy
+.runtime-status
+.runtime-status__checks
+.review-summary
+.product-header__meta
+.preview-stage__frame
+.crop-grid
+@media (max-width: 640px)
+.app-shell
+.workbench-shell
+.decision-policy, .crop-grid, .review-summary, .runtime-status
+.runtime-status__checks
+.product-header
+.upload-controls, .upload-controls__input-row, .control-row, .url-control, .segmented-control
+.upload-controls__input-row
+.url-control__field
+.url-control__field button
+.control-row > *, .segmented-control button
+.decision-card__topline
+.model-metadata, .prediction-ranking__row

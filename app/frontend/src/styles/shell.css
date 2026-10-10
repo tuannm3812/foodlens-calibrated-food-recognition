@@ -1,0 +1,91 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  color: var(--lab-ink);
+  font-family: var(--font-body);
+  background:
+    linear-gradient(180deg, rgba(45, 90, 39, 0.07), transparent 360px),
+    var(--lab-bg);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  font-family: var(--font-display);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--lab-border);
+  border-radius: var(--lab-radius);
+  color: var(--lab-ink);
+  background: var(--lab-surface);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled),
+.upload-button:hover:not(.is-disabled) {
+  border-color: var(--lab-primary);
+  color: var(--lab-primary);
+}
+
+button:focus-visible,
+.upload-button:focus-within {
+  outline: 3px solid rgba(225, 43, 43, 0.22);
+  outline-offset: 2px;
+}
+
+button:disabled,
+.upload-button.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1 {
+  color: var(--lab-ink);
+  font-family: var(--font-display);
+  font-size: clamp(2.1rem, 4vw, 4rem);
+  line-height: 0.98;
+  letter-spacing: 0;
+}
+
+h2 {
+  color: var(--lab-ink);
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+h3 {
+  color: var(--lab-ink);
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.app-shell {
+  --workbench-columns: minmax(0, 1.45fr) minmax(320px, 0.55fr);
+  --workbench-gap: 20px;
+  width: min(100%, 1360px);
+  margin: 0 auto;
+  padding: 24px 24px 36px;
+}
