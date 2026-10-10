@@ -38,9 +38,9 @@ only with `scripts/deploy_decision_policy.py`, then restart the API and run
 
 ## Open risks
 
-- `app/backend/inference.py` is still 636 lines of orchestration after S2;
-  `scripts/deploy_decision_policy.py` grew to ~1,400 lines with promotion and
-  restore. Both are split candidates — don't bolt more onto either.
+- `app/backend/inference.py` is still 636 lines of orchestration. Deploy logic
+  lives in `app/deployment/` behind a thin CLI; keep its import rules, which
+  `tests/test_deployment_boundaries.py` enforces.
 - **S1 resolved the triplicated recalibration CLI**: one copy now, at
   `scripts/recalibrate_decision_layer.py`. The four training scripts stay
   duplicated by design — immutable run records, and Kaggle needs
