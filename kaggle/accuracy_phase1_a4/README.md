@@ -35,12 +35,21 @@ This folder contains the A4 experiment scaffold.
 - Python source compiles successfully.
 
 ## Push to Kaggle
-Use the command below when your account has available GPU batch slots:
+FoodLens kernels are owned by the Kaggle account `tuannm3823`, but the
+default `~/.kaggle/kaggle.json` on this machine belongs to `tuannm3812`, so
+`KAGGLE_CONFIG_DIR` must be set explicitly on every push -- otherwise the
+push silently authenticates as the wrong account. Put the `tuannm3823`
+credentials in a durable directory (not `/tmp`, which is cleared on reboot)
+as a file named exactly `kaggle.json` (the Kaggle CLI requires that
+filename), then point `KAGGLE_CONFIG_DIR` at that directory:
 
 ```bash
 source .venv/bin/activate
-KAGGLE_CONFIG_DIR=/tmp/kaggle-cred kaggle kernels push -p kaggle/accuracy_phase1_a4
+KAGGLE_CONFIG_DIR=/path/to/your/kaggle-credentials kaggle kernels push -p kaggle/accuracy_phase1_a4
 ```
+
+Do not commit the credentials file itself; only the directory path is
+referenced here.
 
 If you receive `Maximum batch GPU session count of 2 reached`, wait until another
 GPU session finishes and re-run the same push command.
