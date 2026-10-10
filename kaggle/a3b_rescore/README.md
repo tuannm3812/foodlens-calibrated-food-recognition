@@ -62,13 +62,43 @@ it extracted (a directory of `<class_name>/<id>.jpg` files), or export
 
 This writes
 `results/accuracy_phase1/a3b_convnext_tiny_continued_224/test_predictions_rescored.csv`
-and prints the achieved top-1/top-5 accuracy plus a self-check against
-`test_metrics.csv` from the original run. A self-check mismatch (more than
+plus its evidence sidecar (see "Evidence sidecar" below), and prints the
+achieved top-1/top-5 accuracy plus a self-check against `test_metrics.csv`
+from the original run. A self-check mismatch (more than
 0.05 percentage points off) means the preprocessing or class ordering is
 wrong -- the script exits non-zero, and the output path is left exactly as
 it was before the run (see "Rerunning / --overwrite" below), rather than
 writing confidences that belong to a different model than the one A3b's
 champion-comparison numbers describe.
+
+## Evidence sidecar
+
+Beside every output CSV the script writes `<output>.evidence.json`, recording
+what produced the predictions:
+
+- the checkpoint path and the SHA-256 of the exact bytes it loaded;
+- the architecture (`--arch`);
+- the SHA-256 of the ordered class-name list used for the output indices
+  (compact ASCII JSON, UTF-8 -- the same form the backend reports);
+- the effective temperature and where it came from;
+- the eval preprocessing: `Resize((224, 224))` (bilinear), `ToTensor`,
+  `Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])`;
+- this script's SHA-256;
+- the self-check outcome (`passed`, or `skipped` when there was nothing to
+  compare against) and the accuracies compared;
+- the output CSV's SHA-256, which binds the sidecar to exactly that file.
+
+It follows the CSV's rule: written atomically, only after the self-check
+passes, and refused if it already exists without `--overwrite`. The CSV is
+renamed into place first, so an interruption can leave a CSV without a
+sidecar (which every consumer rejects), never a sidecar for bytes that are not
+there. `scripts/recalibrate_decision_layer.py` verifies the sidecar and
+carries it into the policy's provenance, and `scripts/deploy_decision_policy.py`
+refuses a policy without it -- see "Prediction evidence" in
+`docs/8_runtime_contract.md`, which also covers regenerating evidence for
+CSVs written before the sidecar existed. The writer is part of this file
+rather than imported from `scripts/prediction_evidence.py` because Kaggle runs
+this file on its own.
 
 ## Rerunning / --overwrite
 
@@ -81,9 +111,10 @@ self-check passes; a failing self-check still leaves it untouched), or
 remove/rename the existing file yourself.
 ```
 
-This is deliberate: a rescore is expensive, and a run whose self-check later
-fails must never leave a stale file at the destination that looks the same
-as a freshly verified one. Pass `--overwrite` to rerun into an existing
+The same applies to an existing `<output>.evidence.json`. This is
+deliberate: a rescore is expensive, and a run whose self-check later fails
+must never leave a stale file at the destination that looks the same as a
+freshly verified one. Pass `--overwrite` to rerun into an existing
 path -- it only takes effect once the new run's self-check passes; if it
 fails, the existing file is left untouched, exactly as without `--overwrite`.
 
@@ -108,13 +139,15 @@ elsewhere, not a metrics CSV -- can instead pass `--expected-top1` and
 `<split>_metrics.csv`, if present, always wins over these flags. If neither
 is available, the script prints that the self-check is skipped rather than
 silently treating it as passed. For example, re-scoring the production
-ResNet50 FT-V2 champion on the exact same manifests as an A3b run:
+ResNet50 FT-V2 champion on the exact same manifests as an A3b run (a relative
+`--checkpoint` is resolved inside `--results-dir`, so a checkpoint elsewhere
+needs an absolute path):
 
 ```bash
 .venv/bin/python kaggle/a3b_rescore/rescore_predictions.py \
   --results-dir results/accuracy_phase1/champion_resnet50_ft_v2 \
   --arch resnet50 \
-  --checkpoint app/artifacts/resnet50_ft_v2_best.pth \
+  --checkpoint "$PWD/app/artifacts/resnet50_ft_v2_best.pth" \
   --data-dir /path/to/food-101 \
   --split test \
   --expected-top1 78.28 --expected-top5 92.65
@@ -132,7 +165,7 @@ See `kaggle/accuracy_phase1_a4/README.md` for how to set up a durable
 
 ## What consumes the output
 
-`test_predictions_rescored.csv` is written in the schema
+`test_predictions_rescored.csv` (with its sidecar) is written in the schema
 `scripts/recalibrate_decision_layer.py` requires (see "Required
 `*_predictions.csv` schema" in `docs/4_next_steps.md`). Once it exists,
 recalibrate against it directly with `--predictions-file`, which overrides

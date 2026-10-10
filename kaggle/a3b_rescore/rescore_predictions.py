@@ -64,6 +64,18 @@ mismatch never leaves a partially-written file, and (when `--overwrite` was
 passed into a run whose self-check then failed) leaves the destination
 exactly as it was before this run started, not silently replaced.
 
+Next to the CSV it writes `<output>.evidence.json`, a sidecar recording what
+produced the predictions: the checkpoint path and the SHA-256 of the exact bytes
+loaded, the architecture, the SHA-256 of the ordered class-name list, the
+effective temperature and its source, the eval preprocessing, this script's
+SHA-256, the self-check result and the output CSV's SHA-256, which binds the
+sidecar to exactly that file. It is written under the same rule as the CSV:
+atomically, and only once the self-check has passed (or been skipped, which it
+records). `scripts/recalibrate_decision_layer.py` carries it into a policy's
+provenance and `scripts/deploy_decision_policy.py` refuses a policy without it.
+The sidecar logic lives here rather than in `scripts/prediction_evidence.py`
+because this file is a Kaggle `code_file` and must stay self-contained.
+
 Usage:
     python rescore_predictions.py \\
         --results-dir results/accuracy_phase1/a3b_convnext_tiny_continued_224 \\
@@ -82,16 +94,20 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import json
 import math
 import os
 import sys
 import tempfile
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 import pandas as pd
 import torch
+import torchvision
 from PIL import Image
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
@@ -122,6 +138,24 @@ EVAL_TRANSFORMS = transforms.Compose(
         transforms.Normalize(NORM_MEAN, NORM_STD),
     ]
 )
+
+# Evidence sidecar: what produced a predictions CSV. The consumer side is
+# scripts/prediction_evidence.py; its tests check that these constants, the
+# class-name hash and PREPROCESSING agree with it.
+EVIDENCE_SUFFIX = ".evidence.json"
+EVIDENCE_SCHEMA = "foodlens.prediction_evidence"
+EVIDENCE_SCHEMA_VERSION = 1
+PRODUCER_PATH = "kaggle/a3b_rescore/rescore_predictions.py"
+# EVAL_TRANSFORMS, stated precisely. Resize uses torchvision's default
+# (bilinear) interpolation, as app/backend/inference.py's load_runtime() does.
+PREPROCESSING = {
+    "id": f"resize_{IMAGE_SIZE[0]}x{IMAGE_SIZE[1]}_bilinear+to_tensor+normalize_imagenet",
+    "resize": list(IMAGE_SIZE),
+    "interpolation": "bilinear",
+    "to_tensor": "RGB, float in [0, 1], channels first",
+    "normalize_mean": list(NORM_MEAN),
+    "normalize_std": list(NORM_STD),
+}
 
 
 class AccuracyMismatchError(RuntimeError):
@@ -406,6 +440,103 @@ def accuracy_from_rows(rows: Sequence[dict[str, object]]) -> tuple[float, float]
     return 100.0 * top1_hits / total, 100.0 * top5_hits / total
 
 
+def evidence_path(output_path: Path) -> Path:
+    """Where a predictions CSV's evidence sidecar lives: `<output>.evidence.json`."""
+    return output_path.with_name(output_path.name + EVIDENCE_SUFFIX)
+
+
+def sha256_bytes(data: bytes) -> str:
+    """SHA-256 hex digest of bytes."""
+    return hashlib.sha256(data).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    """SHA-256 hex digest of a file's bytes, read in chunks."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def class_names_sha256(class_names: Sequence[str]) -> str:
+    """SHA-256 of the ordered class list, in the canonical form the backend uses.
+
+    Identical to `class_names_sha256()` in `app/backend/artifacts.py` (compact,
+    ASCII-escaped JSON of the list, UTF-8): copied, not imported, because this
+    file must run on Kaggle without the repo. A test pins the two together.
+    """
+    canonical = json.dumps(list(class_names), ensure_ascii=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def display_path(path: Path) -> str:
+    """Repo-relative when inside this checkout, absolute otherwise (e.g. on Kaggle)."""
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(Path(__file__).resolve().parents[2]))
+    except ValueError:
+        return str(resolved)
+
+
+def build_evidence_record(
+    *,
+    split: str,
+    output_path: Path,
+    rows: int,
+    checkpoint_path: Path,
+    checkpoint_sha256: str,
+    arch: str,
+    class_names: Sequence[str],
+    class_names_source: Path,
+    temperature: float,
+    temperature_source: str,
+    achieved: tuple[float, float],
+    recorded: tuple[float, float] | None,
+    recorded_source: str | None,
+    environment: dict[str, str] | None = None,
+) -> dict[str, object]:
+    """The evidence sidecar for one re-scored split, less the CSV hash.
+
+    `write_predictions_if_accuracy_matches()` fills `predictions.sha256` from
+    the bytes it actually writes, and writes the record only if the self-check
+    passes -- so `self_check.status` is "passed" whenever a recorded value
+    existed, and "skipped" (stated, not hidden) when none did.
+    """
+    return {
+        "schema": EVIDENCE_SCHEMA,
+        "schema_version": EVIDENCE_SCHEMA_VERSION,
+        "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "predictions": {
+            "file": output_path.name,
+            "sha256": None,
+            "rows": rows,
+            "split": split,
+        },
+        "checkpoint": {"path": display_path(checkpoint_path), "sha256": checkpoint_sha256},
+        "architecture": arch,
+        "class_names": {
+            "count": len(class_names),
+            "sha256": class_names_sha256(class_names),
+            "source": display_path(class_names_source),
+            "hash_of": "the ordered list as compact ASCII JSON, UTF-8",
+        },
+        "temperature": {"value": float(temperature), "source": temperature_source},
+        "preprocessing": PREPROCESSING,
+        "producer": {"path": PRODUCER_PATH, "sha256": sha256_file(Path(__file__))},
+        "self_check": {
+            "status": "skipped" if recorded is None else "passed",
+            "achieved_top1_pct": achieved[0],
+            "achieved_top5_pct": achieved[1],
+            "recorded_top1_pct": None if recorded is None else recorded[0],
+            "recorded_top5_pct": None if recorded is None else recorded[1],
+            "recorded_source": recorded_source,
+            "tolerance_pct": ACCURACY_TOLERANCE_PCT,
+        },
+        "environment": environment or {},
+    }
+
+
 def load_recorded_metrics(metrics_path: Path) -> tuple[float, float] | None:
     """Load `(top_1_accuracy, top_5_accuracy)` from a `<split>_metrics.csv`.
 
@@ -532,6 +663,7 @@ def write_predictions_if_accuracy_matches(
     achieved_top5_pct: float,
     recorded: tuple[float, float] | None,
     overwrite: bool = False,
+    evidence: dict[str, object] | None = None,
 ) -> None:
     """Write `predictions_df` to `output_path` only if the self-check passes.
 
@@ -567,6 +699,15 @@ def write_predictions_if_accuracy_matches(
             or None if no recorded metrics file exists.
         overwrite: Must be True if `output_path` already exists; otherwise
             this raises immediately, before any self-check work runs.
+        evidence: The evidence record from `build_evidence_record()`. When
+            given, its `predictions.sha256` is set to the hash of the CSV bytes
+            written, and it is written to `evidence_path(output_path)` under
+            the same rule as the CSV: atomically, only after the self-check
+            passes, and refused up front if it already exists without
+            `overwrite`. The CSV is renamed into place first, so an
+            interruption between the two renames leaves a CSV with no
+            sidecar -- which every consumer rejects -- never a sidecar
+            describing bytes that are not there.
 
     Raises:
         OutputAlreadyExistsError: If `output_path` already exists and
@@ -576,28 +717,36 @@ def write_predictions_if_accuracy_matches(
             this call, if `overwrite=True` and something already existed
             there) when this is raised.
     """
-    if output_path.exists() and not overwrite:
-        raise OutputAlreadyExistsError(
-            f"{output_path} already exists. Refusing to start -- pass "
-            "--overwrite to replace it (only takes effect once this run's "
-            "self-check passes; a failing self-check still leaves it "
-            "untouched), or remove/rename the existing file yourself."
-        )
+    sidecar = evidence_path(output_path)
+    for destination in (output_path, *((sidecar,) if evidence is not None else ())):
+        if destination.exists() and not overwrite:
+            raise OutputAlreadyExistsError(
+                f"{destination} already exists. Refusing to start -- pass "
+                "--overwrite to replace it (only takes effect once this run's "
+                "self-check passes; a failing self-check still leaves it "
+                "untouched), or remove/rename the existing file yourself."
+            )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp_name = tempfile.mkstemp(
-        dir=output_path.parent,
-        prefix=f".{output_path.name}.",
-        suffix=".tmp",
-    )
-    os.close(fd)
-    temp_path = Path(temp_name)
+    temp_paths = []
+    for name in (output_path.name, *((sidecar.name,) if evidence is not None else ())):
+        fd, temp_name = tempfile.mkstemp(dir=output_path.parent, prefix=f".{name}.", suffix=".tmp")
+        os.close(fd)
+        temp_paths.append(Path(temp_name))
+    temp_path = temp_paths[0]
     try:
         predictions_df.to_csv(temp_path, index=False)
         check_accuracy_matches_recorded(achieved_top1_pct, achieved_top5_pct, recorded)
+        if evidence is not None:
+            record = json.loads(json.dumps(evidence))
+            record["predictions"]["sha256"] = sha256_file(temp_path)
+            temp_paths[1].write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
         os.replace(temp_path, output_path)
+        if evidence is not None:
+            os.replace(temp_paths[1], sidecar)
     except BaseException:
-        temp_path.unlink(missing_ok=True)
+        for path in temp_paths:
+            path.unlink(missing_ok=True)
         raise
 
 
@@ -657,9 +806,11 @@ def build_model(num_classes: int = NUM_CLASSES, arch: str = "convnext_tiny") -> 
     raise ValueError(f"Unsupported --arch {arch!r}; must be one of {SUPPORTED_ARCHS}")
 
 
-def load_checkpoint(model: nn.Module, checkpoint_path: Path, device: torch.device) -> nn.Module:
-    """Load `checkpoint_path`'s state dict into `model` in place."""
-    state_dict = torch.load(checkpoint_path, map_location=device)
+def load_checkpoint(
+    model: nn.Module, checkpoint: Path | io.BytesIO, device: torch.device
+) -> nn.Module:
+    """Load a checkpoint's state dict (a path, or its bytes) into `model` in place."""
+    state_dict = torch.load(checkpoint, map_location=device)
     model.load_state_dict(state_dict)
     return model
 
@@ -834,13 +985,14 @@ def rescore(args: argparse.Namespace) -> int:
     # before it writes anything (that check is what actually matters for
     # correctness); duplicating it here just avoids redoing a full scoring
     # pass only to fail at the very end.
-    if output_path.exists() and not args.overwrite:
-        raise OutputAlreadyExistsError(
-            f"{output_path} already exists. Refusing to start -- pass "
-            "--overwrite to replace it (only takes effect once this run's "
-            "self-check passes; a failing self-check still leaves it "
-            "untouched), or remove/rename the existing file yourself."
-        )
+    for destination in (output_path, evidence_path(output_path)):
+        if destination.exists() and not args.overwrite:
+            raise OutputAlreadyExistsError(
+                f"{destination} already exists. Refusing to start -- pass "
+                "--overwrite to replace it (only takes effect once this run's "
+                "self-check passes; a failing self-check still leaves it "
+                "untouched), or remove/rename the existing file yourself."
+            )
 
     class_names = load_class_names(results_dir)
 
@@ -860,8 +1012,13 @@ def rescore(args: argparse.Namespace) -> int:
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
+    # Hash the exact bytes loaded, once: the evidence sidecar binds the
+    # predictions to them.
+    checkpoint_bytes = checkpoint_path.read_bytes()
+    checkpoint_digest = sha256_bytes(checkpoint_bytes)
+    print(f"Checkpoint: {checkpoint_path} (sha256 {checkpoint_digest})")
     model = build_model(len(class_names), arch=args.arch)
-    load_checkpoint(model, checkpoint_path, device)
+    load_checkpoint(model, io.BytesIO(checkpoint_bytes), device)
     model = model.to(device)
     model.eval()
 
@@ -916,6 +1073,26 @@ def rescore(args: argparse.Namespace) -> int:
     if recorded is not None:
         print(f"Self-check target: top-1={recorded[0]}%, top-5={recorded[1]}% (source: {recorded_source})")
 
+    evidence = build_evidence_record(
+        split=args.split,
+        output_path=output_path,
+        rows=len(predictions_df),
+        checkpoint_path=checkpoint_path,
+        checkpoint_sha256=checkpoint_digest,
+        arch=args.arch,
+        class_names=class_names,
+        class_names_source=results_dir / "class_names.json",
+        temperature=temperature,
+        temperature_source=temperature_source,
+        achieved=(top1_pct, top5_pct),
+        recorded=recorded,
+        recorded_source=recorded_source,
+        environment={
+            "torch": torch.__version__,
+            "torchvision": torchvision.__version__,
+            "device": str(device),
+        },
+    )
     write_predictions_if_accuracy_matches(
         predictions_df,
         output_path,
@@ -923,8 +1100,10 @@ def rescore(args: argparse.Namespace) -> int:
         top5_pct,
         recorded,
         overwrite=args.overwrite,
+        evidence=evidence,
     )
     print(f"Wrote {output_path}")
+    print(f"Wrote {evidence_path(output_path)}")
     return 0
 
 

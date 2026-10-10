@@ -8,6 +8,16 @@ sources. Those differ between models by construction; they are recorded so
 each result traces to its inputs, not so the two files compare equal (see
 docs/9_agent_log.md, the 2026-09-27 Codex response on methodology closure).
 
+Schema version 3 adds each prediction file's producer `evidence` (see
+`scripts/prediction_evidence.py`). What identifies the model -- the sidecar's
+own path and hash, and inside its record the predictions, checkpoint,
+architecture, class names, temperature, self-check, environment and creation
+time -- is model-specific too: two models' runs differ there by construction.
+The evidence schema, the `preprocessing` and the `producer` (the rescorer's
+path and hash) are compatibility fields: a controlled comparison needs both
+models pushed through the same re-scoring code and the same eval transform.
+Evidence present on one side only is incompatible.
+
 The code identities are compatibility fields, never expected differences:
 `generator.sha256` (the recalibration script) and `routing.module_sha256`
 (the routing rule). `generator.sha256` must also be *present* in both
@@ -40,6 +50,20 @@ MODEL_SPECIFIC_SECTIONS = (
 )
 MODEL_SPECIFIC_KEYS = ("path", "sha256")
 
+# Under predictions.<fit|eval>.evidence: the sidecar's own path and hash, and the
+# top-level record keys that describe the model rather than the procedure.
+EVIDENCE_SECTIONS = (("predictions", "fit", "evidence"), ("predictions", "eval", "evidence"))
+MODEL_SPECIFIC_EVIDENCE_RECORD_KEYS = (
+    "created_at",
+    "predictions",
+    "checkpoint",
+    "architecture",
+    "class_names",
+    "temperature",
+    "self_check",
+    "environment",
+)
+
 # Code-identity fields that must be recorded on both sides to compare at all.
 REQUIRED_FIELDS = (("generator", "sha256"),)
 
@@ -54,12 +78,15 @@ def _flatten(value: object, prefix: tuple[str, ...] = ()) -> dict[tuple[str, ...
 
 
 def is_model_specific(field: tuple[str, ...]) -> bool:
-    """True for the path/hash fields expected to differ between models."""
-    return (
-        len(field) == 3
-        and field[:2] in MODEL_SPECIFIC_SECTIONS
-        and field[2] in MODEL_SPECIFIC_KEYS
-    )
+    """True for the fields expected to differ between models: input paths and
+    hashes, and the model-describing part of the producer evidence."""
+    if len(field) == 3 and field[:2] in MODEL_SPECIFIC_SECTIONS:
+        return field[2] in MODEL_SPECIFIC_KEYS
+    if len(field) >= 4 and field[:3] in EVIDENCE_SECTIONS:
+        if len(field) == 4:
+            return field[3] in MODEL_SPECIFIC_KEYS
+        return field[3] == "record" and field[4] in MODEL_SPECIFIC_EVIDENCE_RECORD_KEYS
+    return False
 
 
 def compare_provenance(

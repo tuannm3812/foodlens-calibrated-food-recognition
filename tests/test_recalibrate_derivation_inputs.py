@@ -589,7 +589,7 @@ def test_provenance_records_sources_settings_and_hashes(tmp_path: Path) -> None:
     assert provenance["routing"]["module"] == "app.backend.decision_rules"
     assert provenance["routing"]["function"] == "route_decision"
     assert provenance["policy_search"]["auto_confidence_grid"][0] == 0.7
-    assert provenance["schema_version"] == 2
+    assert provenance["schema_version"] == 3
     assert provenance["generator"] == {
         "path": "scripts/recalibrate_decision_layer.py",
         "sha256": hashlib.sha256(SCRIPT_PATH.read_bytes()).hexdigest(),

@@ -21,6 +21,7 @@ from .artifacts import (
     TEMPERATURE,
     artifact_file_status,
     checkpoint_sha256,
+    class_names_sha256,
     classifier_artifacts_ready,
     classifier_checkpoint_name,
     manifest_source,
@@ -393,7 +394,10 @@ def load_runtime() -> dict[str, Any]:
             **manifest,
             "checkpoint_sha256": checkpoint_sha256(checkpoint_bytes),
         },
+        # The temperature and class order are cached here for the process's
+        # lifetime; /runtime/status reports both, computed once at load.
         "temperature": read_temperature(resolved_artifact_dir),
+        "class_names_sha256": class_names_sha256(class_names),
         "policy": read_policy(resolved_artifact_dir),
         "hard_classes": read_hard_classes(resolved_artifact_dir),
         "confusion_pairs": read_confusion_pairs(resolved_artifact_dir),
