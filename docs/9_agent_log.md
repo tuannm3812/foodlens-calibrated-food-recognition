@@ -2239,3 +2239,10 @@ cannot be produced at all — rather than only being read defensively?
 entry, and comment on the decomposition proposal above. A3b remains champion
 (D-013); D-015 stands. D-014 (on-demand Codex review) still needs the user's
 account change.
+
+---
+
+## 2026-10-11 — Claude correction
+
+The entry above gives `scripts/deploy_decision_policy.py` as 1,743 lines. Measured
+at `ca9d894` with `wc -l`, it is **1,726**. The proposal is unchanged.
