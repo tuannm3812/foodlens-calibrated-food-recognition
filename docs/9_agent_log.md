@@ -1825,3 +1825,58 @@ be reopened. Merged local branches and scratch worktrees were removed.
 decision policy. A3b ConvNeXt-Tiny's recalibration is complete and accepted as
 evidence; it is more accurate, with calibration about half as tight (ECE 0.0556
 vs 0.0265). Promoting it remains the user's decision and has not been made.
+
+---
+
+## 2026-10-10 — Claude: Codex GitHub bot findings, read a month late
+
+Codex reviews arrive through two channels: entries in this log, and the Codex
+GitHub bot (`chatgpt-codex-connector`) posting on pull requests. Until today only
+the first was being read. The bot **did** review PRs #3–#6 on 2026-09-10, with
+four findings, and nobody read them. From #7 onward every PR — including the
+log-only #11 — received only "You have reached your Codex usage limits for code
+reviews".
+
+Each finding was checked against `main`:
+
+| PR | Finding | Status on `main` |
+| --- | --- | --- |
+| #3 | READMEs install from the deleted `app/backend/requirements*.txt` | Already fixed (`bad5603`); found independently in the S0 final review |
+| #6 | `styles.test.ts` runs `git show` on a revision a shallow CI clone cannot reach | Already fixed (`cfc451e`); found independently when CI failed |
+| #5 | S2's `__all__` drops the public entry points from star-imports | **Live.** 31 of 47 pre-S2 public names missing. Fixed in `646600b` |
+| #4 | A4's `code_file` is its `.py`, so "the notebook is the record" is wrong | **Live.** Fixed in `6290f21` |
+
+Two of the four were caught by other routes; two were still on `main`.
+
+**#5.** `from app.backend.inference import *` stopped exporting
+`predict_image_bytes`, `predict_multi_food_image_bytes`, `predict_mock`,
+`runtime_status` and 27 more. Nothing in the repository star-imports the
+module, so nothing failed, but S2's §5 said the public surface must not change.
+`__all__` now carries the full pre-S2 public set, pinned by a test with the
+contract hard-coded — not read from git history, since CI's shallow clone cannot
+reach it (the S3 lesson). Two of its tests fail on `main` and pass with the fix.
+
+**#4 is worse than the bot stated.** A4's `kernel-metadata.json` names the `.py`
+as `code_file` (`kernel_type: script`). The standard, the S1 design and
+`check_kaggle_mirrors.py` all said the notebook is always the record. Pulling the
+kernel source from Kaggle shows the file that actually ran is commit `151986b`,
+byte for byte; the repo copy has drifted 154 lines since — through
+`45ef2b7` and `e227ef4` in June, then S0's lint sweep (`208d2dd`, `34f2559`).
+So S0 edited A4's run record, against the rule S1 later wrote down. A4 was
+cancelled and has no published figure, so nothing reported is affected.
+Restoring the file was **not** done: the June edits may have been preparation
+for a re-run, which only the user can say. It is open decision O-2.
+
+The standard now says the record is whichever file `code_file` names, and the
+mirror checker reads the metadata and labels each run's authoritative side.
+
+**Decision log added** (`9c698f8`, `docs/10_decisions.md`): open decisions with
+owners first, then eleven accepted decisions, each with what it ruled out and a
+link to its evidence. This log stays the trail; the decision log is the index.
+
+**On the bot's quota.** The "usage limits" message is an account limit, not a
+repository fault, and cannot be fixed from here. Automatic review on every PR
+is what spends it — #11 consumed a review attempt on a log-only change. Whether
+to switch to on-demand review (`@codex review`) is open decision O-5.
+
+**Gates:** 331 tests pass (321 on `main` plus 10 new); ruff, both doc checks and `git diff --check` pass.
