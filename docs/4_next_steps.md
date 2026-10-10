@@ -235,7 +235,7 @@ After any completed ConvNeXt run directory (for example
 `results/accuracy_phase1/a3b_convnext_tiny_continued_224`), run:
 
 ```bash
-python3 kaggle/accuracy_phase1/recalibrate_decision_layer.py \
+python3 scripts/recalibrate_decision_layer.py \
   --results-dir results/accuracy_phase1/a3b_convnext_tiny_continued_224 \
   --split test
 ```
@@ -370,7 +370,7 @@ nohup python3 scripts/watch_kaggle_kernel_and_recalibrate.py \
   --split test \
   --interval-seconds 120 \
   --output-dir /tmp/kaggle_a4_check \
-  --recalibration-script kaggle/accuracy_phase1/recalibrate_decision_layer.py \
+  --recalibration-script scripts/recalibrate_decision_layer.py \
   > /tmp/kaggle_a4_pipeline.log 2>&1 &
 echo $! > /tmp/kaggle_a4_pipeline.pid
 ```
