@@ -9,9 +9,10 @@ The production gate is calibrated behavior, not raw top-1 alone:
 
 - strong top-5 behavior supports ranked suggestions;
 - stable calibration keeps post-decision confidence reliable;
-- current decision policy balances auto-accept/suggest/confirm/review safely;
-- ConvNeXt-Tiny is strong on accuracy but remains blocked from promotion until E2
-  recalibration and coverage/accuracy checks are completed.
+- the deployed decision policy is fitted on validation and measured once on
+  test (section 16 of `3_model_results.md`);
+- ConvNeXt-Tiny (A3b) is stronger on accuracy and its recalibration is complete;
+  promotion waits on an explicit decision about its looser calibration.
 
 The project now has a clear champion and a trustworthy evaluation layer.
 
@@ -28,17 +29,25 @@ The project now has a clear champion and a trustworthy evaluation layer.
 | A3b ConvNeXt-Tiny continued fine-tune | 95.78% test top-5 |
 | E1 expanded taxonomy baseline | 86.10% test top-1 across 130 classes |
 | E1 expanded taxonomy baseline | 96.88% test top-5 across 130 classes |
-| Decision layer | 58.02% auto-accept coverage at 96.47% top-1 |
+| Decision layer (deployed) | 61.20% auto-accept coverage at 94.58% top-1 on test, fitted on validation |
 
-The current production reference remains **ResNet50 FT-V2** because its
-calibrated decision layer is stronger. A3b ConvNeXt-Tiny is now the accuracy
-leader, but it needs decision-layer recalibration before product promotion.
+The product champion is **ResNet50 FT-V2**, serving the corrected decision
+policy deployed in October 2026 (auto 0.70, suggest 0.35, margin 0.05; 11 hard
+classes and 40 confusion pairs fitted on validation). Section 16 of
+[`3_model_results.md`](3_model_results.md) holds the measured figures.
+
+A3b ConvNeXt-Tiny's decision-layer recalibration is **complete**: it was put
+through the same symmetric pipeline as the champion and the comparison was
+accepted as evidence. A3b leads on every measured figure except review-band
+top-5 containment and calibration (test ECE 0.0556 against 0.0265). Promotion
+is now a product decision about that accuracy-versus-calibration trade, not a
+missing-evidence block, and has not been made.
 
 The active model-improvement direction is now:
 
-> Keep ResNet50 FT-V2 as the product baseline, continue the ConvNeXt-Tiny
-> accuracy phase, recalibrate the decision layer before promotion, and improve
-> the expanded 130-class classifier with controlled fine-tuning.
+> Keep ResNet50 FT-V2 as the product champion, decide the A3b
+> accuracy-versus-calibration trade explicitly, and improve the expanded
+> 130-class classifier with controlled fine-tuning.
 
 The detailed execution plan is maintained in
 [`7_accuracy_improvement_plan.md`](7_accuracy_improvement_plan.md).
@@ -201,14 +210,19 @@ Expected outputs:
 
 ## 6. Next After Decision-Layer Work
 
-Notebook 5 has produced the selected decision thresholds and band metrics:
+Notebook 5 produced the first decision thresholds and band metrics. Those
+figures (58.02% auto-accept at 96.47% top-1) are **withdrawn**: the method used
+the true label during routing and selected thresholds on the test set. The
+deployed policy, refitted on validation and scored once on test, gives:
 
 | Decision band | Coverage | Key signal |
 | --- | ---: | --- |
-| Auto-accept | 58.02% | 96.47% top-1 accuracy |
-| Suggest | 20.78% | 100.00% top-5 containment |
-| Confirm | 18.99% | low top-1 accuracy, user input needed |
-| Review | 2.21% | known hard-confusion cases |
+| Auto-accept | 61.20% | 94.58% top-1 accuracy |
+| Suggest | 23.38% | 89.24% top-5 containment |
+| Confirm | 12.88% | 35.28% top-1, user input needed |
+| Review | 2.54% | known hard-confusion cases |
+
+See section 16 of [`3_model_results.md`](3_model_results.md) for provenance.
 
 Notebook 6 now implements the final demo workflow and exports:
 
@@ -235,19 +249,91 @@ After any completed ConvNeXt run directory (for example
 `results/accuracy_phase1/a3b_convnext_tiny_continued_224`), run:
 
 ```bash
-python3 kaggle/accuracy_phase1/recalibrate_decision_layer.py \
+pip install -r requirements-analysis.txt
+python3 scripts/recalibrate_decision_layer.py \
   --results-dir results/accuracy_phase1/a3b_convnext_tiny_continued_224 \
-  --split test
+  --fit-split val \
+  --eval-split test
 ```
+
+**Selecting thresholds on the same split they are reported on leaks that
+split's labels into policy selection**, producing optimistic band metrics --
+this is why `--fit-split`/`--eval-split` exist instead of a single `--split`.
+The threshold grid search, hard classes and confusion pairs are derived from
+`--fit-split` (default `val`) alone; the frozen policy is then evaluated
+exactly once on `--eval-split` (default `test`), and both splits' band
+metrics are written (`decision_band_metrics_fit.csv` and
+`decision_band_metrics_eval.csv`) so the gap between them is visible. The
+older single-split `--split test` form still works as a deprecated alias for
+"fit and evaluate on the same split" and prints a warning explaining the
+leak; it is not removed because runbook commands already use it, but new
+usage should prefer `--fit-split`/`--eval-split`.
+
+If `val_predictions.csv` and `test_predictions.csv` don't share the same
+predictions-CSV contract (see below) -- e.g. one was re-scored and the other
+wasn't -- point each split at its own file with `--fit-predictions-file`/
+`--eval-predictions-file`, which override the `<split>_predictions.csv`
+convention independently per split while `--results-dir` still supplies the
+other artifacts:
+
+```bash
+python3 scripts/recalibrate_decision_layer.py \
+  --results-dir results/accuracy_phase1/a3b_convnext_tiny_continued_224 \
+  --fit-split val \
+  --eval-split test \
+  --fit-predictions-file results/accuracy_phase1/a3b_convnext_tiny_continued_224/val_predictions_rescored.csv \
+  --eval-predictions-file results/accuracy_phase1/a3b_convnext_tiny_continued_224/test_predictions_rescored.csv
+```
+
+Hard classes and confusion pairs are always derived from the fit-split
+predictions unless an override is named (`--hard-classes-file`,
+`--class-report-file`, `--confusion-pairs-file`). A `val_confusion_pairs.csv`
+or `val_class_report.csv` sitting in `--results-dir` is reported as present
+and ignored. Each run writes `derivation_provenance.json` to its output
+directory; before comparing two models' band metrics, check that their
+derivations are compatible:
+
+```bash
+python3 scripts/compare_provenance.py RUN_A/derivation_provenance.json RUN_B/derivation_provenance.json
+```
+
+#### Required `*_predictions.csv` schema
+
+`recalibrate_decision_layer.py` validates this schema up front and fails
+before doing any analysis work if it is not met. The `<split>_predictions.csv`
+in `--results-dir` must contain:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `path` | string | image path (not read by recalibration, but expected by convention) |
+| `true_label` (or `actual`/`actual_label`/`label`) | string | ground-truth class name |
+| `pred_label` (or `predicted`/`predicted_label`/`prediction`/`class_name`/`predicted_class`) | string | model's top-1 predicted class name |
+| `confidence` | float | top-1 confidence (not read directly; `top_5_confidence` supplies `top_1_confidence`) |
+| `is_correct` | bool | `pred_label == true_label`; derived automatically if the column is absent but the label columns are present |
+| `top_5` | string | the top-5 predicted class names, **pipe-separated (`\|`)**, ranked most to least confident |
+| `top_5_confidence` | string | the top-5 per-class confidences, **pipe-separated (`\|`)**, in the same rank order as `top_5` (`top_5[i]` and `top_5_confidence[i]` must refer to the same class) |
+
+`top_1_confidence`, `top_2_confidence`, and the `top_1_top_2_margin` the
+decision policy depends on are all derived from `top_5_confidence`; without
+it, recalibration cannot proceed.
+
+**The A1, A3, A3b and A4 accuracy-phase runs predate this contract.** Their
+`test_predictions.csv`/`val_predictions.csv` files emit `top_5` as labels only,
+with no `top_5_confidence` column, because the training scripts that produced
+them never recorded per-class confidences for the runner-up classes.
+Recalibrating any of those runs requires regenerating their predictions with
+per-class top-5 confidences first; the notebooks that already compute this
+from raw logits (04, 05, archive/15) are the reference for how to do so.
 
 This generates:
 
-- `decision_policy.csv`
-- `decision_policy_search.csv`
-- `decision_policy.json`
+- `decision_policy.csv` / `decision_policy.json` (the single frozen policy,
+  labelled with which split it was fit on and which it was evaluated on)
+- `decision_policy_search.csv` (grid search results, from the fit split only)
+- `decision_band_metrics_fit.csv` / `decision_band_metrics_eval.csv`
 - `hard_classes.json`
 - `confusion_pairs.json`
-- per-band examples (`decision_examples_*.csv`)
+- per-band examples (`decision_examples_*.csv`, drawn from the eval split)
 - `decision_layer_artifacts.zip`
 
 Promote only if:
@@ -370,7 +456,7 @@ nohup python3 scripts/watch_kaggle_kernel_and_recalibrate.py \
   --split test \
   --interval-seconds 120 \
   --output-dir /tmp/kaggle_a4_check \
-  --recalibration-script kaggle/accuracy_phase1/recalibrate_decision_layer.py \
+  --recalibration-script scripts/recalibrate_decision_layer.py \
   > /tmp/kaggle_a4_pipeline.log 2>&1 &
 echo $! > /tmp/kaggle_a4_pipeline.pid
 ```

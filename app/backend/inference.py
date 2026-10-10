@@ -53,6 +53,7 @@ from .detector_policy import (
     should_export_detection,
 )
 from .imaging import build_crop_data_url, build_full_image_region, open_rgb_image
+from .policy_fingerprint import decision_layer_fingerprint
 from .schemas import (
     BoundingBox,
     DetectorRegion,
@@ -184,6 +185,36 @@ def detector_weights_path() -> str:
     return DETECTOR_WEIGHTS
 
 
+def decision_layer_status() -> dict[str, Any]:
+    """Describe the decision layer this process routes with, without loading a model.
+
+    Once ``load_runtime()`` has run, the policy, hard classes and confusion pairs
+    are cached in ``_RUNTIME`` and later edits to the artifact files are not
+    seen until the process restarts, so the cached values are reported. Before
+    that, the values the artifact files would load are reported instead.
+    """
+    if _RUNTIME is not None:
+        source = "loaded_runtime"
+        policy = _RUNTIME["policy"]
+        hard_classes = _RUNTIME["hard_classes"]
+        confusion_pairs = _RUNTIME["confusion_pairs"]
+    else:
+        source = "artifact_files"
+        try:
+            policy = read_policy()
+            hard_classes = read_hard_classes()
+            confusion_pairs = read_confusion_pairs()
+        except Exception as exc:
+            return {"source": source, "error": f"{type(exc).__name__}: {exc}"}
+    return {
+        "source": source,
+        "policy": dict(policy),
+        "hard_class_count": len(hard_classes),
+        "confusion_pair_count": len(confusion_pairs),
+        "fingerprint": decision_layer_fingerprint(policy, hard_classes, confusion_pairs),
+    }
+
+
 def runtime_status() -> dict[str, Any]:
     """Return runtime readiness details for backend diagnostics."""
     resolved_artifact_dir = artifact_dir_path()
@@ -248,6 +279,7 @@ def runtime_status() -> dict[str, Any]:
                 else "fallback_demo"
             ),
         },
+        "decision_layer": decision_layer_status(),
     }
 
 

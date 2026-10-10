@@ -4,10 +4,7 @@ Calibrated food **image recognition**: Food-101 classifiers whose confidence is
 temperature-scaled and routed through a decision layer (auto-accept / suggest /
 confirm / review), plus a FastAPI + React workbench for multi-food analysis.
 
-Not to be confused with `1. Study/ai-meal-planner`, which is also a food-domain
-FastAPI + ML repo with notebooks and a frontend. That one plans meals from user
-profiles. This one recognises dishes in images and decides how much to trust the
-prediction. Neither shares code with the other.
+Not `1. Study/ai-meal-planner` (also food + FastAPI + ML, but plans meals).
 
 ## Standards
 
@@ -34,18 +31,22 @@ Project-specific rules and deliberate overrides: @docs/0_coding_standards.md
 
 ## Current state
 
-As of 2026-09-10: product champion is **ResNet50 FT-V2** (83.90% is A3b's
-number, not the champion's — see `docs/3_model_results.md`). **A3b
-ConvNeXt-Tiny is the accuracy leader but is blocked from promotion** pending
-decision-layer recalibration. Do not promote it without redoing calibration.
+As of 2026-10-10: champion **ResNet50 FT-V2** serves the corrected decision
+policy (§16 of `docs/3_model_results.md`). Deploy policies only with
+`scripts/deploy_decision_policy.py`, then restart the API, run `--verify-live`;
+copied run files fail silently. A3b recalibration is done (more accurate, ECE
+0.0556 vs 0.0265); promoting it is the user's call and has not been made.
 
 ## Open risks
 
 - `app/backend/inference.py` is 886 lines doing artifact loading, detection,
   classification, and response assembly. Decomposition is planned as S2 — don't
   bolt more onto it.
-- `kaggle/*/recalibrate_decision_layer.py` exists as three byte-identical copies,
-  and the four training scripts are near-duplicates — 46 to 282 changed lines
-  between any pair of files that are each about 700 lines long. Fixing this is S1.
+- **S1 resolved the triplicated recalibration CLI**: one copy now, at
+  `scripts/recalibrate_decision_layer.py`. The four training scripts stay
+  duplicated by design — immutable run records, and Kaggle needs
+  self-contained notebooks — see `docs/0_coding_standards.md`. Their `.py`
+  mirrors sit at 97.8-98.1% of their notebooks; reconciling or removing them
+  is still an open decision.
 - `yolo11n.pt` (5.6 MB, repo root) is gitignored and required at runtime for
   live detection. A fresh clone will not have it — see `app/backend/README.md`.
