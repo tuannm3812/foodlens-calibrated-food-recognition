@@ -1,7 +1,9 @@
 """``--verify-live``: prove a running API serves the target's model, routing and calibration.
 
 Reads the target through ``identity`` and the deployment record through
-``records``; it imports no write operation (``policy``, ``promote``,
+``records.normalise_record`` -- so a record written before the schema is read
+with its stated limits, never filled from today's files; it imports no write
+operation (``policy``, ``promote``,
 ``restore``, ``install``), so verifying can never change a target.
 """
 
@@ -20,7 +22,7 @@ from typing import Any
 from . import identity
 from .errors import DeployError
 from .paths import DEPLOYED_FILES, PROVENANCE_FILE, display, read_json, sha256
-from .records import recorded_model_identity
+from .records import CALIBRATION_FILES, normalise_record
 
 # What --verify-live checks, each reported on its own.
 CHECK_NAMES = ("model", "routing", "calibration")
@@ -139,8 +141,12 @@ def live_calibration_problems(
     return problems
 
 
+# The record's hash maps compared with the target, in the order they are read.
+RECORDED_HASH_KEYS = ("deployed_files_sha256", "served_model_files_sha256")
+
+
 def recorded_drift(
-    provenance: Mapping[str, Any],
+    record: Mapping[str, Any],
     target: Path,
     files_fingerprint: str,
     expected_model: Mapping[str, str],
@@ -148,21 +154,25 @@ def recorded_drift(
 ) -> dict[str, list[str]]:
     """Each way the target's files changed after the deployment record was written.
 
+    Args:
+        record: The deployment record as ``records.normalise_record`` reads it.
+
     Returns:
-        Problems by check (``model``, ``routing``, ``calibration``); a record
-        that predates a field is not held against the target.
+        Problems by check (``model``, ``routing``, ``calibration``); a field
+        the record never captured (one of its ``limits``) is not held against
+        the target.
     """
     redeploy = "it changed after deployment. Redeploy before verifying the service."
     drift: dict[str, list[str]] = {name: [] for name in CHECK_NAMES}
-    recorded = provenance.get("decision_layer_fingerprint")
+    recorded = record.get("decision_layer_fingerprint")
     if recorded is not None and recorded != files_fingerprint:
         drift["routing"].append(
             f"The target files (fingerprint {files_fingerprint}) no longer match "
             f"{PROVENANCE_FILE} (fingerprint {recorded}); they changed after deployment. "
             "Redeploy before verifying the service."
         )
-    recorded_model = recorded_model_identity(provenance)
-    if recorded_model is not None:
+    recorded_model = record.get("model")
+    if isinstance(recorded_model, Mapping):
         for key in ("checkpoint_sha256", "architecture", "checkpoint"):
             recorded_value = recorded_model.get(key)
             if recorded_value is not None and recorded_value != expected_model[key]:
@@ -170,8 +180,9 @@ def recorded_drift(
                     f"The target's {key} ({expected_model[key]}) no longer matches "
                     f"{PROVENANCE_FILE} ({recorded_value}); " + redeploy
                 )
-    for key in ("deployed_files_sha256", "served_model_files_sha256"):
-        hashes = provenance.get(key)
+    compared: set[str] = set()
+    for key in RECORDED_HASH_KEYS:
+        hashes = record.get(key)
         if not isinstance(hashes, dict):
             continue
         for name, recorded_hash in hashes.items():
@@ -184,21 +195,31 @@ def recorded_drift(
                 )
                 if problem not in drift["model"]:
                     drift["model"].append(problem)
-        for name in ("calibration.json", "class_names.json"):
-            if name in hashes and hashes[name] != sha256(target / name):
-                drift["calibration"].append(
-                    f"The target's {name} (sha256 {sha256(target / name)}) no longer matches "
-                    f"{PROVENANCE_FILE}'s {key} (sha256 {hashes[name]}); " + redeploy
-                )
-    temperatures = [provenance.get("calibration_temperature")]
-    if isinstance(provenance.get("served_model"), dict):
-        temperatures.append(provenance["served_model"].get("temperature"))
-    for value in temperatures:
-        if value is not None and value != expected_calibration["temperature"]:
+        for name in CALIBRATION_FILES:
+            if name in hashes:
+                compared.add(name)
+                if hashes[name] != sha256(target / name):
+                    drift["calibration"].append(
+                        f"The target's {name} (sha256 {sha256(target / name)}) no longer "
+                        f"matches {PROVENANCE_FILE}'s {key} (sha256 {hashes[name]}); " + redeploy
+                    )
+    calibration = record.get("calibration")
+    calibration = calibration if isinstance(calibration, Mapping) else {}
+    files = calibration.get("files_sha256")
+    for name, recorded_hash in (files if isinstance(files, Mapping) else {}).items():
+        # A restore records the calibration it leaves in place only here.
+        if name not in compared and recorded_hash != sha256(target / name):
             drift["calibration"].append(
-                f"The target's temperature {expected_calibration['temperature']!r} differs from "
-                f"the {value!r} {PROVENANCE_FILE} recorded; " + redeploy
+                f"The target's {name} (sha256 {sha256(target / name)}) no longer matches "
+                f"{PROVENANCE_FILE}'s calibration.files_sha256 (sha256 {recorded_hash}); "
+                + redeploy
             )
+    temperature = calibration.get("temperature")
+    if temperature is not None and temperature != expected_calibration["temperature"]:
+        drift["calibration"].append(
+            f"The target's temperature {expected_calibration['temperature']!r} differs from "
+            f"the {temperature!r} {PROVENANCE_FILE} recorded; " + redeploy
+        )
     drift["calibration"] = list(dict.fromkeys(drift["calibration"]))
     return drift
 
@@ -220,10 +241,13 @@ def verification_failure(
 def verify_live(url: str, target: Path, fetch: Fetch = http_fetch) -> dict[str, Any]:
     """Prove that a running API process serves the target's model, routing and calibration.
 
-    1. Check the target's files against ``deployment_provenance.json``, when it
-       records them: the decision-layer fingerprint, the checkpoint hash, and
-       the hashes of ``calibration.json`` and ``class_names.json`` (and the
-       recorded temperature), so files edited after deployment are caught.
+    1. Check the target's files against ``deployment_provenance.json``, read
+       through ``records.normalise_record``, where it records them: the
+       decision-layer fingerprint, the checkpoint hash, and the hashes of
+       ``calibration.json`` and ``class_names.json`` (and the recorded
+       temperature), so files edited after deployment are caught. A record
+       written before the schema is checked on what it captured; the result's
+       ``deployment_record.limits`` names what it did not.
     2. POST a synthetic image to ``/predict/image`` so a freshly restarted
        process loads its runtime; any ``fallback_reason`` fails the check,
        because a silent demo fallback is exactly the hazard being ruled out.
@@ -265,21 +289,25 @@ def verify_live(url: str, target: Path, fetch: Fetch = http_fetch) -> dict[str, 
 
     result: dict[str, Any] = {"url": base, "target": display(target)}
     provenance_path = target / PROVENANCE_FILE
-    provenance: dict[str, Any] = {}
+    provenance: Any = None
     if provenance_path.exists():
         provenance = read_json(provenance_path)
         if not isinstance(provenance, dict):
             raise DeployError(f"{provenance_path} must hold a provenance object.")
-    drift = recorded_drift(
-        provenance, target, files_fingerprint, expected_model, expected_calibration
-    )
+    record = normalise_record(provenance)
+    result["deployment_record"] = {
+        "operation": record.get("operation"),
+        "historical": record["historical"],
+        "limits": record["limits"],
+    }
+    drift = recorded_drift(record, target, files_fingerprint, expected_model, expected_calibration)
     if any(drift.values()):
         raise verification_failure(
             drift,
             "the target's files changed after deployment; the service was not probed",
             passed="target files match the deployment record",
         )
-    if provenance.get("decision_layer_fingerprint") is None:
+    if record.get("decision_layer_fingerprint") is None:
         result["provenance_check"] = (
             f"{PROVENANCE_FILE} records no decision_layer_fingerprint (deployments before "
             "2026-10-10 did not); compared against the target files alone."

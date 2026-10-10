@@ -13,6 +13,11 @@ fields each operation adds are declared below as data (``COMMON_FIELDS``,
 pass. ``validate_record`` applies them, at two stages: the ``base`` record
 before any backup is made, and the ``final`` record, which names its backup,
 before any target file is replaced.
+
+**Readers use the normalised form.** ``normalise_record`` returns a record in
+the schema's shape whatever wrote it: a current record exactly as validated, or
+a record written before the schema mapped from its own fields, with explicit
+``limits`` for what it never captured. It never fills a gap from the target.
 """
 
 from __future__ import annotations
@@ -496,16 +501,134 @@ def finalised_record(
     return validate_record(add_backup(record, backup, prior), "final")
 
 
-def recorded_model_identity(provenance: Mapping[str, Any]) -> dict[str, Any] | None:
-    """The model identity a deployment record says was deployed, or None.
+# --- Reading records: strict for the schema, normalised for history ------------
 
-    Promotion, restore and (from 2026-10-11) policy-only records carry it under
-    ``model``. Policy-only records written before then carry it only under
-    ``served_model``; read that as a fallback so those records are still
-    checked rather than silently skipped.
+# Where a record written before the schema (no schema_version) kept data the
+# schema now names, as key paths into that record, tried in order. Only the
+# record's own values are read: a field it never captured stays absent and is
+# listed in the normalised record's "limits", never filled from today's files.
+HISTORICAL_SOURCES: Mapping[str, tuple[tuple[str, ...], ...]] = {
+    # Promotion, restore and (from 2026-10-11) policy-only records wrote
+    # "model"; policy-only records from 2026-10-10 wrote only "served_model".
+    "model": (("model",), ("served_model",)),
+    "calibration.temperature": (("calibration_temperature",), ("served_model", "temperature")),
+    # Per file: promotion and restore hashed what they installed, policy-only
+    # deploys hashed the served model's files they left in place.
+    "calibration.files_sha256": (("deployed_files_sha256",), ("served_model_files_sha256",)),
+}
+# Before the discriminator, promotion and restore records already named their
+# operation; only policy-only deploys wrote "untouched".
+POLICY_ONLY_MARKER = "untouched"
+
+
+def _at(record: Mapping[str, Any], path: tuple[str, ...]) -> Any:
+    value: Any = record
+    for key in path:
+        value = value.get(key) if isinstance(value, Mapping) else None
+    return value
+
+
+def _normalise_historical(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Map a pre-schema record into the schema's shape, listing what it lacks."""
+    normalised = dict(record)
+    read_from: dict[str, str] = {}
+    limits: list[str] = []
+
+    operation = record.get("operation")
+    if operation is None and POLICY_ONLY_MARKER in record:
+        operation = "policy_deploy"
+        read_from["operation"] = (
+            f"inferred from '{POLICY_ONLY_MARKER}', which only policy-only deploys wrote"
+        )
+    normalised["operation"] = operation
+    if operation is None:
+        limits.append("no operation recorded")
+
+    normalised.pop("model", None)
+    for path in HISTORICAL_SOURCES["model"]:
+        identity = _at(record, path)
+        if isinstance(identity, Mapping) and identity.get("checkpoint_sha256"):
+            normalised["model"] = {k: identity[k] for k in RECORDED_MODEL_KEYS if k in identity}
+            if path != ("model",):
+                read_from["model"] = ".".join(path)
+            break
+    else:
+        if "model" in record or "served_model" in record:
+            limits.append("model recorded without a checkpoint_sha256; not used")
+
+    calibration: dict[str, Any] = {}
+    for path in HISTORICAL_SOURCES["calibration.temperature"]:
+        temperature = _at(record, path)
+        if temperature is not None:
+            calibration["temperature"] = temperature
+            read_from["calibration.temperature"] = ".".join(path)
+            break
+    files: dict[str, Any] = {}
+    for name in CALIBRATION_FILES:
+        for path in HISTORICAL_SOURCES["calibration.files_sha256"]:
+            hashes = _at(record, path)
+            if isinstance(hashes, Mapping) and name in hashes:
+                files[name] = hashes[name]
+                read_from[f"calibration.files_sha256.{name}"] = ".".join(path)
+                break
+    if files:
+        calibration["files_sha256"] = files
+    if calibration:
+        calibration.setdefault("files_sha256", {})
+        normalised["calibration"] = calibration
+    else:
+        normalised.pop("calibration", None)
+
+    # Everything else the schema asks for, judged as the final record of the
+    # inferred operation; schema_version and operation are accounted for above.
+    probe = {**normalised, "schema_version": SCHEMA_VERSION}
+    for path, problem in schema_problems(probe, "final"):
+        if path in ("schema_version", "operation"):
+            continue
+        if problem is None:
+            limits.append(f"no {path} recorded")
+        else:
+            limits.append(f"{path} as recorded is unusable: {problem}")
+    normalised.update({"historical": True, "read_from": read_from, "limits": limits})
+    return normalised
+
+
+def normalise_record(record: Any) -> dict[str, Any]:
+    """The reader's view of a deployment record, whatever wrote it.
+
+    - A record with ``schema_version`` must match the schema exactly, as the
+      final record its operation validated before writing it.
+    - A record without one predates the schema. It is mapped into the schema's
+      shape from the record's own fields (``HISTORICAL_SOURCES``), and
+      ``limits`` names every field it never captured, or captured unusably.
+      Nothing is invented: an absent field stays absent.
+    - ``None`` -- no record at all, as before deployment records existed --
+      normalises to a record that holds only its limits.
+
+    Every normalised record carries ``historical``, ``read_from`` (which old
+    field each mapped value came from) and ``limits``.
+
+    Raises:
+        DeployError: If the record is not an object, declares a schema version
+            this code does not know, or declares this one but does not match it.
     """
-    for key in ("model", "served_model"):
-        identity = provenance.get(key)
-        if isinstance(identity, dict) and identity.get("checkpoint_sha256"):
-            return identity
-    return None
+    if record is None:
+        normalised = _normalise_historical({})
+        normalised["limits"].insert(0, f"no {PROVENANCE_FILE}: nothing was recorded")
+        return normalised
+    if not isinstance(record, Mapping):
+        raise DeployError(f"{PROVENANCE_FILE} must hold an object, not {type(record).__name__}.")
+    if "schema_version" not in record:
+        return _normalise_historical(record)
+    if record["schema_version"] != SCHEMA_VERSION or isinstance(record["schema_version"], bool):
+        raise DeployError(
+            f"{PROVENANCE_FILE} declares schema_version {record['schema_version']!r}; this code "
+            f"reads schema {SCHEMA_VERSION} and records written before it."
+        )
+    problems = schema_problems(record, "final")
+    if problems:
+        raise DeployError(
+            f"{PROVENANCE_FILE} declares schema {SCHEMA_VERSION} but does not match it "
+            f"({describe(problems)}); it changed after it was written. Redeploy."
+        )
+    return {**record, "historical": False, "read_from": {}, "limits": []}

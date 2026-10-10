@@ -786,6 +786,12 @@ def assert_schema_valid(target: Path, operation: str) -> dict:
     assert written["schema_version"] == records.SCHEMA_VERSION
     assert written["operation"] == operation
     records.validate_record(written, "final")
+    # Round trip: the reader takes a current record as written, with no limits.
+    read = records.normalise_record(written)
+    assert read["historical"] is False and read["limits"] == []
+    assert {k: v for k, v in read.items() if k not in ("historical", "read_from", "limits")} == (
+        written
+    )
     return written
 
 
@@ -976,3 +982,152 @@ def test_a_refused_record_is_a_handled_cli_error(runs, target, monkeypatch, caps
     assert reached == [True]
     assert "model: missing" in capsys.readouterr().err
     assert tree(target) == before
+
+
+# --- --verify-live on records written before the schema --------------------------
+#
+# The real app/artifacts record is the 2026-10-10 promotion's, written before
+# schema_version; its backup holds the 2026-10-09 policy-only record. These
+# tests give a consistent tmp target the same record shapes (the key sets of the
+# copies in tests/fixtures/deployment_records/), so --verify-live exercises the
+# normalisation path: it passes on a consistent target and still fails on drift.
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "deployment_records"
+
+
+def fixture_keys(name: str) -> set[str]:
+    return set(json.loads((FIXTURES / name).read_text()))
+
+
+def as_2026_10_10_promotion(target: Path) -> dict:
+    """Rewrite the target's promotion record in the shape the real one has."""
+    record = written_record(target)
+    for key in ("schema_version", "calibration", "policy_evidence"):
+        del record[key]
+    del record["checks"]["policy_evidence_matches_model"]
+    assert set(record) == fixture_keys("2026-10-10_model_promotion.json")
+    write_json(target / "deployment_provenance.json", record)
+    return record
+
+
+def as_2026_10_09_policy_only(target: Path) -> dict:
+    """Rewrite the target's policy-only record in the shape the real 2026-10-09 one has."""
+    keys = fixture_keys("2026-10-09_policy_only.json")
+    record = {k: v for k, v in written_record(target).items() if k in keys}
+    record["backend_verified"] = True
+    assert set(record) == keys
+    write_json(target / "deployment_provenance.json", record)
+    return record
+
+
+def verified(target: Path, capsys) -> dict:
+    capsys.readouterr()
+    assert verify(target, service(target, loaded(target))) == 0
+    return json.loads(capsys.readouterr().out)
+
+
+def test_verify_live_passes_on_a_consistent_target_with_a_2026_10_10_record(
+    runs, target, capsys
+):
+    promote(runs, target)
+    as_2026_10_10_promotion(target)
+    result = verified(target, capsys)
+    assert result["deployment_record"] == {
+        "operation": "model_promotion",
+        "historical": True,
+        "limits": [
+            "no policy_evidence recorded",
+            "no checks.policy_evidence_matches_model recorded",
+        ],
+    }
+    assert result["provenance_check"] == "target files match deployment_provenance.json"
+
+
+def test_verify_live_on_a_2026_10_10_record_still_catches_calibration_drift(
+    runs, target, capsys
+):
+    promote(runs, target)
+    as_2026_10_10_promotion(target)
+    write_json(target / "calibration.json", {"temperature": 2.0})
+    capsys.readouterr()
+    fetch, calls = counting(service(target, loaded(target)))
+    assert verify(target, fetch) == 1
+    err = capsys.readouterr().err
+    assert "calibration: FAILED" in err and "changed after deployment" in err
+    assert calls == []
+
+
+def test_verify_live_on_a_2026_10_10_record_still_catches_a_checkpoint_swap(
+    runs, target, capsys
+):
+    promote(runs, target)
+    as_2026_10_10_promotion(target)
+    torch.save(different_weights("convnext_tiny"), target / "a3b_best.pth")
+    assert_model_drift_caught_before_probing(target, capsys)
+
+
+def test_verify_live_passes_on_a_consistent_target_with_a_2026_10_09_record(
+    runs, target, capsys
+):
+    write_json(target / "calibration.json", {"temperature": 0.884})
+    deploy_mod.deploy(runs["champion_policy"], target, dry_run=False)
+    as_2026_10_09_policy_only(target)
+    result = verified(target, capsys)
+    assert result["deployment_record"]["operation"] == "policy_deploy"
+    assert "no model recorded" in result["deployment_record"]["limits"]
+    assert "no decision_layer_fingerprint recorded" in result["deployment_record"]["limits"]
+    assert "compared against the target files alone" in result["provenance_check"]
+
+
+def test_verify_live_on_a_2026_10_09_record_still_fails_a_stale_service(runs, target, capsys):
+    # The record captured no fingerprint or model, so the live comparison is
+    # what catches a service still routing with the pre-deploy layer.
+    write_json(target / "calibration.json", {"temperature": 0.884})
+    stale = identity.read_through_backend(target)[3]
+    deploy_mod.deploy(runs["champion_policy"], target, dry_run=False)
+    as_2026_10_09_policy_only(target)
+    capsys.readouterr()
+
+    def stale_routing(method, url, body, headers):
+        response = service(target, loaded(target))(method, url, body, headers)
+        if url.endswith("/runtime/status"):
+            response["decision_layer"]["fingerprint"] = stale
+        return response
+
+    assert verify(target, stale_routing) == 1
+    err = capsys.readouterr().err
+    assert "routing: FAILED" in err and stale in err
+
+
+def test_verify_live_on_a_served_model_only_record_still_catches_a_checkpoint_swap(
+    runs, target, capsys
+):
+    promote(runs, target)
+    deploy_mod.deploy(runs["a3b_policy"], target, dry_run=False)
+    record = written_record(target)
+    for key in ("schema_version", "operation", "model", "calibration"):
+        del record[key]
+    write_json(target / "deployment_provenance.json", record)
+    assert verified(target, capsys)["deployment_record"]["limits"] == []
+    torch.save(different_weights("convnext_tiny"), target / "a3b_best.pth")
+    assert_model_drift_caught_before_probing(target, capsys)
+
+
+def test_verify_live_with_no_record_at_all_states_that_limit(runs, target, capsys):
+    (target / "deployment_provenance.json").unlink()
+    result = verified(target, capsys)
+    assert result["deployment_record"]["limits"][0] == (
+        "no deployment_provenance.json: nothing was recorded"
+    )
+
+
+def test_verify_live_refuses_a_current_record_edited_after_writing(runs, target, capsys):
+    promote(runs, target)
+    record = written_record(target)
+    del record["model"]
+    write_json(target / "deployment_provenance.json", record)
+    capsys.readouterr()
+    fetch, calls = counting(service(target, loaded(target)))
+    assert verify(target, fetch) == 1
+    assert "model: missing" in capsys.readouterr().err
+    assert calls == []
