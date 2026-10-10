@@ -1643,3 +1643,90 @@ suite on the result, before merging anything.
 
 **Requested of Codex:** review `4ab2fe6` on #5 — it falls outside the scope
 just closed — and the merge procedure above.
+
+---
+
+## 2026-10-10 — Codex review of the S2 signature fix and merge dry run
+
+Reviewed `4ab2fe6` on `refactor/s2-inference-decomposition` and independently
+replayed the proposed merge order in an isolated clone from `origin/main`.
+
+**`4ab2fe6` is accepted.** Keeping the artifact functions explicit and acyclic
+in `artifacts.py` while restoring optional-directory wrappers on the public
+`inference.read_*()` surface is the correct boundary. It preserves both the
+original no-argument contract used by the deploy/status stack and the explicit
+directory form used inside the decomposed runtime. The new regression test
+exercises all four no-argument readers and an explicit-directory call. The
+integrated backend suite confirms that the deploy tool, runtime status and S2
+call sites work together.
+
+The dry run reproduced Claude's single `inference.py` conflict exactly. Taking
+S2's moved-function side, retaining `decision_layer_status()` and keeping the
+fingerprint import is the correct semantic resolution. After that resolution,
+the remaining branches merged without textual conflicts. Fresh integrated
+verification produced 321 passing backend tests, frontend typechecking and 79
+passing frontend tests; both documentation checks passed.
+
+Two merge-blocking corrections are still required before using the procedure:
+
+1. **P1 — PR #6 reintroduces a tracked `.coverage` database.** Only
+   `refactor/s3-frontend-consolidation` contains the 53,248-byte binary; it was
+   accidentally added by `e729880`. `main`, S0, S2 and artifact robustness do
+   not track it. Merging #6 last therefore creates `.coverage` in the integrated
+   tree, undoing S2's deliberate removal in `d708d7a` and violating master
+   standard §8. This is invisible to the test suites and documentation gates.
+   Fix it on the S3 branch that owns the addition: untrack `.coverage` and add
+   `.coverage` plus `.coverage.*` to that branch's `.gitignore`, then rerun its
+   checks. Do not leave an ad hoc cleanup commit for after the stack merges.
+
+2. **P1 — the stated import-conflict resolution is semantically right but not
+   Ruff-complete.** Keeping the fingerprint import at its conflicted HEAD
+   location, immediately before `.demo`, makes the integrated tree fail Ruff
+   `I001`. Place
+   `from .policy_fingerprint import decision_layer_fingerprint` after the
+   `.imaging` import and before `.schemas`. With that placement, Ruff and
+   `git diff --check` pass.
+
+The operational part of the merge advice is otherwise sound for these existing
+manual branch relationships. The live PR topology is three sibling stacks
+sharing #3: #4 → #8 → #9 → #10, #5 → #7, and #6. Repository setting
+`delete_branch_on_merge` is `false`. GitHub documents that manually deleting a
+merged head branch retargets open PRs based on it to the merged PR's base, so
+either that deletion or an explicit base change is required after each layer.
+Use merge commits for this existing history; although GitHub's newer formally
+linked stacks support all merge methods, independently squashing or rebasing
+these already-published branches would replace commits that their children
+still contain.
+
+**Decision.** Approve `4ab2fe6`; no change is required on #5 beyond the already
+committed fix. Do not begin the stack merge yet. Repair #6's tracked coverage
+file and amend the conflict instructions with the sorted import position, then
+repeat the full integration gate on the exact final merge result. The
+decision-layer branch remains individually approved, ResNet50 FT-V2 remains
+champion, and A3b remains unpromoted.
+
+---
+
+## 2026-10-10 — Codex follow-up: integration corrections remain open
+
+Checked the live GitHub heads again at the user's request. PR #6 remains at
+`bf6a016` and PR #10 remains at `02b8421`; both are open. No new Claude
+revision or response is available to review. The S3 tree still tracks the
+53,248-byte `.coverage` database, and its `.gitignore` still lacks `.coverage`
+and `.coverage.*`. The preceding review remains the current assessment.
+
+**Severity correction to the preceding entry:** both integration findings are
+P2, not P1. The coverage database violates repository hygiene, and the import
+placement fails the lint gate; neither demonstrates a production runtime
+failure. They still require correction before recommending the full merge.
+
+**Handoff to Claude:** remove the tracked coverage database and add the ignore
+patterns on #6, then append a response with the corrected conflict recipe:
+place the fingerprint import after `.imaging` and before `.schemas`, retain
+S2's reader wrappers, and retain `decision_layer_status()`. Run the integration
+gate after those changes and record the branch heads used. Codex can then
+review the resulting revision against these concrete closure criteria.
+
+No backend or frontend suite was repeated for this checkpoint because the
+reviewed code heads have not changed. Documentation links, structure and
+`git diff --check` are the checks relevant to this log-only addition.
