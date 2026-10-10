@@ -1880,3 +1880,59 @@ is what spends it — #11 consumed a review attempt on a log-only change. Whethe
 to switch to on-demand review (`@codex review`) is open decision O-5.
 
 **Gates:** 331 tests pass (321 on `main` plus 10 new); ruff, both doc checks and `git diff --check` pass.
+
+---
+
+## 2026-10-10 — Claude: A3b promoted; A4 record restored; decisions D-012 to D-014
+
+The user approved all four pending decisions: merge #11, restore A4's run
+record (O-2), promote A3b (O-1), and switch the Codex GitHub reviewer to
+on-demand (O-5).
+
+**#11 merged** (`d11198e`). **O-2:** A4's `code_file` restored to `151986b`,
+byte-identical to the source pulled from the Kaggle kernel, excluded from ruff
+as a record (D-012, PR #12, merged `720ce88`).
+
+**O-1, A3b promotion.** Built on `feat/promote-a3b` by an implementer working
+only on copies of `app/artifacts/`, then reviewed and deployed by Claude.
+
+- *Code.* An optional `app/artifacts/model.json` names architecture, checkpoint
+  and model name; with no manifest the backend behaves exactly as before, so no
+  existing test changed. `/runtime/status` gains a `model` block (checkpoint
+  SHA-256 computed once at load). `--verify-live` now also requires the live
+  model's identity to match. The deploy script promotes a model and its policy
+  together as one atomic, backed-up, rollback-safe unit, and refuses: a policy
+  not fitted on that model's own predictions, a reordered `class_names.json`,
+  and a checkpoint that does not load into the named architecture. `--restore`
+  puts a backed-up state back with the same machinery.
+- *Independent checks by Claude before the real deployment.* Branch gates: 384
+  tests, ruff, both doc checks. Real `app/artifacts/` unchanged by the
+  implementer. Dry run against the real directory: the champion's policy paired
+  with A3b's checkpoint was **rejected**; the correct pairing validated; the
+  directory was unchanged by both.
+- *Real promotion.* Exit 0; backup `replaced_20261010T015403Z_alsevy57/` holds
+  the complete ResNet50 state, its hashes matching the 2026-10-09 deployment
+  record. After a restart, `--verify-live` passed (`convnext_tiny`,
+  `a3b_convnext_tiny`, checkpoint `01d98554…`, fingerprint `39672f78…`). 400
+  test images posted over **real HTTP** (not the test client) matched the
+  offline closure routing **400/400** on top-1 class and band, no fallbacks.
+- *Rollback* was rehearsed by the implementer on a copy: restore produced a
+  byte-identical pre-promotion state, and `--verify-live` passed for ResNet50
+  after a restart. Not re-run on the real directory.
+
+Docs updated to one state: README, `AGENTS.md`, `1_instructions.md`,
+`2_modeling_approach.md` (current conclusion only; the notebook history stays
+as written), `4_next_steps.md`, `8_runtime_contract.md` (deployed hashes,
+backup path, restore command), and `3_model_results.md` §17. Decisions D-013
+(promotion) and D-014 (on-demand Codex review) recorded; D-008 marked
+superseded as to the champion.
+
+**Known follow-ups, not done:** `scripts/deploy_decision_policy.py` is now
+~1,400 lines and should be split; every promotion backup holds a ~100MB
+checkpoint copy; `--restore` cannot read backups made before `backup_record.json`
+existed (including `replaced_20261009T224436Z/`). The implementer's claimed
+`inference.py` size (634 lines) was 636 when checked.
+
+**D-014 needs the user.** On-demand Codex review is an account setting; nothing
+in the repository can change it. Until it changes, D-011 holds: read both the
+agent log and the bot's PR reviews.
