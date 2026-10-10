@@ -25,7 +25,11 @@ target-version = "py311"
 # in an earlier cell) and F404 (late __future__ import); see
 # docs/0_coding_standards.md for the rationale. 197 of 257 findings came
 # from .ipynb files; excluding them leaves 60 real findings in Python sources.
-extend-exclude = ["*.ipynb"]
+#
+# A4's script is excluded too: it is a run record (its kernel-metadata.json names
+# it as code_file) restored byte-for-byte to the source Kaggle executed. Linting
+# it would mean editing a record of what ran, which decision D-003 rules out.
+extend-exclude = ["*.ipynb", "kaggle/accuracy_phase1_a4/foodlens_accuracy_phase1_a4.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]

@@ -45,8 +45,8 @@ copied run files fail silently. A3b recalibration is done (more accurate, ECE
 - **S1 resolved the triplicated recalibration CLI**: one copy now, at
   `scripts/recalibrate_decision_layer.py`. The four training scripts stay
   duplicated by design — immutable run records, and Kaggle needs
-  self-contained notebooks — see `docs/0_coding_standards.md`. Their `.py`
-  mirrors sit at 97.8-98.1% of their notebooks; reconciling or removing them
-  is still an open decision.
+  self-contained notebooks — see `docs/0_coding_standards.md`. A run's record
+  is its kernel `code_file` (A4: the `.py`); the other file is a drifting
+  mirror, and what to do with mirrors is open decision O-3.
 - `yolo11n.pt` (5.6 MB, repo root) is gitignored and required at runtime for
   live detection. A fresh clone will not have it — see `app/backend/README.md`.
