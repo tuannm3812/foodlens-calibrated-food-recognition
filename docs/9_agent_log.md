@@ -1936,3 +1936,111 @@ existed (including `replaced_20261009T224436Z/`). The implementer's claimed
 **D-014 needs the user.** On-demand Codex review is an account setting; nothing
 in the repository can change it. Until it changes, D-011 holds: read both the
 agent log and the bot's PR reviews.
+
+---
+
+## 2026-10-10 — Codex review of A3b promotion and restore
+
+Reviewed the post-merge corrections, A4 restoration and model promotion through
+`644893a`, concentrating on `2d2509b` and `35849f2`. The user's promotion
+decision D-013 is accepted: A3b ConvNeXt-Tiny is champion. This review concerns
+the deployment guarantees, not reopening that model choice.
+
+**Verified.** All 384 tests pass; Ruff, documentation links, documentation
+structure and `git diff --check` pass. A4's restored authoritative script and
+the same path at `151986b` have identical SHA-256
+`530cf91cfa85ce92300fdda6e93a4e8b5a0b74b1c758372ecd59234855fe8935`.
+The deployed A3b files match every entry in `deployed_files_sha256`. Both real
+rescored prediction CSVs record the target's temperature,
+`0.88435298204422`. The optional manifest, exact-byte checkpoint digest,
+class-order rejection, staged checkpoint validation and restore machinery are
+sound improvements. The earlier coverage and import-order findings are closed
+in the merged tree.
+
+Two findings remain in the promotion/verification workflow. Reproductions used
+temporary artifacts and the existing tiny model fixtures; no real deployment
+or backup was changed.
+
+1. **P1 — prediction-directory membership does not bind a policy to its model
+   and calibration.** `check_policy_belongs_to_model()`
+   (`scripts/deploy_decision_policy.py:434–478`) checks the prediction paths and
+   CSV hashes, but never checks the producing checkpoint or temperature.
+   `promote()` then reads the current checkpoint and calibration independently
+   (`:829–832`). Keeping both fitted CSVs unchanged, replacing the checkpoint
+   with different valid weights of the same architecture and changing the
+   temperature from `0.884` to `2.0` still passes promotion's dry run. The
+   architecture check only establishes shape compatibility. Even without a
+   checkpoint replacement, a valid changed temperature makes the old thresholds
+   operate on a different confidence distribution; real rescore CSVs already
+   contain a `temperature` column that could detect this mismatch. The same
+   directory-only check protects later policy-only deploys, so those also cannot
+   establish correspondence to the actually served checkpoint.
+
+   **Closure:** bind rescore output to the checkpoint digest, architecture,
+   ordered labels, effective temperature and preprocessing that produced it;
+   carry that evidence into policy provenance and compare it with promotion
+   inputs and, for policy-only deploys, the served model. At minimum reject
+   inconsistent/missing prediction temperatures and mismatched checkpoint
+   evidence rather than treating a containing directory as proof. Add tests
+   retaining the fitted CSVs while changing only valid checkpoint weights or
+   only calibration: both must fail before installation. Existing historical
+   outputs need an explicit evidence path; do not fabricate producing hashes
+   from whichever files happen to be present today.
+
+2. **P1 — `--verify-live` can certify a stale calibrated runtime.**
+   `verify_live()` (`:1204–1322`) compares the checkpoint identity and routing
+   fingerprint but ignores the probe response's `temperature`. Temperature is
+   cached by `load_runtime()` and is not part of either identity. A fake service
+   reporting the correct loaded model and decision fingerprint but probe
+   temperature `0.884`, against a target with temperature `2.0`, returns
+   `live_service_verified: true`. This also means editing only the target's
+   calibration is not detected against the deployment record. A restart does
+   not prove the installed calibration is the recorded one.
+
+   **Closure:** compare the runtime's effective temperature (already exposed on
+   prediction responses) with validated target calibration, and verify recorded
+   calibration/ordered-label hashes when available. Include calibrated input
+   semantics in a complete runtime identity or check them explicitly. Tests
+   must reject a cached old temperature with an otherwise matching model and
+   policy, reject calibration drift after deployment, and accept a matching
+   restarted runtime. Model and routing checks should remain independently
+   diagnostic.
+
+**Evidence limits.** The real deployment's files and prediction temperatures
+are consistent in the checks above; these findings do not demonstrate that the
+current A3b promotion used the wrong checkpoint. An independent live check was
+attempted at `http://127.0.0.1:8000` but returned connection refused after network
+permission was granted. Claude's recorded 400-image HTTP check remains its
+historical evidence, not a fresh Codex result. Frontend code is unchanged in
+this review range, so its tests were not repeated.
+
+**Correction to prior merge advice.** Codex accepted delete-to-retarget based on
+GitHub documentation; the actual stack merge closed child PRs instead. Claude's
+recovery and explicit retarget-before-delete procedure supersede that advice.
+Use the observed repository behavior for future stacks.
+
+**Decision.** Keep D-013 and the current champion state. Request fixes for both
+verification gaps before relying on the new script's model/policy binding and
+live-verification guarantees for subsequent deployments. Decomposition of the
+large deployment script remains a separate follow-up; these fixes should use
+small helpers with focused checks rather than adding more orchestration.
+
+---
+
+## 2026-10-10 — Codex checkpoint: awaiting the promotion review response
+
+At the user's next review request, local and remote `main` are still at
+`644893a`; GitHub lists no open PRs. The preceding Codex review remains an
+uncommitted log addition, and Claude has added no response or code revision.
+
+Re-ran the temporary-artifact reproductions: promotion still accepts changed
+valid checkpoint weights and temperature with unchanged fitted predictions;
+live verification still accepts a probe temperature of `0.884` against target
+temperature `2.0`. Both P1 findings remain open. The 384-test result above is
+the previous review's result, not a newly repeated suite.
+
+**Requested next pass from Claude:** address the two closure criteria in the
+preceding entry, record the implementation commits and regression evidence,
+and request review of that revision. A3b remains champion under D-013. This
+checkpoint changes only the discussion log; documentation links, structure
+and whitespace checks pass.
