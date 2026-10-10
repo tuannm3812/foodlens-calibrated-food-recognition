@@ -16,17 +16,23 @@ from pathlib import Path
 from typing import Any
 
 from .artifacts import (
+    MODEL_MANIFEST,
     REQUIRED_CLASSIFIER_ARTIFACTS,
     TEMPERATURE,
     artifact_file_status,
+    checkpoint_sha256,
     classifier_artifacts_ready,
+    classifier_checkpoint_name,
+    manifest_source,
+    model_status,
     read_json,
+    read_model_manifest,
 )
 from .artifacts import read_confusion_pairs as _read_confusion_pairs
 from .artifacts import read_hard_classes as _read_hard_classes
 from .artifacts import read_policy as _read_policy
 from .artifacts import read_temperature as _read_temperature
-from .classifier import build_predictions, make_classifier_head
+from .classifier import build_classifier_model, build_predictions, make_classifier_head
 from .decision import DEFAULT_HARD_CLASSES, DEFAULT_POLICY, build_decision
 from .demo import (
     MOCK_IMAGE_PREDICTIONS,
@@ -93,7 +99,9 @@ __all__ = [
     # Patching inference.MODEL_NAME or inference.MULTI_FOOD_POLICY reaches
     # only this module's own orchestration functions, not demo.py's mock and
     # fallback builders; patching inference.TEMPERATURE reaches nothing at
-    # all, since this module never reads its own imported copy.
+    # all, since this module never reads its own imported copy. Live
+    # responses report the loaded runtime's model_name (from model.json, or
+    # the legacy default); MODEL_NAME labels the demo/mock responses.
     # Anyone needing to patch any of the above must patch the owning module
     # (detection, imaging, demo, artifacts) directly, not inference.
     "REQUIRED_CLASSIFIER_ARTIFACTS",
@@ -254,7 +262,7 @@ def decision_layer_status() -> dict[str, Any]:
 def runtime_status() -> dict[str, Any]:
     """Return runtime readiness details for backend diagnostics."""
     resolved_artifact_dir = artifact_dir_path()
-    checkpoint_path = resolved_artifact_dir / "resnet50_ft_v2_best.pth"
+    checkpoint_name = classifier_checkpoint_name(resolved_artifact_dir)
     class_names_path = resolved_artifact_dir / "class_names.json"
     calibration_path = resolved_artifact_dir / "calibration.json"
     decision_policy_path = resolved_artifact_dir / "decision_policy.json"
@@ -279,7 +287,11 @@ def runtime_status() -> dict[str, Any]:
             "artifact_status": artifact_status(),
             "artifact_dir": str(resolved_artifact_dir),
             "artifacts": {
-                "checkpoint": artifact_file_status(checkpoint_path),
+                # None when model.json is invalid; the model block names the error.
+                "checkpoint": artifact_file_status(resolved_artifact_dir / checkpoint_name)
+                if checkpoint_name
+                else {"path": None, "exists": False, "size_bytes": 0},
+                "model_manifest": artifact_file_status(resolved_artifact_dir / MODEL_MANIFEST),
                 "class_names": artifact_file_status(class_names_path),
                 "calibration": artifact_file_status(calibration_path),
                 "decision_policy": artifact_file_status(decision_policy_path),
@@ -316,6 +328,7 @@ def runtime_status() -> dict[str, Any]:
             ),
         },
         "decision_layer": decision_layer_status(),
+        "model": model_status(_RUNTIME, resolved_artifact_dir),
     }
 
 
@@ -327,8 +340,8 @@ def load_runtime() -> dict[str, Any]:
 
     if artifact_status() != "ready":
         raise FileNotFoundError(
-            "Missing real inference artifacts. Expected resnet50_ft_v2_best.pth "
-            "and class_names.json under app/artifacts."
+            "Missing real inference artifacts. Expected the checkpoint model.json names "
+            "(resnet50_ft_v2_best.pth without one) and class_names.json under app/artifacts."
         )
 
     try:
@@ -343,16 +356,18 @@ def load_runtime() -> dict[str, Any]:
         ) from exc
 
     resolved_artifact_dir = artifact_dir_path()
+    # Raises ModelManifestError for a bad model.json: never a silent ResNet50.
+    manifest = read_model_manifest(resolved_artifact_dir)
     class_names = read_json(resolved_artifact_dir / "class_names.json", [])
     if len(class_names) != 101:
         raise ValueError("class_names.json must contain 101 ordered Food-101 class names.")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = models.resnet50(weights=None)
-    model.fc = make_classifier_head(nn, model.fc.in_features)
-    model.load_state_dict(
-        torch.load(resolved_artifact_dir / "resnet50_ft_v2_best.pth", map_location=device)
-    )
+    model = build_classifier_model(models, nn, manifest["architecture"])
+    # Hash the exact bytes loaded, once: /runtime/status reports this digest
+    # and never re-reads the checkpoint.
+    checkpoint_bytes = (resolved_artifact_dir / manifest["checkpoint"]).read_bytes()
+    model.load_state_dict(torch.load(BytesIO(checkpoint_bytes), map_location=device))
     model.to(device)
     model.eval()
 
@@ -372,6 +387,12 @@ def load_runtime() -> dict[str, Any]:
         "model": model,
         "transform": transform,
         "class_names": class_names,
+        "model_name": manifest["model_name"],
+        "model_identity": {
+            "manifest": manifest_source(resolved_artifact_dir),
+            **manifest,
+            "checkpoint_sha256": checkpoint_sha256(checkpoint_bytes),
+        },
         "temperature": read_temperature(resolved_artifact_dir),
         "policy": read_policy(resolved_artifact_dir),
         "hard_classes": read_hard_classes(resolved_artifact_dir),
@@ -496,7 +517,7 @@ def build_multi_food_response(
         )
 
     return MultiFoodPredictionResponse(
-        model=MODEL_NAME,
+        model=runtime.get("model_name", MODEL_NAME),
         temperature=runtime["temperature"],
         top_k=5,
         decision_thresholds={
@@ -578,7 +599,7 @@ def build_prediction_response(
     """Build a single-image prediction response from an RGB image."""
     predictions = classify_pil_image(image, runtime)
     return PredictionResponse(
-        model_name=MODEL_NAME,
+        model_name=runtime.get("model_name", MODEL_NAME),
         mode="image",
         temperature=runtime["temperature"],
         top_predictions=predictions,

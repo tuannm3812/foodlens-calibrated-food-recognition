@@ -53,8 +53,9 @@ def get_runtime_status() -> dict[str, object]:
 async def predict_image(file: UploadFile = File(...)) -> PredictionResponse:
     """Predict a food label from an uploaded image.
 
-    Uses the project ResNet50 FT-V2 artifacts when available. Falls back to a
-    deterministic mock when artifacts or runtime dependencies are missing.
+    Uses the model the artifacts name (model.json; ResNet50 FT-V2 without one)
+    when available. Falls back to a deterministic mock when artifacts or
+    runtime dependencies are missing.
     """
     image_bytes = await file.read()
     return predict_image_bytes(image_bytes)
