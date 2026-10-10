@@ -69,6 +69,14 @@ except ImportError as exc:  # pragma: no cover - exercised only outside the repo
         f"Original import error: {exc}"
     ) from exc
 
+# Producer evidence for re-scored predictions (scripts/prediction_evidence.py):
+# verified here and carried into derivation_provenance.json, so a deployed
+# policy traces to the checkpoint, class order and temperature it was fitted to.
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+import prediction_evidence  # noqa: E402
+
 # Columns `build_features()` reads off the predictions frame, after
 # `normalize_actual_col()` has already renamed the actual/predicted-label
 # aliases (true_label/actual_label/label -> "actual",
@@ -1143,7 +1151,10 @@ def score_split(
 PROVENANCE_FILE = "derivation_provenance.json"
 # 2: `generator` became `{path, sha256}` -- the hash binds a run to the exact
 # derivation code that produced it (2026-10-06 Codex review, finding 3).
-PROVENANCE_SCHEMA_VERSION = 2
+# 3: `predictions.fit`/`predictions.eval` carry `evidence` -- the verified
+# producer sidecar of each predictions CSV -- when the CSV has one (2026-10-10
+# Codex review of the A3b promotion, finding 1).
+PROVENANCE_SCHEMA_VERSION = 3
 # Repo-relative, so the recorded path compares equal across checkouts; the
 # sha256 beside it is what identifies the implementation.
 GENERATOR_PATH = "scripts/recalibrate_decision_layer.py"
@@ -1161,6 +1172,15 @@ def _file_record(path: Path) -> dict[str, str]:
     return {"path": str(path), "sha256": sha256_file(path)}
 
 
+def _predictions_record(
+    path: Path, evidence: dict[str, object] | None
+) -> dict[str, object]:
+    record: dict[str, object] = dict(_file_record(path))
+    if evidence is not None:
+        record["evidence"] = evidence
+    return record
+
+
 def build_provenance(
     *,
     fit_split: str,
@@ -1170,6 +1190,8 @@ def build_provenance(
     hard_class_source: dict[str, str],
     confusion_pair_source: dict[str, str],
     max_confusion_pairs: int,
+    fit_evidence: dict[str, object] | None = None,
+    eval_evidence: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Record every input and derivation setting that shapes the policy.
 
@@ -1181,6 +1203,11 @@ def build_provenance(
     matches except the model-specific `path`/`sha256` of the prediction files
     and override sources -- those differ between models by construction and
     are recorded for traceability, not for equality.
+
+    `fit_evidence`/`eval_evidence` are the verified producer sidecars from
+    `prediction_evidence.fit_eval_evidence()`, recorded under each split's
+    predictions entry when present. Their checkpoint hash, architecture,
+    temperature and the like are model-specific, as the prediction hashes are.
     """
     if hard_class_source["kind"] == "fit_predictions":
         hard_source_path = fit_predictions_path
@@ -1212,8 +1239,8 @@ def build_provenance(
         },
         "splits": {"fit": fit_split, "eval": eval_split},
         "predictions": {
-            "fit": _file_record(fit_predictions_path),
-            "eval": _file_record(eval_predictions_path),
+            "fit": _predictions_record(fit_predictions_path, fit_evidence),
+            "eval": _predictions_record(eval_predictions_path, eval_evidence),
         },
         "hard_classes": {
             "source_kind": hard_class_source["kind"],
@@ -1247,6 +1274,17 @@ def build_provenance(
     }
 
 
+def _evidence_summary(entry: dict[str, object]) -> str:
+    evidence = entry.get("evidence")
+    if not isinstance(evidence, dict):
+        return "none (a policy from these predictions cannot be deployed)"
+    record = evidence["record"]
+    return (
+        f"{record['architecture']}, checkpoint sha256 {record['checkpoint']['sha256'][:12]}, "
+        f"temperature {record['temperature']['value']!r} (fit and eval agree)"
+    )
+
+
 def format_provenance_summary(provenance: dict[str, object]) -> str:
     """A short human-readable digest of `provenance` for the run log."""
     splits = provenance["splits"]
@@ -1266,6 +1304,7 @@ def format_provenance_summary(provenance: dict[str, object]) -> str:
             f"{hard['parameters']}",
             f"  confusion pairs: {pairs['source_kind']} -> {pairs['algorithm']} "
             f"{pairs['parameters']}",
+            f"  producer evidence: {_evidence_summary(predictions['fit'])}",
             f"  routing: {routing['module']}.{routing['function']}",
             f"  generator: {provenance['generator']['path']} "
             f"(sha256 {provenance['generator']['sha256'][:12]})",
@@ -1324,6 +1363,19 @@ def run_analysis(
     """
     fit_predictions = load_predictions_for_split(results_dir, fit_split, fit_predictions_file)
     eval_predictions = load_predictions_for_split(results_dir, eval_split, eval_predictions_file)
+    fit_predictions_path = resolve_predictions_path(results_dir, fit_split, fit_predictions_file)
+    eval_predictions_path = resolve_predictions_path(
+        results_dir, eval_split, eval_predictions_file
+    )
+    # Verify each CSV's producer evidence against the bytes read, reject mixed
+    # or inconsistent temperatures, and require fit and eval to come from one
+    # model -- before any derivation work.
+    fit_evidence, eval_evidence = prediction_evidence.fit_eval_evidence(
+        fit_predictions_path,
+        sha256_file(fit_predictions_path),
+        eval_predictions_path,
+        sha256_file(eval_predictions_path),
+    )
 
     # `class_report_file` is only ever what the caller explicitly passed --
     # unlike confusion pairs below, this is deliberately NOT auto-discovered
@@ -1371,15 +1423,13 @@ def run_analysis(
     provenance = build_provenance(
         fit_split=fit_split,
         eval_split=eval_split,
-        fit_predictions_path=resolve_predictions_path(
-            results_dir, fit_split, fit_predictions_file
-        ),
-        eval_predictions_path=resolve_predictions_path(
-            results_dir, eval_split, eval_predictions_file
-        ),
+        fit_predictions_path=fit_predictions_path,
+        eval_predictions_path=eval_predictions_path,
         hard_class_source=hard_class_source,
         confusion_pair_source=confusion_pair_source,
         max_confusion_pairs=max_confusion_pairs,
+        fit_evidence=fit_evidence,
+        eval_evidence=eval_evidence,
     )
     print(format_provenance_summary(provenance))
 
@@ -1568,7 +1618,7 @@ def main(argv: list[str] | None = None) -> None:
             fit_predictions_file=fit_predictions_file,
             eval_predictions_file=eval_predictions_file,
         )
-    except (PredictionSchemaError, DerivationInputError) as exc:
+    except (PredictionSchemaError, DerivationInputError, prediction_evidence.EvidenceError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1) from None
 

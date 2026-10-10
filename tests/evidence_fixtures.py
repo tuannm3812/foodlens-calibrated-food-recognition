@@ -42,22 +42,28 @@ def write_scored_split(
     class_names: list[str],
     temperature: float,
     marker: str = "",
+    rows: list[dict] | None = None,
 ) -> Path:
-    """Write a small re-scored CSV and its evidence sidecar through the rescorer.
+    """Write a re-scored CSV and its evidence sidecar through the rescorer.
 
     ``checkpoint`` is hashed as it is now, as the rescorer hashes the bytes it
-    loads. ``marker`` varies the rows so different runs get different CSVs.
+    loads. ``marker`` varies the default three rows so different runs get
+    different CSVs; ``rows`` (built with ``rescore.build_prediction_row``)
+    replaces them.
     """
-    rows = [
-        rescore.build_prediction_row(
-            path=f"/kaggle/input/{marker}{split}/{index}.jpg",
-            true_label=class_names[index],
-            top_labels=[class_names[(index + offset) % len(class_names)] for offset in range(5)],
-            top_scores=[0.6, 0.2, 0.1, 0.05, 0.05],
-            temperature=temperature,
-        )
-        for index in range(3)
-    ]
+    if rows is None:
+        rows = [
+            rescore.build_prediction_row(
+                path=f"/kaggle/input/{marker}{split}/{index}.jpg",
+                true_label=class_names[index],
+                top_labels=[
+                    class_names[(index + offset) % len(class_names)] for offset in range(5)
+                ],
+                top_scores=[0.6, 0.2, 0.1, 0.05, 0.05],
+                temperature=temperature,
+            )
+            for index in range(3)
+        ]
     frame = pd.DataFrame(rows, columns=rescore.REQUIRED_OUTPUT_COLUMNS)
     names_file = path.parent / "class_names.json"
     evidence = rescore.build_evidence_record(
