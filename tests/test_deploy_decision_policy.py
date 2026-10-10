@@ -4,6 +4,10 @@ The central regression: a recalibration run writes decision_policy.json as a
 one-element list, the backend reads a dict, and copying the file verbatim makes
 every request fall back to demo output while artifact_status still reports
 "ready". The deploy step must convert, validate, back up and verify instead.
+
+The logic lives in app/deployment/. Failure injection patches the module that
+owns each call -- identity.verify_through_backend, install's os/shutil/tempfile
+and its datetime -- and each injection test asserts its fault was reached.
 """
 
 from __future__ import annotations
@@ -14,6 +18,8 @@ from pathlib import Path
 
 import pytest
 from evidence_fixtures import provenance_with_evidence, write_scored_split
+
+from app.deployment import identity, install, paths
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "deploy_decision_policy.py"
 _spec = importlib.util.spec_from_file_location("deploy_decision_policy", SCRIPT)
@@ -98,7 +104,7 @@ def test_deploy_verifies_values_through_the_backend_readers(source, target):
 
 
 def test_deploy_backs_up_replaced_files_byte_for_byte(source, target):
-    before = {n: (target / n).read_bytes() for n in deploy_mod.DEPLOYED_FILES}
+    before = {n: (target / n).read_bytes() for n in paths.DEPLOYED_FILES}
     record = deploy_mod.deploy(source, target, dry_run=False)
     backup = Path(record["backup_dir"])
     for name, content in before.items():
@@ -117,8 +123,8 @@ def test_deploy_never_touches_model_or_calibration_files(source, target):
 def test_deploy_writes_provenance_with_hashes(source, target):
     deploy_mod.deploy(source, target, dry_run=False)
     record = json.loads((target / "deployment_provenance.json").read_text())
-    assert set(record["deployed_files_sha256"]) == set(deploy_mod.DEPLOYED_FILES)
-    expected = deploy_mod.sha256(source / "derivation_provenance.json")
+    assert set(record["deployed_files_sha256"]) == set(paths.DEPLOYED_FILES)
+    expected = paths.sha256(source / "derivation_provenance.json")
     assert record["source_provenance_sha256"] == expected
 
 
@@ -239,7 +245,7 @@ def deployed_target(target: Path) -> Path:
 
 def fail_when_reading(directory: Path):
     """A verify_through_backend stand-in that fails only for one directory."""
-    real = deploy_mod.verify_through_backend
+    real = identity.verify_through_backend
 
     def verify(where, *args):
         if Path(where).resolve() == directory.resolve():
@@ -254,7 +260,7 @@ def test_post_install_verification_failure_rolls_back(
 ):
     before = snapshot(deployed_target)
     monkeypatch.setattr(
-        deploy_mod, "verify_through_backend", fail_when_reading(deployed_target)
+        identity, "verify_through_backend", fail_when_reading(deployed_target)
     )
     assert deploy_mod.main(["--source", str(source), "--target", str(deployed_target)]) == 1
     err = capsys.readouterr().err
@@ -265,7 +271,7 @@ def test_post_install_verification_failure_rolls_back(
 
 def test_failure_on_second_replace_rolls_back_mixed_state(source, deployed_target, monkeypatch):
     before = snapshot(deployed_target)
-    real_replace = deploy_mod.os.replace
+    real_replace = install.os.replace
     calls = {"n": 0}
 
     def flaky_replace(src, dst):
@@ -274,7 +280,7 @@ def test_failure_on_second_replace_rolls_back_mixed_state(source, deployed_targe
             raise OSError("simulated replace failure")
         return real_replace(src, dst)
 
-    monkeypatch.setattr(deploy_mod.os, "replace", flaky_replace)
+    monkeypatch.setattr(install.os, "replace", flaky_replace)
     with pytest.raises(deploy_mod.DeployError, match="rolled back"):
         deploy_mod.deploy(source, deployed_target, dry_run=False)
     assert calls["n"] > 2, "the first file was installed, so rollback must have replaced it"
@@ -289,7 +295,7 @@ def test_staging_verification_failure_leaves_target_untouched(source, target, mo
         staged.append(Path(where))
         raise deploy_mod.DeployError("staged files read back wrong")
 
-    monkeypatch.setattr(deploy_mod, "verify_through_backend", fail_on_staging)
+    monkeypatch.setattr(identity, "verify_through_backend", fail_on_staging)
     with pytest.raises(deploy_mod.DeployError, match="read back wrong"):
         deploy_mod.deploy(source, target, dry_run=False)
     assert staged and staged[0].name.startswith(".deploy-staging-")
@@ -299,32 +305,33 @@ def test_staging_verification_failure_leaves_target_untouched(source, target, mo
 def test_prior_provenance_is_restored_on_rollback(source, deployed_target, monkeypatch):
     prior = (deployed_target / "deployment_provenance.json").read_bytes()
     monkeypatch.setattr(
-        deploy_mod, "verify_through_backend", fail_when_reading(deployed_target)
+        identity, "verify_through_backend", fail_when_reading(deployed_target)
     )
-    with pytest.raises(deploy_mod.DeployError):
+    with pytest.raises(deploy_mod.DeployError, match="simulated backend read failure"):
         deploy_mod.deploy(source, deployed_target, dry_run=False)
     assert (deployed_target / "deployment_provenance.json").read_bytes() == prior
 
 
 def test_rollback_removes_provenance_that_did_not_exist(source, target, monkeypatch):
-    monkeypatch.setattr(deploy_mod, "verify_through_backend", fail_when_reading(target))
-    with pytest.raises(deploy_mod.DeployError):
+    monkeypatch.setattr(identity, "verify_through_backend", fail_when_reading(target))
+    with pytest.raises(deploy_mod.DeployError, match="simulated backend read failure"):
         deploy_mod.deploy(source, target, dry_run=False)
     assert not (target / "deployment_provenance.json").exists()
 
 
 def test_failed_rollback_names_the_preserved_backup(source, target, monkeypatch):
-    monkeypatch.setattr(deploy_mod, "verify_through_backend", fail_when_reading(target))
+    monkeypatch.setattr(identity, "verify_through_backend", fail_when_reading(target))
     monkeypatch.setattr(
-        deploy_mod.shutil,
+        install.shutil,
         "copy2",
-        _copy_then_fail_on_restore(deploy_mod.shutil.copy2),
+        _copy_then_fail_on_restore(install.shutil.copy2),
     )
     with pytest.raises(deploy_mod.DeployError, match="ROLLBACK FAILED") as info:
         deploy_mod.deploy(source, target, dry_run=False)
     backups = [p for p in target.iterdir() if p.name.startswith("replaced_")]
     assert len(backups) == 1
     assert backups[0].name in str(info.value)
+    assert "simulated restore failure" in str(info.value)
     assert (backups[0] / "decision_policy.json").exists()
 
 
@@ -338,12 +345,12 @@ def _copy_then_fail_on_restore(real_copy):
 
 
 def test_back_to_back_deploys_get_distinct_backups(source, target, monkeypatch):
-    class FrozenDatetime(deploy_mod.datetime):
+    class FrozenDatetime(install.datetime):
         @classmethod
         def now(cls, tz=None):
-            return deploy_mod.datetime(2026, 10, 10, 12, 0, 0, tzinfo=tz)
+            return install.datetime(2026, 10, 10, 12, 0, 0, tzinfo=tz)
 
-    monkeypatch.setattr(deploy_mod, "datetime", FrozenDatetime)
+    monkeypatch.setattr(install, "datetime", FrozenDatetime)
     first = deploy_mod.deploy(source, target, dry_run=False)
     second = deploy_mod.deploy(source, target, dry_run=False)
     assert first["backup_dir"] != second["backup_dir"]
@@ -353,14 +360,18 @@ def test_back_to_back_deploys_get_distinct_backups(source, target, monkeypatch):
 
 
 def test_an_existing_backup_name_does_not_collide(source, target, monkeypatch):
-    class FrozenDatetime(deploy_mod.datetime):
+    class FrozenDatetime(install.datetime):
         @classmethod
         def now(cls, tz=None):
-            return deploy_mod.datetime(2026, 10, 10, 12, 0, 0, tzinfo=tz)
+            return install.datetime(2026, 10, 10, 12, 0, 0, tzinfo=tz)
 
-    monkeypatch.setattr(deploy_mod, "datetime", FrozenDatetime)
+    monkeypatch.setattr(install, "datetime", FrozenDatetime)
     (target / "replaced_20261010T120000Z").mkdir()
     assert deploy_mod.main(["--source", str(source), "--target", str(target)]) == 0
+    # The frozen clock was used: the new backup carries its stamp beside the old name.
+    backups = sorted(p.name for p in target.iterdir() if p.name.startswith("replaced_"))
+    assert backups[0] == "replaced_20261010T120000Z"
+    assert len(backups) == 2 and backups[1].startswith("replaced_20261010T120000Z_")
 
 
 def test_second_backup_preserves_first_deployments_provenance(source, target):
@@ -369,7 +380,7 @@ def test_second_backup_preserves_first_deployments_provenance(source, target):
     record = deploy_mod.deploy(source, target, dry_run=False)
     backup = Path(record["backup_dir"])
     assert (backup / "deployment_provenance.json").read_bytes() == first_provenance
-    assert record["replaced_provenance_sha256"] == deploy_mod.sha256(
+    assert record["replaced_provenance_sha256"] == paths.sha256(
         backup / "deployment_provenance.json"
     )
 
@@ -383,7 +394,7 @@ def test_unexpected_os_error_is_a_handled_error(source, target, monkeypatch, cap
     def no_space(*args, **kwargs):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(deploy_mod.tempfile, "mkdtemp", no_space)
+    monkeypatch.setattr(install.tempfile, "mkdtemp", no_space)
     assert deploy_mod.main(["--source", str(source), "--target", str(target)]) == 1
     assert "No space left on device" in capsys.readouterr().err
 
@@ -408,15 +419,15 @@ def test_record_claims_file_verification_not_live_service(source, target, capsys
 
 
 def files_fingerprint(directory: Path) -> str:
-    return deploy_mod.read_through_backend(directory)[3]
+    return identity.read_through_backend(directory)[3]
 
 
 def served_model(target: Path) -> dict:
     """The status model block of a service that loaded the target's model and calibration."""
     return {
         "source": "loaded_runtime",
-        **deploy_mod.target_model_identity(target),
-        **deploy_mod.target_calibration(target),
+        **identity.target_model_identity(target),
+        **identity.target_calibration(target),
     }
 
 

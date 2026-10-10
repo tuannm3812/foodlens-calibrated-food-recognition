@@ -194,6 +194,7 @@ def artifact_dir_path() -> Path:
 # module never has to import this one. These wrappers keep the original
 # `inference.read_*()` signatures, where the directory is optional and defaults
 # to `artifact_dir_path()`. Callers outside this package -- notably
+# `read_through_backend()` in `app/deployment/identity.py`, behind
 # `scripts/deploy_decision_policy.py` -- call them with no argument, and the
 # S2 design's §5 requires that the public `inference` surface not change.
 def read_temperature(artifact_dir: Path | None = None) -> float:

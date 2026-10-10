@@ -141,6 +141,9 @@ the manifest existed; a present but invalid manifest fails with
 `classifier_load_error` rather than falling back to ResNet50. Do not write it by
 hand: promote a model together with its policy through
 `scripts/deploy_decision_policy.py --model-run`, and roll back with `--restore`.
+That script is a thin CLI over `app/deployment/`, which reads the artifacts
+through this package's own readers; nothing in `app/backend/` imports
+`app/deployment/`.
 `/runtime/status` reports the served model in its `model` block. See
 `docs/8_runtime_contract.md`.
 

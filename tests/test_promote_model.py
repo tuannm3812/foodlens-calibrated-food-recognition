@@ -4,6 +4,11 @@ A model and the policy fitted on its confidences deploy together, as one atomic
 unit, through scripts/deploy_decision_policy.py. These tests use tiny stand-in
 checkpoints: the model builder is replaced, so no 100MB checkpoint and no
 network access are needed.
+
+The logic lives in app/deployment/. Failure injection patches the module that
+owns each call -- identity's build_model, verify_model_files and
+verify_through_backend, install's os.replace -- and each injection test asserts
+its fault was reached.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ from evidence_fixtures import provenance_with_evidence, write_scored_split
 from torch import nn
 
 from app.backend import artifacts
+from app.deployment import identity, install, paths, records
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "deploy_decision_policy.py"
 _spec = importlib.util.spec_from_file_location("deploy_decision_policy_promote", SCRIPT)
@@ -44,8 +50,16 @@ def tiny(architecture: str) -> nn.Module:
 
 
 @pytest.fixture(autouse=True)
-def fake_builder(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(deploy_mod, "build_model", tiny)
+def fake_builder(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Replace the model builder; return the architectures it was asked to build."""
+    built: list[str] = []
+
+    def builder(architecture: str) -> nn.Module:
+        built.append(architecture)
+        return tiny(architecture)
+
+    monkeypatch.setattr(identity, "build_model", builder)
+    return built
 
 
 def make_run(root: Path, name: str, architecture: str, policy: dict) -> tuple[Path, Path]:
@@ -151,7 +165,7 @@ def promote_argv(runs: dict[str, Path], target: Path, **overrides: str) -> list[
 
 
 def backup_path(record: dict) -> Path:
-    return deploy_mod.from_display(record["backup_dir"])
+    return paths.from_display(record["backup_dir"])
 
 
 def promote(runs, target):
@@ -163,8 +177,9 @@ def promote(runs, target):
 # --- A successful promotion ----------------------------------------------------
 
 
-def test_promotion_installs_model_and_policy_together(runs, target, capsys):
+def test_promotion_installs_model_and_policy_together(runs, target, capsys, fake_builder):
     assert deploy_mod.main(promote_argv(runs, target)) == 0
+    assert fake_builder == ["convnext_tiny"], "the stand-in builder checked the checkpoint"
     record = json.loads(capsys.readouterr().out)
 
     assert artifacts.read_model_manifest(target) == {
@@ -177,7 +192,7 @@ def test_promotion_installs_model_and_policy_together(runs, target, capsys):
     assert json.loads((target / "calibration.json").read_text()) == {"temperature": 0.884}
     assert json.loads((target / "decision_policy.json").read_text()) == NEW_POLICY
     assert record["operation"] == "model_promotion"
-    assert record["model"]["checkpoint_sha256"] == deploy_mod.sha256(target / "a3b_best.pth")
+    assert record["model"]["checkpoint_sha256"] == paths.sha256(target / "a3b_best.pth")
     assert record["checks"]["checkpoint_fits_architecture"].startswith("loads into convnext_tiny")
     assert record["previous_model"]["architecture"] == "resnet50"
     assert record["previous_model"]["manifest"] == "legacy_default"
@@ -200,7 +215,7 @@ def test_promotion_backup_holds_the_full_previous_state(runs, target):
     files = json.loads((backup / "backup_record.json").read_text())["files"]
     assert files["model.json"] is None
     assert files["a3b_best.pth"] is None
-    assert files["resnet50_ft_v2_best.pth"] == deploy_mod.sha256(backup / "resnet50_ft_v2_best.pth")
+    assert files["resnet50_ft_v2_best.pth"] == paths.sha256(backup / "resnet50_ft_v2_best.pth")
 
 
 def test_promotion_dry_run_checks_the_checkpoint_and_writes_nothing(runs, target, capsys):
@@ -238,10 +253,13 @@ def test_rejects_different_class_names(runs, target, capsys):
     assert_rejected(runs, target, capsys, "different set of classes")
 
 
-def test_rejects_a_checkpoint_that_does_not_fit_the_architecture(runs, target, capsys):
+def test_rejects_a_checkpoint_that_does_not_fit_the_architecture(
+    runs, target, capsys, fake_builder
+):
     assert_rejected(
         runs, target, capsys, "does not fit resnet50", **{"--architecture": "resnet50"}
     )
+    assert fake_builder == ["resnet50"], "the stand-in builder produced the misfit"
 
 
 def test_rejects_an_unknown_architecture(runs, target, capsys):
@@ -273,7 +291,7 @@ def different_weights(architecture: str) -> dict:
 def test_rejects_different_valid_weights_with_the_fitted_predictions(runs, target, capsys):
     torch.save(different_weights("convnext_tiny"), runs["a3b"] / "a3b_best.pth")
     # The weights still fit the architecture: only the evidence can tell.
-    deploy_mod.check_checkpoint_fits(runs["a3b"] / "a3b_best.pth", "convnext_tiny")
+    identity.check_checkpoint_fits(runs["a3b"] / "a3b_best.pth", "convnext_tiny")
     assert_rejected(runs, target, capsys, "checkpoint_sha256: policy evidence")
 
 
@@ -327,14 +345,14 @@ def test_incompatible_options_are_usage_errors(argv):
 
 def test_post_install_failure_rolls_the_promotion_back(runs, target, monkeypatch, capsys):
     before = tree(target)
-    real = deploy_mod.verify_model_files
+    real = identity.verify_model_files
 
     def fail_on_target(directory, *args):
         if Path(directory).resolve() == target.resolve():
             raise deploy_mod.DeployError("simulated post-install read failure")
         return real(directory, *args)
 
-    monkeypatch.setattr(deploy_mod, "verify_model_files", fail_on_target)
+    monkeypatch.setattr(identity, "verify_model_files", fail_on_target)
     assert deploy_mod.main(promote_argv(runs, target)) == 1
     err = capsys.readouterr().err
     assert "rolled back" in err and "simulated post-install read failure" in err
@@ -343,7 +361,7 @@ def test_post_install_failure_rolls_the_promotion_back(runs, target, monkeypatch
 
 def test_replace_failure_midway_rolls_the_promotion_back(runs, target, monkeypatch):
     before = tree(target)
-    real_replace = deploy_mod.os.replace
+    real_replace = install.os.replace
     calls = {"n": 0}
 
     def flaky_replace(src, dst):
@@ -352,19 +370,21 @@ def test_replace_failure_midway_rolls_the_promotion_back(runs, target, monkeypat
             raise OSError("simulated replace failure")
         return real_replace(src, dst)
 
-    monkeypatch.setattr(deploy_mod.os, "replace", flaky_replace)
+    monkeypatch.setattr(install.os, "replace", flaky_replace)
     with pytest.raises(deploy_mod.DeployError, match="rolled back"):
         promote(runs, target)
+    assert calls["n"] > 5, "four files were installed, so rollback must have replaced them"
     assert tree(target) == before
 
 
 # --- --restore -----------------------------------------------------------------
 
 
-def test_restore_round_trip_is_byte_identical(runs, target, capsys):
+def test_restore_round_trip_is_byte_identical(runs, target, capsys, fake_builder):
     before = tree(target, bookkeeping=False)
     original_provenance = json.loads((target / "deployment_provenance.json").read_text())
     promoted = promote(runs, target)
+    fake_builder.clear()
 
     assert deploy_mod.main(
         ["--target", str(target), "--restore", str(backup_path(promoted))]
@@ -382,7 +402,8 @@ def test_restore_round_trip_is_byte_identical(runs, target, capsys):
     assert record["restored_deployment_provenance"] == original_provenance
     assert record["model"]["architecture"] == "resnet50"
     assert record["checkpoint_fits_architecture"].startswith("loads into resnet50")
-    assert record["decision_layer_fingerprint"] == deploy_mod.read_through_backend(target)[3]
+    assert fake_builder == ["resnet50"], "the restore's checkpoint check used the stand-in"
+    assert record["decision_layer_fingerprint"] == identity.read_through_backend(target)[3]
 
 
 def test_a_restore_can_itself_be_undone(runs, target):
@@ -402,12 +423,13 @@ def test_failed_restore_rolls_back(runs, target, monkeypatch):
     record = promote(runs, target)
     promoted = tree(target)
     monkeypatch.setattr(
-        deploy_mod,
+        identity,
         "verify_through_backend",
         lambda *args: (_ for _ in ()).throw(deploy_mod.DeployError("simulated read failure")),
     )
-    with pytest.raises(deploy_mod.DeployError, match="rolled back"):
+    with pytest.raises(deploy_mod.DeployError, match="rolled back") as info:
         deploy_mod.restore(backup_path(record), target, False)
+    assert "simulated read failure" in str(info.value)
     assert tree(target) == promoted
 
 
@@ -513,7 +535,7 @@ def service(target: Path, model: dict | None, probe_temperature: float | None = 
     The probe response reports ``probe_temperature``, or by default the model
     block's temperature, as a real runtime reports the one it cached.
     """
-    fingerprint = deploy_mod.read_through_backend(target)[3]
+    fingerprint = identity.read_through_backend(target)[3]
     if probe_temperature is None and model is not None:
         probe_temperature = model.get("temperature")
 
@@ -550,7 +572,7 @@ def loaded(target: Path) -> dict:
     """The status model block of a runtime freshly loaded from the target's files."""
     return {
         "source": "loaded_runtime",
-        **deploy_mod.target_model_identity(target),
+        **identity.target_model_identity(target),
         **runtime_calibration(target),
     }
 
@@ -704,7 +726,7 @@ def test_policy_only_deploy_records_the_served_model_identity(runs, target):
     promote(runs, target)
     record = deploy_mod.deploy(runs["a3b_policy"], target, dry_run=False)
     assert record["model"] == {
-        key: deploy_mod.target_model_identity(target)[key]
+        key: identity.target_model_identity(target)[key]
         for key in ("architecture", "checkpoint", "model_name", "checkpoint_sha256")
     }
 
@@ -713,7 +735,7 @@ def test_verify_live_catches_a_checkpoint_swap_after_a_policy_only_deploy(runs, 
     promote(runs, target)
     deploy_mod.deploy(runs["a3b_policy"], target, dry_run=False)
     torch.save(different_weights("convnext_tiny"), target / "a3b_best.pth")
-    deploy_mod.check_checkpoint_fits(target / "a3b_best.pth", "convnext_tiny")
+    identity.check_checkpoint_fits(target / "a3b_best.pth", "convnext_tiny")
     assert_model_drift_caught_before_probing(target, capsys)
 
 
@@ -723,7 +745,7 @@ def test_verify_live_catches_a_checkpoint_swap_after_a_legacy_policy_only_deploy
     write_json(target / "calibration.json", {"temperature": 0.884})
     deploy_mod.deploy(runs["champion_policy"], target, dry_run=False)
     torch.save(different_weights("resnet50"), target / "resnet50_ft_v2_best.pth")
-    deploy_mod.check_checkpoint_fits(target / "resnet50_ft_v2_best.pth", "resnet50")
+    identity.check_checkpoint_fits(target / "resnet50_ft_v2_best.pth", "resnet50")
     assert_model_drift_caught_before_probing(target, capsys)
 
 
@@ -746,3 +768,366 @@ def test_verify_live_passes_after_a_legacy_policy_only_deploy(runs, target, caps
     deploy_mod.deploy(runs["champion_policy"], target, dry_run=False)
     capsys.readouterr()
     assert verify(target, service(target, loaded(target))) == 0
+
+
+# --- Schema on write ----------------------------------------------------------
+#
+# Codex's closure review (2026-10-10): validate new records on write, so a record
+# a reader would have to skip -- a policy-only record without `model` -- cannot
+# be produced. Each operation's written record must pass the strict schema.
+
+
+def written_record(target: Path) -> dict:
+    return json.loads((target / "deployment_provenance.json").read_text())
+
+
+def assert_schema_valid(target: Path, operation: str) -> dict:
+    written = written_record(target)
+    assert written["schema_version"] == records.SCHEMA_VERSION
+    assert written["operation"] == operation
+    records.validate_record(written, "final")
+    # Round trip: the reader takes a current record as written, with no limits.
+    read = records.normalise_record(written)
+    assert read["historical"] is False and read["limits"] == []
+    assert {k: v for k, v in read.items() if k not in ("historical", "read_from", "limits")} == (
+        written
+    )
+    return written
+
+
+def test_a_policy_only_deploy_to_a_promoted_target_writes_a_schema_valid_record(runs, target):
+    promote(runs, target)
+    deploy_mod.deploy(runs["a3b_policy"], target, dry_run=False)
+    written = assert_schema_valid(target, "policy_deploy")
+    assert written["model"]["checkpoint"] == "a3b_best.pth"
+    assert written["calibration"]["temperature"] == 0.884
+    assert written["calibration"]["files_sha256"]["calibration.json"] == paths.sha256(
+        target / "calibration.json"
+    )
+
+
+def test_a_policy_only_deploy_to_a_legacy_target_writes_a_schema_valid_record(runs, target):
+    write_json(target / "calibration.json", {"temperature": 0.884})
+    deploy_mod.deploy(runs["champion_policy"], target, dry_run=False)
+    written = assert_schema_valid(target, "policy_deploy")
+    assert written["model"]["checkpoint"] == "resnet50_ft_v2_best.pth"
+    assert "policy_belongs_to_served_model" not in written
+
+
+def test_a_promotion_writes_a_schema_valid_record(runs, target):
+    promote(runs, target)
+    written = assert_schema_valid(target, "model_promotion")
+    assert written["calibration"]["files_sha256"]["class_names.json"] == paths.sha256(
+        target / "class_names.json"
+    )
+
+
+def test_a_restore_writes_a_schema_valid_record(runs, target):
+    promoted = promote(runs, target)
+    deploy_mod.restore(backup_path(promoted), target, False)
+    written = assert_schema_valid(target, "restore")
+    # The restored state's calibration, named by the hashes of the restored files.
+    assert written["calibration"] == {
+        "temperature": 0.958111,
+        "files_sha256": {
+            "calibration.json": paths.sha256(target / "calibration.json"),
+            "class_names.json": paths.sha256(target / "class_names.json"),
+        },
+    }
+
+
+def test_a_restore_to_a_state_without_calibration_is_refused(runs, target, capsys):
+    record = promote(runs, target)
+    backup = backup_path(record)
+    backup_record = json.loads((backup / "backup_record.json").read_text())
+    backup_record["files"]["calibration.json"] = None
+    (backup / "calibration.json").unlink()
+    write_json(backup / "backup_record.json", backup_record)
+    promoted = tree(target)
+    assert deploy_mod.main(["--target", str(target), "--restore", str(backup)]) == 1
+    assert "would have no calibration.json" in capsys.readouterr().err
+    assert tree(target) == promoted
+
+
+# --- Schema on write: a refused record changes nothing -------------------------
+#
+# Validation runs at two points in every operation: the base record before any
+# backup is made, and the final record (naming its backup) before any target
+# file is replaced. Faults are injected into the owning module, `records`, and
+# each test asserts its fault was reached.
+
+OPERATION_CASES = ("policy_on_promoted_target", "policy_on_legacy_target", "promotion", "restore")
+
+
+def prepare(case: str, runs: dict[str, Path], target: Path):
+    """Set the target up for one operation; return (its record builder, a runner)."""
+    if case == "policy_on_promoted_target":
+        promote(runs, target)
+        return "policy_deploy_record", lambda: deploy_mod.deploy(
+            runs["a3b_policy"], target, dry_run=False
+        )
+    if case == "policy_on_legacy_target":
+        write_json(target / "calibration.json", {"temperature": 0.884})
+        return "policy_deploy_record", lambda: deploy_mod.deploy(
+            runs["champion_policy"], target, dry_run=False
+        )
+    if case == "promotion":
+        return "promotion_record", lambda: promote(runs, target)
+    promoted = promote(runs, target)
+    return "restore_record", lambda: deploy_mod.restore(backup_path(promoted), target, False)
+
+
+def without_model(record: dict) -> dict:
+    """The injected base fault: a builder that leaves out the model identity."""
+    record.pop("model")
+    return record
+
+
+def corrupt_backup_metadata(record: dict) -> dict:
+    """The injected final fault: backup metadata that is not a hash."""
+    record["replaced_files_sha256"] = {"decision_policy.json": "not-a-sha256"}
+    return record
+
+
+def count_backups(monkeypatch) -> list[Path | None]:
+    """Record every backup install.make_backup creates."""
+    real = install.make_backup
+    made: list[Path | None] = []
+
+    def counting(*args, **kwargs):
+        made.append(real(*args, **kwargs))
+        return made[-1]
+
+    monkeypatch.setattr(install, "make_backup", counting)
+    return made
+
+
+def count_replaces(monkeypatch) -> list[tuple]:
+    real = install.os.replace
+    calls: list[tuple] = []
+
+    def counting(src, dst):
+        calls.append((src, dst))
+        return real(src, dst)
+
+    monkeypatch.setattr(install.os, "replace", counting)
+    return calls
+
+
+def assert_target_unchanged(target: Path, before: dict[str, bytes], names: set[str]) -> None:
+    assert tree(target) == before
+    assert {p.name for p in target.iterdir()} == names
+    assert not any(p.name.startswith(".deploy-staging-") for p in target.iterdir())
+
+
+@pytest.mark.parametrize("case", OPERATION_CASES)
+def test_a_record_without_a_model_fails_before_any_backup(runs, target, monkeypatch, case):
+    builder, run = prepare(case, runs, target)
+    before, names = tree(target), {p.name for p in target.iterdir()}
+    real = getattr(records, builder)
+    reached: list[str] = []
+
+    def faulty(*args, **kwargs):
+        reached.append(builder)
+        return without_model(real(*args, **kwargs))
+
+    monkeypatch.setattr(records, builder, faulty)
+    backups = count_backups(monkeypatch)
+
+    with pytest.raises(deploy_mod.DeployError) as info:
+        run()
+    assert reached == [builder], "the faulty builder was used"
+    assert "model: missing" in str(info.value) and "(base record)" in str(info.value)
+    assert backups == [], "validation ran before a backup was made"
+    assert_target_unchanged(target, before, names)
+
+
+@pytest.mark.parametrize("case", OPERATION_CASES)
+def test_a_corrupt_final_record_fails_before_any_replace(runs, target, monkeypatch, case):
+    _, run = prepare(case, runs, target)
+    before, names = tree(target), {p.name for p in target.iterdir()}
+    real = records.add_backup
+    reached: list[Path | None] = []
+
+    def faulty(record, backup, prior):
+        reached.append(backup)
+        return corrupt_backup_metadata(real(record, backup, prior))
+
+    monkeypatch.setattr(records, "add_backup", faulty)
+    backups = count_backups(monkeypatch)
+    replaces = count_replaces(monkeypatch)
+
+    with pytest.raises(deploy_mod.DeployError) as info:
+        run()
+    message = str(info.value)
+    assert "replaced_files_sha256" in message and "(final record)" in message
+    assert len(reached) == 1 and reached[0] is not None, "the fault saw a real backup"
+    assert backups == reached, "the backup was made before the final check"
+    assert not reached[0].exists(), "the refused deploy removed its backup"
+    assert replaces == [], "no target file was replaced"
+    assert_target_unchanged(target, before, names)
+
+
+def test_a_refused_record_is_a_handled_cli_error(runs, target, monkeypatch, capsys):
+    before = tree(target)
+    real = records.promotion_record
+    reached: list[bool] = []
+
+    def faulty(*args, **kwargs):
+        reached.append(True)
+        return without_model(real(*args, **kwargs))
+
+    monkeypatch.setattr(records, "promotion_record", faulty)
+    assert deploy_mod.main(promote_argv(runs, target)) == 1
+    assert reached == [True]
+    assert "model: missing" in capsys.readouterr().err
+    assert tree(target) == before
+
+
+# --- --verify-live on records written before the schema --------------------------
+#
+# The real app/artifacts record is the 2026-10-10 promotion's, written before
+# schema_version; its backup holds the 2026-10-09 policy-only record. These
+# tests give a consistent tmp target the same record shapes (the key sets of the
+# copies in tests/fixtures/deployment_records/), so --verify-live exercises the
+# normalisation path: it passes on a consistent target and still fails on drift.
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "deployment_records"
+
+
+def fixture_keys(name: str) -> set[str]:
+    return set(json.loads((FIXTURES / name).read_text()))
+
+
+def as_2026_10_10_promotion(target: Path) -> dict:
+    """Rewrite the target's promotion record in the shape the real one has."""
+    record = written_record(target)
+    for key in ("schema_version", "calibration", "policy_evidence"):
+        del record[key]
+    del record["checks"]["policy_evidence_matches_model"]
+    assert set(record) == fixture_keys("2026-10-10_model_promotion.json")
+    write_json(target / "deployment_provenance.json", record)
+    return record
+
+
+def as_2026_10_09_policy_only(target: Path) -> dict:
+    """Rewrite the target's policy-only record in the shape the real 2026-10-09 one has."""
+    keys = fixture_keys("2026-10-09_policy_only.json")
+    record = {k: v for k, v in written_record(target).items() if k in keys}
+    record["backend_verified"] = True
+    assert set(record) == keys
+    write_json(target / "deployment_provenance.json", record)
+    return record
+
+
+def verified(target: Path, capsys) -> dict:
+    capsys.readouterr()
+    assert verify(target, service(target, loaded(target))) == 0
+    return json.loads(capsys.readouterr().out)
+
+
+def test_verify_live_passes_on_a_consistent_target_with_a_2026_10_10_record(
+    runs, target, capsys
+):
+    promote(runs, target)
+    as_2026_10_10_promotion(target)
+    result = verified(target, capsys)
+    assert result["deployment_record"] == {
+        "operation": "model_promotion",
+        "historical": True,
+        "limits": [
+            "no policy_evidence recorded",
+            "no checks.policy_evidence_matches_model recorded",
+        ],
+    }
+    assert result["provenance_check"] == "target files match deployment_provenance.json"
+
+
+def test_verify_live_on_a_2026_10_10_record_still_catches_calibration_drift(
+    runs, target, capsys
+):
+    promote(runs, target)
+    as_2026_10_10_promotion(target)
+    write_json(target / "calibration.json", {"temperature": 2.0})
+    capsys.readouterr()
+    fetch, calls = counting(service(target, loaded(target)))
+    assert verify(target, fetch) == 1
+    err = capsys.readouterr().err
+    assert "calibration: FAILED" in err and "changed after deployment" in err
+    assert calls == []
+
+
+def test_verify_live_on_a_2026_10_10_record_still_catches_a_checkpoint_swap(
+    runs, target, capsys
+):
+    promote(runs, target)
+    as_2026_10_10_promotion(target)
+    torch.save(different_weights("convnext_tiny"), target / "a3b_best.pth")
+    assert_model_drift_caught_before_probing(target, capsys)
+
+
+def test_verify_live_passes_on_a_consistent_target_with_a_2026_10_09_record(
+    runs, target, capsys
+):
+    write_json(target / "calibration.json", {"temperature": 0.884})
+    deploy_mod.deploy(runs["champion_policy"], target, dry_run=False)
+    as_2026_10_09_policy_only(target)
+    result = verified(target, capsys)
+    assert result["deployment_record"]["operation"] == "policy_deploy"
+    assert "no model recorded" in result["deployment_record"]["limits"]
+    assert "no decision_layer_fingerprint recorded" in result["deployment_record"]["limits"]
+    assert "compared against the target files alone" in result["provenance_check"]
+
+
+def test_verify_live_on_a_2026_10_09_record_still_fails_a_stale_service(runs, target, capsys):
+    # The record captured no fingerprint or model, so the live comparison is
+    # what catches a service still routing with the pre-deploy layer.
+    write_json(target / "calibration.json", {"temperature": 0.884})
+    stale = identity.read_through_backend(target)[3]
+    deploy_mod.deploy(runs["champion_policy"], target, dry_run=False)
+    as_2026_10_09_policy_only(target)
+    capsys.readouterr()
+
+    def stale_routing(method, url, body, headers):
+        response = service(target, loaded(target))(method, url, body, headers)
+        if url.endswith("/runtime/status"):
+            response["decision_layer"]["fingerprint"] = stale
+        return response
+
+    assert verify(target, stale_routing) == 1
+    err = capsys.readouterr().err
+    assert "routing: FAILED" in err and stale in err
+
+
+def test_verify_live_on_a_served_model_only_record_still_catches_a_checkpoint_swap(
+    runs, target, capsys
+):
+    promote(runs, target)
+    deploy_mod.deploy(runs["a3b_policy"], target, dry_run=False)
+    record = written_record(target)
+    for key in ("schema_version", "operation", "model", "calibration"):
+        del record[key]
+    write_json(target / "deployment_provenance.json", record)
+    assert verified(target, capsys)["deployment_record"]["limits"] == []
+    torch.save(different_weights("convnext_tiny"), target / "a3b_best.pth")
+    assert_model_drift_caught_before_probing(target, capsys)
+
+
+def test_verify_live_with_no_record_at_all_states_that_limit(runs, target, capsys):
+    (target / "deployment_provenance.json").unlink()
+    result = verified(target, capsys)
+    assert result["deployment_record"]["limits"][0] == (
+        "no deployment_provenance.json: nothing was recorded"
+    )
+
+
+def test_verify_live_refuses_a_current_record_edited_after_writing(runs, target, capsys):
+    promote(runs, target)
+    record = written_record(target)
+    del record["model"]
+    write_json(target / "deployment_provenance.json", record)
+    capsys.readouterr()
+    fetch, calls = counting(service(target, loaded(target)))
+    assert verify(target, fetch) == 1
+    assert "model: missing" in capsys.readouterr().err
+    assert calls == []
