@@ -484,6 +484,18 @@ def add_backup(
     return record
 
 
+def finalised_record(
+    record: dict[str, Any], backup: Path | None, prior: Mapping[str, str | None]
+) -> dict[str, Any]:
+    """Name the backup in the record and validate the result as the final record.
+
+    The operations pass this to ``install.install`` as its ``record_for_backup``
+    callback, so the final record is validated after the backup exists and
+    before any target file is replaced; a refusal removes that backup.
+    """
+    return validate_record(add_backup(record, backup, prior), "final")
+
+
 def recorded_model_identity(provenance: Mapping[str, Any]) -> dict[str, Any] | None:
     """The model identity a deployment record says was deployed, or None.
 

@@ -98,11 +98,14 @@ def deploy(source: Path, target: Path, dry_run: bool) -> dict[str, Any]:
                 )
             check_installed_hashes(target, record["deployed_files_sha256"])
 
+        # The complete record is checked before a backup exists, and again,
+        # naming its backup, before any target file is replaced.
+        records.validate_record(record, "base")
         prior = prior_state(target, (*DEPLOYED_FILES, PROVENANCE_FILE))
         install(
             target,
             staging,
-            lambda backup: records.add_backup(record, backup, prior),
+            lambda backup: records.finalised_record(record, backup, prior),
             DEPLOYED_FILES,
             prior,
             post_check,

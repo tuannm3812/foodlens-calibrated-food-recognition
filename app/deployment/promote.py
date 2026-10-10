@@ -187,10 +187,13 @@ def promote(
             identity.verify_model_files(target, manifest, temperature, class_names)
             check_installed_hashes(target, record["deployed_files_sha256"])
 
+        # The complete record is checked before a backup exists, and again,
+        # naming its backup, before any target file is replaced.
+        records.validate_record(record, "base")
         install(
             target,
             staging,
-            lambda backup: records.add_backup(record, backup, prior),
+            lambda backup: records.finalised_record(record, backup, prior),
             installed,
             prior,
             post_check,

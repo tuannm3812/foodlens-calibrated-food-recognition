@@ -199,10 +199,13 @@ def restore(backup: Path, target: Path, dry_run: bool) -> dict[str, Any]:
             if leftover:
                 raise DeployError(f"files absent in the backup remain: {', '.join(leftover)}")
 
+        # The complete record is checked before a backup exists, and again,
+        # naming its backup, before any target file is replaced.
+        records.validate_record(record, "base")
         install(
             target,
             staging,
-            lambda backup_dir: records.add_backup(record, backup_dir, prior),
+            lambda backup_dir: records.finalised_record(record, backup_dir, prior),
             installed,
             prior,
             post_check,

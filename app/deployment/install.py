@@ -146,7 +146,8 @@ def install(
         staging: Directory inside ``target`` holding every name in ``installed``.
         record_for_backup: Called with the backup directory just created (None
             when nothing existed to back up); returns the provenance record to
-            install, which then names that backup.
+            install, which then names that backup. It may raise to refuse the
+            record: nothing has been replaced then, and the backup is removed.
         installed: Staged file names to ``os.replace`` into the target.
         prior: Pre-deploy SHA-256 (or None) of every file to back up: the
             installed and removed names, the provenance file, and any file kept
@@ -162,7 +163,14 @@ def install(
     """
     touched = (*installed, *removed, PROVENANCE_FILE)
     backup = make_backup(target, prior, operation)
-    record = record_for_backup(backup)
+    try:
+        record = record_for_backup(backup)
+    except BaseException:
+        # Nothing is replaced yet: drop the backup just made, so a refused
+        # record leaves the target exactly as it was.
+        if backup is not None:
+            shutil.rmtree(backup, ignore_errors=True)
+        raise
 
     try:
         for name in installed:

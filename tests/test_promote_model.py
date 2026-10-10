@@ -841,3 +841,138 @@ def test_a_restore_to_a_state_without_calibration_is_refused(runs, target, capsy
     assert deploy_mod.main(["--target", str(target), "--restore", str(backup)]) == 1
     assert "would have no calibration.json" in capsys.readouterr().err
     assert tree(target) == promoted
+
+
+# --- Schema on write: a refused record changes nothing -------------------------
+#
+# Validation runs at two points in every operation: the base record before any
+# backup is made, and the final record (naming its backup) before any target
+# file is replaced. Faults are injected into the owning module, `records`, and
+# each test asserts its fault was reached.
+
+OPERATION_CASES = ("policy_on_promoted_target", "policy_on_legacy_target", "promotion", "restore")
+
+
+def prepare(case: str, runs: dict[str, Path], target: Path):
+    """Set the target up for one operation; return (its record builder, a runner)."""
+    if case == "policy_on_promoted_target":
+        promote(runs, target)
+        return "policy_deploy_record", lambda: deploy_mod.deploy(
+            runs["a3b_policy"], target, dry_run=False
+        )
+    if case == "policy_on_legacy_target":
+        write_json(target / "calibration.json", {"temperature": 0.884})
+        return "policy_deploy_record", lambda: deploy_mod.deploy(
+            runs["champion_policy"], target, dry_run=False
+        )
+    if case == "promotion":
+        return "promotion_record", lambda: promote(runs, target)
+    promoted = promote(runs, target)
+    return "restore_record", lambda: deploy_mod.restore(backup_path(promoted), target, False)
+
+
+def without_model(record: dict) -> dict:
+    """The injected base fault: a builder that leaves out the model identity."""
+    record.pop("model")
+    return record
+
+
+def corrupt_backup_metadata(record: dict) -> dict:
+    """The injected final fault: backup metadata that is not a hash."""
+    record["replaced_files_sha256"] = {"decision_policy.json": "not-a-sha256"}
+    return record
+
+
+def count_backups(monkeypatch) -> list[Path | None]:
+    """Record every backup install.make_backup creates."""
+    real = install.make_backup
+    made: list[Path | None] = []
+
+    def counting(*args, **kwargs):
+        made.append(real(*args, **kwargs))
+        return made[-1]
+
+    monkeypatch.setattr(install, "make_backup", counting)
+    return made
+
+
+def count_replaces(monkeypatch) -> list[tuple]:
+    real = install.os.replace
+    calls: list[tuple] = []
+
+    def counting(src, dst):
+        calls.append((src, dst))
+        return real(src, dst)
+
+    monkeypatch.setattr(install.os, "replace", counting)
+    return calls
+
+
+def assert_target_unchanged(target: Path, before: dict[str, bytes], names: set[str]) -> None:
+    assert tree(target) == before
+    assert {p.name for p in target.iterdir()} == names
+    assert not any(p.name.startswith(".deploy-staging-") for p in target.iterdir())
+
+
+@pytest.mark.parametrize("case", OPERATION_CASES)
+def test_a_record_without_a_model_fails_before_any_backup(runs, target, monkeypatch, case):
+    builder, run = prepare(case, runs, target)
+    before, names = tree(target), {p.name for p in target.iterdir()}
+    real = getattr(records, builder)
+    reached: list[str] = []
+
+    def faulty(*args, **kwargs):
+        reached.append(builder)
+        return without_model(real(*args, **kwargs))
+
+    monkeypatch.setattr(records, builder, faulty)
+    backups = count_backups(monkeypatch)
+
+    with pytest.raises(deploy_mod.DeployError) as info:
+        run()
+    assert reached == [builder], "the faulty builder was used"
+    assert "model: missing" in str(info.value) and "(base record)" in str(info.value)
+    assert backups == [], "validation ran before a backup was made"
+    assert_target_unchanged(target, before, names)
+
+
+@pytest.mark.parametrize("case", OPERATION_CASES)
+def test_a_corrupt_final_record_fails_before_any_replace(runs, target, monkeypatch, case):
+    _, run = prepare(case, runs, target)
+    before, names = tree(target), {p.name for p in target.iterdir()}
+    real = records.add_backup
+    reached: list[Path | None] = []
+
+    def faulty(record, backup, prior):
+        reached.append(backup)
+        return corrupt_backup_metadata(real(record, backup, prior))
+
+    monkeypatch.setattr(records, "add_backup", faulty)
+    backups = count_backups(monkeypatch)
+    replaces = count_replaces(monkeypatch)
+
+    with pytest.raises(deploy_mod.DeployError) as info:
+        run()
+    message = str(info.value)
+    assert "replaced_files_sha256" in message and "(final record)" in message
+    assert len(reached) == 1 and reached[0] is not None, "the fault saw a real backup"
+    assert backups == reached, "the backup was made before the final check"
+    assert not reached[0].exists(), "the refused deploy removed its backup"
+    assert replaces == [], "no target file was replaced"
+    assert_target_unchanged(target, before, names)
+
+
+def test_a_refused_record_is_a_handled_cli_error(runs, target, monkeypatch, capsys):
+    before = tree(target)
+    real = records.promotion_record
+    reached: list[bool] = []
+
+    def faulty(*args, **kwargs):
+        reached.append(True)
+        return without_model(real(*args, **kwargs))
+
+    monkeypatch.setattr(records, "promotion_record", faulty)
+    assert deploy_mod.main(promote_argv(runs, target)) == 1
+    assert reached == [True]
+    assert "model: missing" in capsys.readouterr().err
+    assert tree(target) == before
