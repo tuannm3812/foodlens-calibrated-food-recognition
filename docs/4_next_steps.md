@@ -235,10 +235,39 @@ After any completed ConvNeXt run directory (for example
 `results/accuracy_phase1/a3b_convnext_tiny_continued_224`), run:
 
 ```bash
+pip install -r requirements-analysis.txt
 python3 scripts/recalibrate_decision_layer.py \
   --results-dir results/accuracy_phase1/a3b_convnext_tiny_continued_224 \
   --split test
 ```
+
+#### Required `*_predictions.csv` schema
+
+`recalibrate_decision_layer.py` validates this schema up front and fails
+before doing any analysis work if it is not met. The `<split>_predictions.csv`
+in `--results-dir` must contain:
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `path` | string | image path (not read by recalibration, but expected by convention) |
+| `true_label` (or `actual`/`actual_label`/`label`) | string | ground-truth class name |
+| `pred_label` (or `predicted`/`predicted_label`/`prediction`/`class_name`/`predicted_class`) | string | model's top-1 predicted class name |
+| `confidence` | float | top-1 confidence (not read directly; `top_5_confidence` supplies `top_1_confidence`) |
+| `is_correct` | bool | `pred_label == true_label`; derived automatically if the column is absent but the label columns are present |
+| `top_5` | string | the top-5 predicted class names, **pipe-separated (`\|`)**, ranked most to least confident |
+| `top_5_confidence` | string | the top-5 per-class confidences, **pipe-separated (`\|`)**, in the same rank order as `top_5` (`top_5[i]` and `top_5_confidence[i]` must refer to the same class) |
+
+`top_1_confidence`, `top_2_confidence`, and the `top_1_top_2_margin` the
+decision policy depends on are all derived from `top_5_confidence`; without
+it, recalibration cannot proceed.
+
+**The A1, A3, A3b and A4 accuracy-phase runs predate this contract.** Their
+`test_predictions.csv`/`val_predictions.csv` files emit `top_5` as labels only,
+with no `top_5_confidence` column, because the training scripts that produced
+them never recorded per-class confidences for the runner-up classes.
+Recalibrating any of those runs requires regenerating their predictions with
+per-class top-5 confidences first; the notebooks that already compute this
+from raw logits (04, 05, archive/15) are the reference for how to do so.
 
 This generates:
 
