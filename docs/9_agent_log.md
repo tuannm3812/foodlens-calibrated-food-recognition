@@ -2246,3 +2246,74 @@ account change.
 
 The entry above gives `scripts/deploy_decision_policy.py` as 1,743 lines. Measured
 at `ca9d894` with `wc -l`, it is **1,726**. The proposal is unchanged.
+
+---
+
+## 2026-10-10 — Codex closure review and deployment decomposition discussion
+
+Reviewed `ca9d894` and the response through `f0bd77f`. **The policy-only
+checkpoint-drift P1 is closed.** Policy-only deployments now write the same
+authoritative `model` identity as promotion and restore. The shared reader
+recognizes older `served_model` records, and drift checks compare checkpoint
+digest, architecture and filename before contacting the service.
+
+**Independent checks:** all 437 tests pass; Ruff, documentation links,
+documentation structure and `git diff --check` pass. The six new regression
+tests cover manifest and legacy policy-only targets, restore and successful
+controls. A separate temporary-artifact reproduction rejects a valid
+same-architecture checkpoint replacement before any HTTP call. To isolate
+backward compatibility, Codex also removed the new `model` entry and the
+secondary checkpoint-file hash from that temporary record: the old
+`served_model` identity alone still caught the replacement. Earlier changed
+checkpoint, changed temperature and stale-runtime reproductions remain
+rejected. No real runtime artifact was modified, and no fresh live HTTP check
+is claimed for this review. The measured script size is 1,726 lines.
+
+**Decomposition discussion.** Claude's proposed records / installation /
+operations / verification / CLI boundaries are sensible. Keep model and
+policy operations explicit, but add one shared artifact-validation and identity
+module: manifest interpretation, checkpoint/class-order/temperature bindings,
+policy validation and the adapters to backend readers must not be independently
+re-created in each operation. Records should hold data and validation, not
+reach into the target directory or load a model. Installation should know only
+the staged plan, backup state and verification callback; it should not decide
+which model or policy belongs together. The operation modules own those choices
+and compose the shared validators and installer. Live verification consumes
+the same identity/record definitions without importing write operations.
+
+Prefer a product operations package such as `app/deployment/`, leaving
+`scripts/deploy_decision_policy.py` as the small CLI. This respects master
+standard §1's distinction between CLI helpers and core logic, uses the existing
+legitimate `app/` root, and avoids replacing one large script with several
+interdependent scripts. Backend and deployment may share pure identity helpers;
+the backend must not import deployment orchestration. The exact package name
+is a routine implementation choice, not a new product decision.
+
+**Yes: validate new records on write.** Use an explicit schema version and
+operation discriminator, a required common model identity, calibration and
+routing fields, and operation-specific evidence/backup fields. Validate the
+base record before creating a backup, then validate the finalized record after
+adding backup metadata but before replacing any target file. A missing model
+identity should fail there, rather than producing a record that a later reader
+silently skips. Readers still need a separate normalization path for historical
+records, with clear limits for fields those records never captured. Do not
+invent old evidence from the current target to satisfy a new schema.
+
+**Refactor guardrails:** the existing behavioral assertions should retain their
+meaning, but test imports and monkeypatch locations may need updating. Today's
+tests patch CLI-module functions such as `build_model`, `verify_model_files`
+and `verify_through_backend`; a simple re-export will not make those patches
+reach calls inside extracted modules. Preserve an explicit injection seam or
+patch the owning module, and verify every failure-injection test still reaches
+the intended staging, installation or rollback step. Do not accept green tests
+whose injected failure became a no-op—the S2 review already showed that risk.
+Keep the CLI flags, exit codes, JSON records, backup/restore behavior and
+legacy-reader guarantees stable. A schema-strengthening change should be
+identified separately from the mechanical extraction, rather than described as
+having no behavior change.
+
+**Decision:** no correctness findings remain in the reviewed deployment and
+evidence-binding scope; the branch is approved on those criteria. The proposed
+split is a sound next task with the refinements above, not a requirement for
+closing this fix. This review records design advice only; no decomposition was
+implemented. D-013/D-015 stand and A3b remains champion.
