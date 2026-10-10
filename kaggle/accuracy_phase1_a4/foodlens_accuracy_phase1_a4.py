@@ -1,18 +1,19 @@
 import json
-import os
 import random
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pandas as pd
-import torch
-import torch.nn.functional as F
 from PIL import Image
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
+
+import torch
+import torch.nn.functional as F
 from torch import nn, optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader, Dataset
@@ -47,18 +48,6 @@ def ensure_cuda_compatible_torch() -> None:
 ensure_cuda_compatible_torch()
 
 
-def running_on_kaggle() -> bool:
-    """Detect whether the Kaggle runtime layout is available."""
-    return Path("/kaggle").exists()
-
-
-def normalize_path(value: str | None) -> Path | None:
-    """Convert an environment path to `Path` only when present."""
-    if not value:
-        return None
-    return Path(value).expanduser()
-
-
 @dataclass(frozen=True)
 class CFG:
     """A4: full-backbone ConvNeXt-Tiny fine-tuning with high-resolution input (320x320)."""
@@ -79,27 +68,13 @@ class CFG:
     ECE_BINS: int = 15
     LATENCY_WARMUP_RUNS: int = 10
     LATENCY_BENCHMARK_RUNS: int = 50
-    DATA_DIR: Path = normalize_path(
-        os.getenv(
-            "FOODLENS_DATA_DIR",
-            "/kaggle/input/datasets/kmader/food41" if running_on_kaggle() else "/tmp/foodlens_food101",
-        )
-    )
-    CHALLENGER_ARTIFACT_DIR: Path = normalize_path(
-        os.getenv(
-            "FOODLENS_CHALLENGER_ARTIFACT_DIR",
-            "/kaggle/input/models/tuannm3823/food101-modern-backbones/pytorch/default/1"
-            if running_on_kaggle()
-            else "/tmp/foodlens_artifacts",
-        )
+    DATA_DIR: Path = Path("/kaggle/input/datasets/kmader/food41")
+    CHALLENGER_ARTIFACT_DIR: Path = Path(
+        "/kaggle/input/models/tuannm3823/food101-modern-backbones/"
+        "pytorch/default/1"
     )
     FROZEN_HEAD_CHECKPOINT_NAME: str = "convnext_tiny_frozen_head_best.pth"
-    RESULTS_ROOT: Path = normalize_path(
-        os.getenv(
-            "FOODLENS_RESULTS_ROOT",
-            "/kaggle/working/results/accuracy_phase1" if running_on_kaggle() else "results/accuracy_phase1",
-        )
-    )
+    RESULTS_ROOT: Path = Path("/kaggle/working/results/accuracy_phase1")
     CHAMPION_TEST_TOP_1: float = 78.28
     CHAMPION_TEST_TOP_5: float = 92.65
     CHAMPION_TEST_ECE: float = 0.0265
@@ -110,9 +85,6 @@ class CFG:
 
 RESULTS_DIR = CFG.RESULTS_ROOT / CFG.RUN_ID
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
-KAGGLE_DATASET_KEYWORDS = ("food", "food101", "food41")
-CLASS_CONTAINER_HINTS = ("", "images", "Food Classification dataset", "Food Classification")
 
 
 def seed_everything(seed: int) -> None:
@@ -130,96 +102,24 @@ print(f"Run: {CFG.RUN_ID}")
 print(f"Device: {device}")
 
 
-def resolve_image_dir(data_dir: Path) -> Path | None:
-    """Resolve the Food-101 image directory from a dataset mount candidate."""
-    candidate_dirs = [
-        data_dir if container == "" else data_dir / container
-        for container in CLASS_CONTAINER_HINTS
-    ]
+def resolve_image_dir(data_dir: Path) -> Path:
+    """Resolve the Food-101 image directory from a Kaggle dataset mount."""
+    candidate_dirs = [data_dir / "images", data_dir]
     for candidate_dir in candidate_dirs:
         if not candidate_dir.exists():
             continue
         class_dirs = [path for path in candidate_dir.iterdir() if path.is_dir()]
         has_images = any(
-            image_path.suffix.lower() in IMAGE_EXTENSIONS
+            image_path.suffix.lower() in {".jpg", ".jpeg", ".png"}
             for class_dir in class_dirs
             for image_path in class_dir.iterdir()
         )
         if has_images:
             return candidate_dir
 
-    return None
-
-
-def resolve_kaggle_input_roots() -> list[Path]:
-    """Discover possible dataset roots under /kaggle/input."""
-    input_root = Path("/kaggle/input")
-    if not input_root.exists():
-        return []
-
-    candidates: list[Path] = []
-    for child in input_root.iterdir():
-        if not child.is_dir():
-            continue
-        candidates.append(child)
-        for grandchild in child.iterdir():
-            if grandchild.is_dir():
-                candidates.append(grandchild)
-
-    return candidates
-
-
-def resolve_data_root_and_image_dir() -> tuple[Path, Path]:
-    """Find a usable Food-101 data root and resolved image directory."""
-    candidates: list[Path] = [
-        CFG.DATA_DIR,
-        Path("/kaggle/input/food41"),
-        Path("/kaggle/input/datasets/kmader/food41"),
-        Path("/kaggle/input/datasets/food41"),
-        Path("/kaggle/input/food-image-classification-dataset"),
-        Path("/kaggle/input/foodies-ai-food-image-classification-challenge"),
-        Path.cwd() / "data" / "food101",
-        Path.home() / "data" / "food101",
-        Path("/tmp/food101"),
-        Path("/tmp/foodlens_food101"),
-    ]
-
-    if running_on_kaggle():
-        candidates.extend(resolve_kaggle_input_roots())
-
-    if running_on_kaggle():
-        for candidate in resolve_kaggle_input_roots():
-            if any(
-                keyword in candidate.as_posix().lower()
-                for keyword in KAGGLE_DATASET_KEYWORDS
-            ):
-                candidates.append(candidate)
-
-    seen = set()
-    deduped_candidates = []
-    for candidate in candidates:
-        key = str(candidate)
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped_candidates.append(candidate)
-
-    tried = []
-    for candidate in deduped_candidates:
-        if candidate is None:
-            continue
-        tried.append(str(candidate))
-        if not candidate.exists():
-            continue
-        image_dir = resolve_image_dir(candidate)
-        if image_dir is not None:
-            return candidate, image_dir
-
     raise FileNotFoundError(
-        "Food-101 class image folders were not found in any candidate path.\n"
-        "Checked:\n"
-        + "\n".join(f"- {path}" for path in tried)
-        + "\nSet FOODLENS_DATA_DIR to the folder that contains 101 class subfolders."
+        "Food-101 class image folders were not found under "
+        f"{data_dir} or {data_dir / 'images'}."
     )
 
 
@@ -228,7 +128,7 @@ def create_data_manifest(image_dir: Path) -> pd.DataFrame:
     records: list[dict[str, str]] = []
     for class_dir in sorted(path for path in image_dir.iterdir() if path.is_dir()):
         for image_path in sorted(class_dir.iterdir()):
-            if image_path.suffix.lower() in IMAGE_EXTENSIONS:
+            if image_path.suffix.lower() in {".jpg", ".jpeg", ".png"}:
                 records.append({"path": str(image_path), "label": class_dir.name})
 
     if not records:
@@ -259,19 +159,13 @@ def split_manifest(
     )
 
 
-DATA_ROOT, IMAGE_DIR = resolve_data_root_and_image_dir()
-CFG_DATA_DIR = DATA_ROOT
+IMAGE_DIR = resolve_image_dir(CFG.DATA_DIR)
 manifest_df = create_data_manifest(IMAGE_DIR)
 train_df, val_df, test_df = split_manifest(manifest_df)
 class_names = sorted(manifest_df["label"].unique())
 class_to_idx = {class_name: idx for idx, class_name in enumerate(class_names)}
-if len(class_names) != CFG.NUM_CLASSES:
-    raise ValueError(
-        f"Expected {CFG.NUM_CLASSES} classes from Food-101 but found {len(class_names)}. "
-        "Re-check dataset path and dataset integrity."
-    )
 
-print(f"Food-101 root: {CFG_DATA_DIR}")
+print(f"Food-101 root: {CFG.DATA_DIR}")
 print(f"Image directory: {IMAGE_DIR}")
 print(f"Images: {len(manifest_df):,}")
 print(f"Classes: {len(class_names):,}")
@@ -312,7 +206,7 @@ class FoodDataset(Dataset):
         self,
         dataframe: pd.DataFrame,
         class_to_idx: dict[str, int],
-        transform: transforms.Compose | None = None,
+        transform: Optional[transforms.Compose] = None,
     ) -> None:
         self.df = dataframe.reset_index(drop=True)
         self.class_to_idx = class_to_idx
@@ -367,7 +261,7 @@ def build_convnext_tiny(pretrained: bool = False) -> nn.Module:
     return model
 
 
-def resolve_frozen_head_checkpoint() -> Path | None:
+def resolve_frozen_head_checkpoint() -> Optional[Path]:
     candidates = [
         CFG.CHALLENGER_ARTIFACT_DIR / CFG.FROZEN_HEAD_CHECKPOINT_NAME,
         CFG.CHALLENGER_ARTIFACT_DIR
@@ -427,7 +321,7 @@ print(
 def run_epoch(
     model: nn.Module,
     loader: DataLoader,
-    optimizer: optim.Optimizer | None = None,
+    optimizer: Optional[optim.Optimizer] = None,
 ) -> dict[str, float]:
     is_train = optimizer is not None
     model.train(is_train)
@@ -538,7 +432,6 @@ def collect_logits_and_predictions(
             for row_index, true_idx in enumerate(labels_cpu.tolist()):
                 pred_idx = top_indices[row_index, 0].cpu().item()
                 manifest_row = manifest.iloc[seen + row_index]
-                top_5_confidences = top_probs[row_index].cpu().tolist()
                 rows.append(
                     {
                         "path": manifest_row["path"],
@@ -549,9 +442,6 @@ def collect_logits_and_predictions(
                         "top_5": "|".join(
                             class_names[idx]
                             for idx in top_indices[row_index].cpu().tolist()
-                        ),
-                        "top_5_confidence": "|".join(
-                            f"{score:.8f}" for score in top_5_confidences
                         ),
                     }
                 )
@@ -583,7 +473,7 @@ def expected_calibration_error(
     bin_boundaries = torch.linspace(0, 1, n_bins + 1)
     ece = torch.zeros(1)
 
-    for lower, upper in zip(bin_boundaries[:-1], bin_boundaries[1:], strict=True):
+    for lower, upper in zip(bin_boundaries[:-1], bin_boundaries[1:]):
         in_bin = confidences.gt(lower) & confidences.le(upper)
         proportion = in_bin.float().mean()
         if proportion.item() > 0:

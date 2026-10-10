@@ -65,15 +65,16 @@ a new directory, never an edit to an existing one.
 Each directory carries both a `.py` and a `.ipynb`. **The record of what ran
 is whichever file `kernel-metadata.json` names as `code_file`** — the notebook
 for A1, A3 and A3b, but the `.py` for A4, a `script` kernel. Never assume the
-notebook. The pairs have never been in sync (97.8-98.1% similar);
+notebook. The pairs have never been in sync (A1, A3, A3b 97.8-98.1% similar; A4 90.2%,
+since its notebook mirror carries edits made after the run);
 `scripts/check_kaggle_mirrors.py` reports the drift and names the authoritative
 side for each run.
 
-Known deviation: the A4 `.py` in the repo is not what ran. The source pulled
-from the Kaggle kernel matches commit `151986b` byte for byte; the repo copy has
-since drifted by 154 lines, through two June commits and S0's lint sweep. A4 was
-cancelled and has no published result, so no reported figure is affected.
-Whether to restore it is open decision O-2 in `10_decisions.md`.
+A4's `.py` is its run record, restored on 2026-10-10 to the exact source Kaggle
+executed (commit `151986b`, matched byte for byte against the kernel source
+pulled from Kaggle). It had drifted 154 lines through two June commits and S0's
+lint sweep. Because it is a record rather than maintained source, it is
+excluded from ruff in `pyproject.toml`. See decision D-012 in `10_decisions.md`.
 
 ## Seven notebooks retain outputs
 
