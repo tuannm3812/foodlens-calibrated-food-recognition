@@ -29,25 +29,24 @@ The project now has a clear champion and a trustworthy evaluation layer.
 | A3b ConvNeXt-Tiny continued fine-tune | 95.78% test top-5 |
 | E1 expanded taxonomy baseline | 86.10% test top-1 across 130 classes |
 | E1 expanded taxonomy baseline | 96.88% test top-5 across 130 classes |
-| Decision layer (deployed) | 61.20% auto-accept coverage at 94.58% top-1 on test, fitted on validation |
+| Decision layer (deployed, A3b) | 66.63% auto-accept coverage at 96.66% top-1 on test, fitted on validation |
 
-The product champion is **ResNet50 FT-V2**, serving the corrected decision
-policy deployed in October 2026 (auto 0.70, suggest 0.35, margin 0.05; 11 hard
+The product champion is **A3b ConvNeXt-Tiny**, promoted on 2026-10-10 with its
+own corrected decision policy (auto 0.70, suggest 0.35, margin 0.05; 11 hard
 classes and 40 confusion pairs fitted on validation). Section 16 of
-[`3_model_results.md`](3_model_results.md) holds the measured figures.
+[`3_model_results.md`](3_model_results.md) holds the measured figures for it and
+for ResNet50 FT-V2, which it replaced.
 
-A3b ConvNeXt-Tiny's decision-layer recalibration is **complete**: it was put
-through the same symmetric pipeline as the champion and the comparison was
-accepted as evidence. A3b leads on every measured figure except review-band
-top-5 containment and calibration (test ECE 0.0556 against 0.0265). Promotion
-is now a product decision about that accuracy-versus-calibration trade, not a
-missing-evidence block, and has not been made.
+The promotion accepted a trade: A3b leads on every measured figure except
+review-band top-5 containment and calibration (test ECE 0.0556 against 0.0265).
+ResNet50 FT-V2's state is backed up and restorable with one command (see
+`8_runtime_contract.md`).
 
 The active model-improvement direction is now:
 
-> Keep ResNet50 FT-V2 as the product champion, decide the A3b
-> accuracy-versus-calibration trade explicitly, and improve the expanded
-> 130-class classifier with controlled fine-tuning.
+> Run A3b as the product champion, watch whether its looser calibration matters
+> in practice, and improve the expanded 130-class classifier with controlled
+> fine-tuning.
 
 The detailed execution plan is maintained in
 [`7_accuracy_improvement_plan.md`](7_accuracy_improvement_plan.md).

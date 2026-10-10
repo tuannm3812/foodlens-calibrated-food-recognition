@@ -13,11 +13,12 @@ trains and evaluates Food-101 classifiers, converts model confidence into
 product decisions, and extends single-image classification into a multi-food
 analysis prototype with a FastAPI backend and React/Vite frontend.
 
-The current champion is a refined ResNet50 FT-V2 model with strong top-5
-performance, low calibration error, and a decision layer that routes predictions
-into auto-accept, suggest, confirm, or review workflows.
-
-The strongest 101-class accuracy run is A3b ConvNeXt-Tiny. The first expanded
+The current champion is **A3b ConvNeXt-Tiny**, promoted on 2026-10-10 over the
+refined ResNet50 FT-V2. It is the most accurate 101-class model, and its
+calibrated confidence is routed through a decision layer into auto-accept,
+suggest, confirm, or review workflows. Its calibration is looser than
+ResNet50's (test ECE 0.0556 against 0.0265); the promotion accepted that
+trade for higher accuracy in every decision band. The first expanded
 taxonomy run now covers 130 classes and validates that the A3b backbone can
 support broader food coverage after replacing the classifier head.
 
@@ -96,21 +97,21 @@ agents with shared acceptance criteria.
 | Images per class | 1,000 |
 | Split strategy | Stratified train / validation / test |
 
-| Metric | ResNet50 FT-V2 champion |
-| --- | ---: |
-| Validation top-1 accuracy | 77.90% |
-| Validation top-5 accuracy | 92.36% |
-| Test top-1 accuracy | 78.28% |
-| Test top-5 accuracy | 92.65% |
-| Test calibration ECE | 0.0265 |
-| Auto-accept coverage | 61.20% |
-| Auto-accept top-1 accuracy | 94.58% |
-| Suggestion-band top-5 containment | 89.24% |
-| Parameters | 24.7M |
-| Model size | 94.48 MB |
-| T4 latency | 5.35 ms/image |
+| Metric | A3b ConvNeXt-Tiny (champion) | ResNet50 FT-V2 (previous) |
+| --- | ---: | ---: |
+| Validation top-1 accuracy | 84.01% | 77.90% |
+| Validation top-5 accuracy | 96.15% | 92.36% |
+| Test top-1 accuracy | 83.90% | 78.28% |
+| Test top-5 accuracy | 95.78% | 92.65% |
+| Test calibration ECE | 0.0556 | 0.0265 |
+| Auto-accept coverage | 66.63% | 61.20% |
+| Auto-accept top-1 accuracy | 96.66% | 94.58% |
+| Suggestion-band top-5 containment | 94.18% | 89.24% |
+| Parameters | 28.4M | 24.7M |
+| Model size | 108.23 MB | 94.48 MB |
+| T4 latency | 5.29 ms/image | 5.35 ms/image |
 
-Decision-layer rows are the deployed runtime policy, measured on the held-out
+Decision-layer rows are each model's corrected policy, measured on the held-out
 test split with thresholds and risk sets fitted on validation only (2026-10
 symmetric closure run). They replace earlier figures of 58.02% / 96.47% /
 100.00%, which were withdrawn: that method used the true label during routing
@@ -122,17 +123,18 @@ true by construction. Details and provenance: section 16 of
 
 | Model | Stage | Test top-1 | Test top-5 | Parameters | Model size | T4 latency |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| ResNet50 FT-V2 | current champion | 78.28% | 92.65% | 24.7M | 94.48 MB | 5.35 ms/image |
-| ConvNeXt-Tiny A3b | accuracy leader | 83.90% | 95.78% | 28.4M | 108.23 MB | 5.29 ms/image |
+| ConvNeXt-Tiny A3b | current champion | 83.90% | 95.78% | 28.4M | 108.23 MB | 5.29 ms/image |
+| ResNet50 FT-V2 | previous champion | 78.28% | 92.65% | 24.7M | 94.48 MB | 5.35 ms/image |
 | ConvNeXt-Tiny A3 | accuracy challenger | 83.41% | 95.73% | 28.4M | 108.23 MB | 5.41 ms/image |
 | ConvNeXt-Tiny | frozen-head challenger | 70.92% | 90.24% | 28.4M | 108.23 MB | 7.17 ms/image |
 | EfficientNet-B0 | frozen-head challenger | 52.13% | 77.02% | 4.8M | 18.55 MB | 7.44 ms/image |
 
-A3b ConvNeXt-Tiny is the strongest accuracy result so far, improving held-out
-test top-1 by 5.62 percentage points over ResNet50 FT-V2. It is not yet the
-product champion because its calibrated ECE is worse than ResNet50 FT-V2, so
-the next steps are decision-layer recalibration and expanded-taxonomy
-fine-tuning.
+A3b ConvNeXt-Tiny improves held-out test top-1 by 5.62 percentage points over
+ResNet50 FT-V2 and leads every decision band on the measures that matter for
+routing. It was promoted once its decision layer had been recalibrated through
+the same pipeline as ResNet50's; its calibrated ECE remains about twice
+ResNet50's, which is the trade the promotion accepted. See decision D-013 in
+[docs/10_decisions.md](docs/10_decisions.md).
 
 ### Expanded Taxonomy Baseline
 

@@ -464,10 +464,10 @@ the project direction.
 
 ## 18. Current Reasoning Conclusion
 
-The current product champion is **ResNet50 FT-V2** because it has the strongest
-calibrated decision-layer evidence. The current accuracy leader is **A3b
-ConvNeXt-Tiny**; its decision-layer recalibration is complete (section 16 of
-`3_model_results.md`), and promotion now turns on its looser calibration. The
+The current product champion is **A3b ConvNeXt-Tiny**, promoted on 2026-10-10
+over ResNet50 FT-V2: once both had been recalibrated through the same pipeline
+(section 16 of `3_model_results.md`), A3b led every routing measure, at the cost
+of looser calibration. The
 project has moved from broad model search to **targeted improvement and
 decision design**:
 

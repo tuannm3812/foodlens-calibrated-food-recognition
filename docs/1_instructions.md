@@ -49,9 +49,9 @@ The project is organized into controlled notebook stages:
 Baseline, refinement, frozen-head comparison, detector exploration, and
 superseded accuracy notebooks are preserved under `notebooks/archive/`.
 
-The current product champion is **ResNet50 FT-V2**. The current accuracy leader
-is **A3b ConvNeXt-Tiny**; its decision-layer recalibration is complete and
-promotion is an open product decision (section 16 of `3_model_results.md`).
+The current product champion is **A3b ConvNeXt-Tiny**, promoted on 2026-10-10
+over ResNet50 FT-V2 after both went through the same recalibration pipeline
+(section 16 of `3_model_results.md`; decision D-013).
 
 ## 4. Evaluation Contract
 
@@ -86,8 +86,8 @@ repository.
 
 The project has already shown that:
 
-- ResNet50 FT-V2 remains the product champion because it has the strongest
-  calibrated decision-layer evidence.
+- ResNet50 FT-V2 was the product champion until 2026-10-10, when A3b
+  ConvNeXt-Tiny replaced it; ResNet50 keeps the tighter calibration.
 - ResNet50 FT-V2 improves held-out test top-1 to **78.28%**.
 - Test top-5 accuracy reaches **92.65%**, supporting ranked suggestions.
 - Temperature scaling improves test ECE from **0.0432** to **0.0265**.

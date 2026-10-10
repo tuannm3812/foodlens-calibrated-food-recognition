@@ -125,12 +125,24 @@ To move from mock inference to real inference, place artifacts outside git under
 
 Required artifacts:
 
-- `resnet50_ft_v2_best.pth`
+- the classifier checkpoint: `resnet50_ft_v2_best.pth`, or the file an
+  optional `model.json` manifest names
 - ordered class names
 - calibration temperature
 - decision policy
 - hard-class list
 - confusion-pair list
+
+`model.json` selects the classifier: `{"architecture": "resnet50" |
+"convnext_tiny", "checkpoint": "<file name>", "model_name": "<name>"}`, plus an
+optional `model_run` the deploy script records. Without it the backend serves
+ResNet50 from `resnet50_ft_v2_best.pth` as `resnet50_ft_v2`, exactly as before
+the manifest existed; a present but invalid manifest fails with
+`classifier_load_error` rather than falling back to ResNet50. Do not write it by
+hand: promote a model together with its policy through
+`scripts/deploy_decision_policy.py --model-run`, and roll back with `--restore`.
+`/runtime/status` reports the served model in its `model` block. See
+`docs/8_runtime_contract.md`.
 
 The multi-food path also uses detector weights through the `ultralytics` runtime.
 Set `FOODLENS_DETECTOR_WEIGHTS` to override the default `yolo11n.pt` detector.

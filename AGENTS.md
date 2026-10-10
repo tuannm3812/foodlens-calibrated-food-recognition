@@ -31,17 +31,16 @@ Project-specific rules and deliberate overrides: @docs/0_coding_standards.md
 
 ## Current state
 
-As of 2026-10-10: champion **ResNet50 FT-V2** serves the corrected decision
-policy (§16 of `docs/3_model_results.md`). Deploy policies only with
-`scripts/deploy_decision_policy.py`, then restart the API, run `--verify-live`;
-copied run files fail silently. A3b recalibration is done (more accurate, ECE
-0.0556 vs 0.0265); promoting it is the user's call and has not been made.
+As of 2026-10-10: champion **A3b ConvNeXt-Tiny** (promoted over ResNet50
+FT-V2; more accurate, ECE 0.0556 vs 0.0265 — D-013). Deploy models and policies
+only with `scripts/deploy_decision_policy.py`, then restart the API and run
+`--verify-live`; copied files fail silently. Roll back with its `--restore`.
 
 ## Open risks
 
-- `app/backend/inference.py` is 886 lines doing artifact loading, detection,
-  classification, and response assembly. Decomposition is planned as S2 — don't
-  bolt more onto it.
+- `app/backend/inference.py` is still 636 lines of orchestration after S2;
+  `scripts/deploy_decision_policy.py` grew to ~1,400 lines with promotion and
+  restore. Both are split candidates — don't bolt more onto either.
 - **S1 resolved the triplicated recalibration CLI**: one copy now, at
   `scripts/recalibrate_decision_layer.py`. The four training scripts stay
   duplicated by design — immutable run records, and Kaggle needs

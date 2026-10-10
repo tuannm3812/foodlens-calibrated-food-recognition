@@ -20,6 +20,31 @@ def make_classifier_head(torch_nn: Any, in_features: int) -> Any:
     )
 
 
+def build_classifier_model(torchvision_models: Any, torch_nn: Any, architecture: str) -> Any:
+    """Build an untrained classifier of a supported architecture with the project head.
+
+    Both architectures swap their final linear layer for the same head, so a
+    checkpoint trained by the project loads with no missing or unexpected keys.
+
+    Args:
+        torchvision_models: The ``torchvision.models`` module.
+        torch_nn: The ``torch.nn`` module.
+        architecture: ``"resnet50"`` or ``"convnext_tiny"``.
+
+    Raises:
+        ValueError: For any other architecture.
+    """
+    if architecture == "resnet50":
+        model = torchvision_models.resnet50(weights=None)
+        model.fc = make_classifier_head(torch_nn, model.fc.in_features)
+    elif architecture == "convnext_tiny":
+        model = torchvision_models.convnext_tiny(weights=None)
+        model.classifier[2] = make_classifier_head(torch_nn, model.classifier[2].in_features)
+    else:
+        raise ValueError(f"Unsupported classifier architecture: {architecture!r}.")
+    return model
+
+
 def build_predictions(raw_predictions: tuple[tuple[str, float], ...]) -> list[Prediction]:
     """Convert raw label-score tuples to API prediction objects."""
     return [
