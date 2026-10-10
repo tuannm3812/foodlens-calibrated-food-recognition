@@ -726,3 +726,35 @@ The champion leads calibrated ECE by roughly 2x.
 
 These numbers do not by themselves settle a promotion decision; this section
 records them for the evidence trail, not as a recommendation.
+
+## 17. A3b ConvNeXt-Tiny Promoted to Champion
+
+On 2026-10-10 A3b ConvNeXt-Tiny replaced ResNet50 FT-V2 as the served model, on
+the evidence in section 16 and by the user's decision (D-013 in
+[`10_decisions.md`](10_decisions.md)).
+
+| Metric (test split) | A3b ConvNeXt-Tiny | ResNet50 FT-V2 |
+| --- | ---: | ---: |
+| Top-1 accuracy | 83.90% | 78.28% |
+| Top-5 accuracy | 95.78% | 92.65% |
+| Calibrated ECE | 0.0556 | 0.0265 |
+| Auto-accept coverage / top-1 | 66.63% / 96.66% | 61.20% / 94.58% |
+| Suggest coverage / top-5 contains actual | 21.10% / 94.18% | 23.38% / 89.24% |
+| Confirm coverage / top-1 | 10.08% / 42.44% | 12.88% / 35.28% |
+| Review coverage / top-1 / top-5 contains actual | 2.19% / 28.96% / 74.66% | 2.54% / 28.40% / 75.88% |
+| Latency (T4) | 5.29 ms/image | 5.35 ms/image |
+
+Band figures are the 2026-10-05 symmetric closure tables above; thresholds and
+risk sets were fitted on validation and test was scored once.
+
+**The trade the promotion accepted.** A3b is more accurate and routes better on
+every band measure except review-band top-5 containment. Its calibration is
+about twice as loose: a stated confidence corresponds less closely to its actual
+hit rate, so confidence values shown to a user should be read as a ranking
+signal more than a literal probability.
+
+**Deployment evidence.** The model and its policy were deployed together.
+`--verify-live` passed against a restarted API, and 400 test images posted over
+HTTP matched the offline closure routing on top-1 class and decision band for
+400 of 400. The previous ResNet50 state is backed up and restorable with one
+command; see `8_runtime_contract.md`, "Deployed decision policy".

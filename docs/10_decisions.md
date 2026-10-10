@@ -18,10 +18,8 @@ Rules for this file:
 
 | ID | Question | Owner | Context |
 | --- | --- | --- | --- |
-| O-1 | Promote A3b ConvNeXt-Tiny over ResNet50 FT-V2? | User | A3b's recalibration is complete and accepted as evidence. It leads on accuracy and every decision band except review-band top-5 containment, but its calibration is about half as tight (test ECE 0.0556 vs 0.0265). The trade is accuracy against how literally a shown confidence can be read. Evidence: `3_model_results.md` §16. |
 | O-3 | Reconcile, delete, or keep the `.py`/`.ipynb` mirror pairs? | User | They have never been in sync (A1, A3, A3b 97.8-98.1%; A4 90.2% since its record was restored). `scripts/check_kaggle_mirrors.py` measures the drift and names each run's authoritative file. |
 | O-4 | Keep or delete `app/frontend-static/`? | User | A deliberately archived prototype (2026-05-31 plan), 1,967 unmaintained lines that git would preserve if deleted. |
-| O-5 | Run the Codex GitHub reviewer automatically or on demand? | User | Automatic review on every PR has exhausted the account's quota since 2026-09-10 (PRs #7–#11, including log-only #11). On-demand review (`@codex review`) would spend it where it matters. This is an account setting, not a repo file. |
 
 ## Accepted decisions
 
@@ -89,6 +87,9 @@ They came from the leaking method; the 100% figure was true by construction.
 
 ### D-008 — ResNet50 FT-V2 stays champion, with the corrected policy (2026-10-09, user)
 
+*Superseded as to the champion by D-013 (2026-10-10); the corrected-policy
+method still holds.*
+
 **Decision.** Keep ResNet50 FT-V2 as the model and deploy its corrected decision
 policy (0.70 / 0.35 / 0.05; 11 hard classes; 40 pairs). **Why.** The legacy
 policy, measured correctly, auto-accepted 59.02% at 94.83% and sent 11.52% to
@@ -134,3 +135,30 @@ sweep, contrary to D-002. **Ruled out.** Keeping the drifted copy as a working
 version. The June edits (`45ef2b7`, `e227ef4`) remain in git history; a future A4
 re-run belongs in a new directory, per D-002. **Evidence.** Agent log,
 2026-10-10, "Codex GitHub bot findings". Resolves O-2.
+
+### D-013 — Promote A3b ConvNeXt-Tiny to champion (2026-10-10, user)
+
+**Decision.** A3b ConvNeXt-Tiny replaces ResNet50 FT-V2 as the served model,
+deployed together with its own corrected decision policy (0.70 / 0.35 / 0.05;
+11 hard classes and 40 confusion pairs from A3b's validation predictions).
+**Why.** After both went through the identical, Codex-accepted recalibration
+pipeline, A3b leads on test top-1 (83.90% vs 78.28%), top-5 (95.78% vs 92.65%)
+and every decision band — auto-accept 66.63% at 96.66% against 61.20% at
+94.58% — except review-band top-5 containment (74.66% vs 75.88%). **Accepted
+cost.** Calibration is about twice as loose (test ECE 0.0556 vs 0.0265): the
+confidence A3b reports is less faithful to its true accuracy, even though
+routing on it performs better. **Ruled out.** Pairing A3b with ResNet50's policy
+(the deploy script now refuses a policy not fitted on the model's own
+predictions). **Rollback.** One `--restore` command, rehearsed byte-for-byte on
+a copy; see `8_runtime_contract.md`. **Evidence.** `3_model_results.md` §16 and
+§17; `8_runtime_contract.md`, "Deployed decision policy". Resolves O-1.
+
+### D-014 — Codex GitHub review on demand, not on every PR (2026-10-10, user)
+
+**Decision.** Request Codex GitHub reviews with an `@codex review` comment on
+PRs that need one, instead of reviewing every PR automatically. **Why.**
+Automatic review exhausted the account's quota from 2026-09-10 (PRs #7–#11,
+including a log-only PR), so the PRs that mattered went unreviewed. **Action
+outstanding.** This is a Codex account setting, not a repository file; it takes
+effect when the user changes it in the Codex settings. Until then, D-011 still
+applies: read both review channels. Resolves O-5.

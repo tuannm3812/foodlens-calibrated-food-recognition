@@ -179,25 +179,55 @@ the expected state in CI, which does not install the detector extra.
 version control. This section records which one is deployed and how to verify
 it.
 
-**Current state (deployed 2026-10-09 UTC):** champion **ResNet50 FT-V2** with
-the corrected decision policy from the symmetric closure run
-`results/accuracy_phase1/champion_resnet50_ft_v2/decision_layer_closure_2026-10-10/`.
+**Current state (promoted 2026-10-10 UTC):** champion **A3b ConvNeXt-Tiny**
+(`model_name: a3b_convnext_tiny`) with its own corrected decision policy from
+`results/accuracy_phase1/a3b_convnext_tiny_continued_224/decision_layer_closure_2026-10-10/`.
+Model and policy were deployed together in one promotion (decision D-013).
 
 | Field | Value |
 | --- | --- |
+| Architecture / checkpoint | `convnext_tiny` / `convnext_tiny_continued_best.pth` |
+| Checkpoint SHA-256 | `01d98554244d022d7a86d6158715dbf41364c51ee8ec8c2c7da325f5f852c8af` |
+| Temperature (`calibration.json`) | 0.88435298204422 |
 | `auto_confidence` / `suggest_confidence` / `margin_threshold` | 0.70 / 0.35 / 0.05 |
-| Hard classes | 11, bottom 10% by validation F1 |
-| Confusion pairs | 40, top by validation error count |
-| Source provenance SHA-256 | `b1068b6e4c999a9f6e6ff4cdd8bcd7af916b9a480347327ad84df91df2fdcce5` |
-| Deployed `decision_policy.json` SHA-256 | `377a98891a443faa3f2e76c3b9a1fbb9f963ec93447f693be6397b8a1673e465` |
-| Deployed `hard_classes.json` SHA-256 | `541b414421e18985b69dd5cfc357704bb482bdc77a8972e9d6d780d522ce329b` |
-| Deployed `confusion_pairs.json` SHA-256 | `80fc4b0adbdc7908c15c07aec41e715258357297859c3d6151602815d5793f24` |
-| Decision-layer fingerprint | `ed6e970d2b12640f0648c0810ed58f0f759cce0cf2b11c33cc95d3403a54fcd9` |
+| Hard classes / confusion pairs | 11 / 40, derived from A3b's validation predictions |
+| Source provenance SHA-256 | `63d8befae476f430441406b1bf09970f48ea2993732c13b28c57a020f0521a52` |
+| `model.json` SHA-256 | `dbbb04e6201e1a1c7854a1271e943c1c7347871f2c96c0807e7f5c912dc2210c` |
+| `calibration.json` SHA-256 | `5560c41b7b821f7d5acbd04f24ee08feee3c6b22878161c4bfd74ab79f121df3` |
+| `class_names.json` SHA-256 (unchanged) | `90ae276a0af258b6f9f9d0fcd0d9e1b59119cb91e428abd1607c13f5c8ac5884` |
+| `decision_policy.json` SHA-256 | `377a98891a443faa3f2e76c3b9a1fbb9f963ec93447f693be6397b8a1673e465` |
+| `hard_classes.json` SHA-256 | `f383e78fd5d7d427dc3df2a32197ca6bd5550c517d08cf1de658d51aa16ec101` |
+| `confusion_pairs.json` SHA-256 | `642099c2c7bdd5a82b580bbfc43c5411241b23e6a312c8a88e76b2b826205427` |
+| Decision-layer fingerprint | `39672f7878c13f211ecb9b252c9991aa307ec07cca10174c5fca437b4d97f7e4` |
 
-Measured on the held-out test split with that policy: auto-accept 61.20% at
-94.58% top-1, review 2.54%. Section 16 of `3_model_results.md` holds the full
-tables. The model checkpoint, `class_names.json` and `calibration.json`
-(temperature 0.958111) were not changed.
+`decision_policy.json` hashes the same as ResNet50's because both validation
+searches selected the same thresholds; the hard classes and confusion pairs
+differ by model.
+
+Measured on the held-out test split: auto-accept 66.63% at 96.66% top-1, review
+2.19%; test ECE 0.0556. **Verification of the deployment:** after a restart,
+`--verify-live` passed, reporting `convnext_tiny`, `a3b_convnext_tiny` and the
+checkpoint hash above; and 400 test images posted over HTTP to `/predict/image`
+(as PNG) matched the offline closure run on top-1 class and decision band for
+400 of 400, with no fallbacks.
+
+**Rolling back to ResNet50 FT-V2.** The promotion backed up the complete
+previous state — ResNet50 checkpoint, calibration, class names, policy files and
+provenance — in `app/artifacts/replaced_20261010T015403Z_alsevy57/`. One command
+restores it, then restart and verify:
+
+```bash
+python scripts/deploy_decision_policy.py --target app/artifacts \
+  --restore app/artifacts/replaced_20261010T015403Z_alsevy57
+```
+
+The restore path was rehearsed on a copy before the real promotion: the
+restored copy matched the pre-promotion state byte for byte, and `--verify-live`
+passed for ResNet50 after a restart.
+
+**Previous state (2026-10-09 to 2026-10-10):** ResNet50 FT-V2 with its corrected
+policy — decision-layer fingerprint `ed6e970d2b12640f0648c0810ed58f0f759cce0cf2b11c33cc95d3403a54fcd9`,
+auto-accept 61.20% at 94.58% on test, review 2.54%, temperature 0.958111.
 
 The replaced legacy policy (margin 0.40, 15 hard classes, 30 pairs, written
 2026-05-30 by Notebook 5 with the withdrawn methodology) is preserved in
