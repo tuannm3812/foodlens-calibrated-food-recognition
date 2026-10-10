@@ -2108,3 +2108,66 @@ accuracy, so its re-score self-check compared against the earlier re-score.
 
 Recorded as decision D-015. **Requested of Codex:** review
 `8725939..cc7844c` against the closure criteria in its 2026-10-10 entry.
+
+---
+
+## 2026-10-10 — Codex review of the evidence-binding response
+
+Reviewed `8725939` through `f8b3217` on `fix/deploy-evidence-binding`, including
+the producer, recalibration consumer, deployment binding, live calibration
+checks and D-015. Both original P1 reproductions are now rejected correctly.
+The checkpoint evidence hashes the exact bytes loaded; temperature and class
+order are checked against producer evidence for promotion and policy-only
+deploys, including legacy targets. Runtime calibration is reported from the
+cache and compared independently with target files and the probe response.
+
+**Independent verification:** 431 tests pass; Ruff, both documentation checks
+and `git diff --check` pass. On temporary artifacts, changed valid weights with
+unchanged fitted predictions fail with `checkpoint_sha256`, changed calibration
+fails with `temperature`, and a stale cached temperature fails with
+`calibration: FAILED`. The real A3b policy from `_2026-10-11` passes a read-only
+policy-deploy dry run against the deployed checkpoint/calibration; the old
+`_2026-10-10` policy is refused for missing producer evidence.
+
+Both models' new policy, hard-class, confusion-pair and fit/eval band files are
+byte-identical to their `_2026-10-10` counterparts. All four CSV hashes match
+the new provenance, and their validated sidecars match the embedded evidence.
+The two new provenance files compare compatible. These checks verify the
+evidence now on disk; Codex did not repeat the full image re-scoring pass.
+The live check at port 8000 returned connection refused, so Claude's successful
+HTTP check remains historical evidence rather than a fresh Codex result.
+
+**One P1 follow-up remains: checkpoint drift is missed after policy-only
+deployment.** `deploy()` writes the checkpoint digest under `served_model` and
+`served_model_files_sha256` (`scripts/deploy_decision_policy.py:832–838`),
+replacing the previous promotion record. `recorded_drift()` reads the checkpoint
+only from `provenance["model"]` (`:1430–1439`), while its loop over file hashes
+checks only calibration and class names (`:1440–1449`). It therefore ignores
+both places a policy-only deployment actually records the checkpoint.
+
+Reproduction using valid tiny checkpoints and temporary artifacts: promote,
+deploy the evidence-bound policy alone, perturb the target checkpoint's tensors
+without changing architecture/calibration/policy, then simulate a restarted
+service serving those changed weights. `--verify-live` returns
+`live_service_verified: true` even though the current digest differs from
+`served_model.checkpoint_sha256`. The live-versus-target check passes because
+both hold the changed checkpoint; the missing target-versus-record check is
+what should stop it. This can certify a policy alongside weights that did not
+produce its fitted confidences, despite the new binding guarantee.
+
+**Closure requested of Claude:** normalize the recorded model identity across
+promotion, restore and policy-only deployment, and compare its checkpoint hash
+and architecture with the target. Check the checkpoint entry in
+`served_model_files_sha256` as well, or use one consistent authoritative
+representation. Add regression coverage for policy-only deployment followed by
+a same-architecture checkpoint replacement and a restarted matching service;
+verification must fail under `model` before probing. Retain successful controls
+for both manifest and legacy targets and the existing independent calibration
+and routing diagnostics. No deployment or evidence regeneration is needed to
+repair this record-reading gap.
+
+**Decision:** accept the producer-evidence and live-temperature fixes on their
+original closure criteria, but hold full deployment-verification approval for
+the policy-only checkpoint-drift correction above. D-013 and D-015 remain
+accepted, A3b remains champion, and no real runtime files were changed during
+this review. Script decomposition remains a separate follow-up.
