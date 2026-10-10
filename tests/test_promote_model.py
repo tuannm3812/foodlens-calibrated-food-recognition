@@ -4,6 +4,11 @@ A model and the policy fitted on its confidences deploy together, as one atomic
 unit, through scripts/deploy_decision_policy.py. These tests use tiny stand-in
 checkpoints: the model builder is replaced, so no 100MB checkpoint and no
 network access are needed.
+
+The logic lives in app/deployment/. Failure injection patches the module that
+owns each call -- identity's build_model, verify_model_files and
+verify_through_backend, install's os.replace -- and each injection test asserts
+its fault was reached.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ from evidence_fixtures import provenance_with_evidence, write_scored_split
 from torch import nn
 
 from app.backend import artifacts
+from app.deployment import identity, install, paths
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "deploy_decision_policy.py"
 _spec = importlib.util.spec_from_file_location("deploy_decision_policy_promote", SCRIPT)
@@ -44,8 +50,16 @@ def tiny(architecture: str) -> nn.Module:
 
 
 @pytest.fixture(autouse=True)
-def fake_builder(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(deploy_mod, "build_model", tiny)
+def fake_builder(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Replace the model builder; return the architectures it was asked to build."""
+    built: list[str] = []
+
+    def builder(architecture: str) -> nn.Module:
+        built.append(architecture)
+        return tiny(architecture)
+
+    monkeypatch.setattr(identity, "build_model", builder)
+    return built
 
 
 def make_run(root: Path, name: str, architecture: str, policy: dict) -> tuple[Path, Path]:
@@ -151,7 +165,7 @@ def promote_argv(runs: dict[str, Path], target: Path, **overrides: str) -> list[
 
 
 def backup_path(record: dict) -> Path:
-    return deploy_mod.from_display(record["backup_dir"])
+    return paths.from_display(record["backup_dir"])
 
 
 def promote(runs, target):
@@ -163,8 +177,9 @@ def promote(runs, target):
 # --- A successful promotion ----------------------------------------------------
 
 
-def test_promotion_installs_model_and_policy_together(runs, target, capsys):
+def test_promotion_installs_model_and_policy_together(runs, target, capsys, fake_builder):
     assert deploy_mod.main(promote_argv(runs, target)) == 0
+    assert fake_builder == ["convnext_tiny"], "the stand-in builder checked the checkpoint"
     record = json.loads(capsys.readouterr().out)
 
     assert artifacts.read_model_manifest(target) == {
@@ -177,7 +192,7 @@ def test_promotion_installs_model_and_policy_together(runs, target, capsys):
     assert json.loads((target / "calibration.json").read_text()) == {"temperature": 0.884}
     assert json.loads((target / "decision_policy.json").read_text()) == NEW_POLICY
     assert record["operation"] == "model_promotion"
-    assert record["model"]["checkpoint_sha256"] == deploy_mod.sha256(target / "a3b_best.pth")
+    assert record["model"]["checkpoint_sha256"] == paths.sha256(target / "a3b_best.pth")
     assert record["checks"]["checkpoint_fits_architecture"].startswith("loads into convnext_tiny")
     assert record["previous_model"]["architecture"] == "resnet50"
     assert record["previous_model"]["manifest"] == "legacy_default"
@@ -200,7 +215,7 @@ def test_promotion_backup_holds_the_full_previous_state(runs, target):
     files = json.loads((backup / "backup_record.json").read_text())["files"]
     assert files["model.json"] is None
     assert files["a3b_best.pth"] is None
-    assert files["resnet50_ft_v2_best.pth"] == deploy_mod.sha256(backup / "resnet50_ft_v2_best.pth")
+    assert files["resnet50_ft_v2_best.pth"] == paths.sha256(backup / "resnet50_ft_v2_best.pth")
 
 
 def test_promotion_dry_run_checks_the_checkpoint_and_writes_nothing(runs, target, capsys):
@@ -238,10 +253,13 @@ def test_rejects_different_class_names(runs, target, capsys):
     assert_rejected(runs, target, capsys, "different set of classes")
 
 
-def test_rejects_a_checkpoint_that_does_not_fit_the_architecture(runs, target, capsys):
+def test_rejects_a_checkpoint_that_does_not_fit_the_architecture(
+    runs, target, capsys, fake_builder
+):
     assert_rejected(
         runs, target, capsys, "does not fit resnet50", **{"--architecture": "resnet50"}
     )
+    assert fake_builder == ["resnet50"], "the stand-in builder produced the misfit"
 
 
 def test_rejects_an_unknown_architecture(runs, target, capsys):
@@ -273,7 +291,7 @@ def different_weights(architecture: str) -> dict:
 def test_rejects_different_valid_weights_with_the_fitted_predictions(runs, target, capsys):
     torch.save(different_weights("convnext_tiny"), runs["a3b"] / "a3b_best.pth")
     # The weights still fit the architecture: only the evidence can tell.
-    deploy_mod.check_checkpoint_fits(runs["a3b"] / "a3b_best.pth", "convnext_tiny")
+    identity.check_checkpoint_fits(runs["a3b"] / "a3b_best.pth", "convnext_tiny")
     assert_rejected(runs, target, capsys, "checkpoint_sha256: policy evidence")
 
 
@@ -327,14 +345,14 @@ def test_incompatible_options_are_usage_errors(argv):
 
 def test_post_install_failure_rolls_the_promotion_back(runs, target, monkeypatch, capsys):
     before = tree(target)
-    real = deploy_mod.verify_model_files
+    real = identity.verify_model_files
 
     def fail_on_target(directory, *args):
         if Path(directory).resolve() == target.resolve():
             raise deploy_mod.DeployError("simulated post-install read failure")
         return real(directory, *args)
 
-    monkeypatch.setattr(deploy_mod, "verify_model_files", fail_on_target)
+    monkeypatch.setattr(identity, "verify_model_files", fail_on_target)
     assert deploy_mod.main(promote_argv(runs, target)) == 1
     err = capsys.readouterr().err
     assert "rolled back" in err and "simulated post-install read failure" in err
@@ -343,7 +361,7 @@ def test_post_install_failure_rolls_the_promotion_back(runs, target, monkeypatch
 
 def test_replace_failure_midway_rolls_the_promotion_back(runs, target, monkeypatch):
     before = tree(target)
-    real_replace = deploy_mod.os.replace
+    real_replace = install.os.replace
     calls = {"n": 0}
 
     def flaky_replace(src, dst):
@@ -352,19 +370,21 @@ def test_replace_failure_midway_rolls_the_promotion_back(runs, target, monkeypat
             raise OSError("simulated replace failure")
         return real_replace(src, dst)
 
-    monkeypatch.setattr(deploy_mod.os, "replace", flaky_replace)
+    monkeypatch.setattr(install.os, "replace", flaky_replace)
     with pytest.raises(deploy_mod.DeployError, match="rolled back"):
         promote(runs, target)
+    assert calls["n"] > 5, "four files were installed, so rollback must have replaced them"
     assert tree(target) == before
 
 
 # --- --restore -----------------------------------------------------------------
 
 
-def test_restore_round_trip_is_byte_identical(runs, target, capsys):
+def test_restore_round_trip_is_byte_identical(runs, target, capsys, fake_builder):
     before = tree(target, bookkeeping=False)
     original_provenance = json.loads((target / "deployment_provenance.json").read_text())
     promoted = promote(runs, target)
+    fake_builder.clear()
 
     assert deploy_mod.main(
         ["--target", str(target), "--restore", str(backup_path(promoted))]
@@ -382,7 +402,8 @@ def test_restore_round_trip_is_byte_identical(runs, target, capsys):
     assert record["restored_deployment_provenance"] == original_provenance
     assert record["model"]["architecture"] == "resnet50"
     assert record["checkpoint_fits_architecture"].startswith("loads into resnet50")
-    assert record["decision_layer_fingerprint"] == deploy_mod.read_through_backend(target)[3]
+    assert fake_builder == ["resnet50"], "the restore's checkpoint check used the stand-in"
+    assert record["decision_layer_fingerprint"] == identity.read_through_backend(target)[3]
 
 
 def test_a_restore_can_itself_be_undone(runs, target):
@@ -402,12 +423,13 @@ def test_failed_restore_rolls_back(runs, target, monkeypatch):
     record = promote(runs, target)
     promoted = tree(target)
     monkeypatch.setattr(
-        deploy_mod,
+        identity,
         "verify_through_backend",
         lambda *args: (_ for _ in ()).throw(deploy_mod.DeployError("simulated read failure")),
     )
-    with pytest.raises(deploy_mod.DeployError, match="rolled back"):
+    with pytest.raises(deploy_mod.DeployError, match="rolled back") as info:
         deploy_mod.restore(backup_path(record), target, False)
+    assert "simulated read failure" in str(info.value)
     assert tree(target) == promoted
 
 
@@ -513,7 +535,7 @@ def service(target: Path, model: dict | None, probe_temperature: float | None = 
     The probe response reports ``probe_temperature``, or by default the model
     block's temperature, as a real runtime reports the one it cached.
     """
-    fingerprint = deploy_mod.read_through_backend(target)[3]
+    fingerprint = identity.read_through_backend(target)[3]
     if probe_temperature is None and model is not None:
         probe_temperature = model.get("temperature")
 
@@ -550,7 +572,7 @@ def loaded(target: Path) -> dict:
     """The status model block of a runtime freshly loaded from the target's files."""
     return {
         "source": "loaded_runtime",
-        **deploy_mod.target_model_identity(target),
+        **identity.target_model_identity(target),
         **runtime_calibration(target),
     }
 
@@ -704,7 +726,7 @@ def test_policy_only_deploy_records_the_served_model_identity(runs, target):
     promote(runs, target)
     record = deploy_mod.deploy(runs["a3b_policy"], target, dry_run=False)
     assert record["model"] == {
-        key: deploy_mod.target_model_identity(target)[key]
+        key: identity.target_model_identity(target)[key]
         for key in ("architecture", "checkpoint", "model_name", "checkpoint_sha256")
     }
 
@@ -713,7 +735,7 @@ def test_verify_live_catches_a_checkpoint_swap_after_a_policy_only_deploy(runs, 
     promote(runs, target)
     deploy_mod.deploy(runs["a3b_policy"], target, dry_run=False)
     torch.save(different_weights("convnext_tiny"), target / "a3b_best.pth")
-    deploy_mod.check_checkpoint_fits(target / "a3b_best.pth", "convnext_tiny")
+    identity.check_checkpoint_fits(target / "a3b_best.pth", "convnext_tiny")
     assert_model_drift_caught_before_probing(target, capsys)
 
 
@@ -723,7 +745,7 @@ def test_verify_live_catches_a_checkpoint_swap_after_a_legacy_policy_only_deploy
     write_json(target / "calibration.json", {"temperature": 0.884})
     deploy_mod.deploy(runs["champion_policy"], target, dry_run=False)
     torch.save(different_weights("resnet50"), target / "resnet50_ft_v2_best.pth")
-    deploy_mod.check_checkpoint_fits(target / "resnet50_ft_v2_best.pth", "resnet50")
+    identity.check_checkpoint_fits(target / "resnet50_ft_v2_best.pth", "resnet50")
     assert_model_drift_caught_before_probing(target, capsys)
 
 
