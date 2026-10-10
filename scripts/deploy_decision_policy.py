@@ -47,8 +47,13 @@ target's ``model.json`` and checkpoint.
 **Policy-only mode** (``--source`` alone) touches only the three decision-layer
 files and the provenance record. The model checkpoint, class names, calibration
 and ``model.json`` are never modified, so deploying a policy can never change
-which model is served. When the target carries a ``model.json`` (written by a
-promotion), the policy must also have been fitted on that model's predictions.
+which model is served. The policy's producer evidence (recorded by the
+rescorer, carried in its ``derivation_provenance.json``; see
+``scripts/prediction_evidence.py``) must match the served model: the actual
+checkpoint bytes' SHA-256, the architecture ``model.json`` names (the legacy
+ResNet50 default without one), the target's class order and its
+``calibration.json`` temperature. When the target carries a ``model.json``
+with a ``model_run``, the predictions must also live in that run.
 
 **Promotion mode** (``--source`` with ``--model-run``) installs the checkpoint,
 ``calibration.json``, ``class_names.json``, ``model.json`` and the three policy
@@ -56,9 +61,14 @@ files as one unit through the same steps. A policy is fitted to one model's
 confidences, so a model and its policy never deploy apart. Before the target is
 touched it requires that the policy run's ``derivation_provenance.json`` names
 fit and eval predictions inside ``--model-run`` (with their recorded hashes),
-that ``class_names.json`` equals the target's in content and order, and that
-the staged checkpoint loads into ``--architecture`` with zero missing and zero
-unexpected keys. The backup also holds the previously served checkpoint.
+that ``class_names.json`` equals the target's in content and order, that the
+staged checkpoint loads into ``--architecture`` with zero missing and zero
+unexpected keys, and that the policy's producer evidence matches what is being
+installed -- the checkpoint's SHA-256, ``--architecture``, the class order and
+the ``calibration.json`` temperature, compared exactly. Directory membership
+alone is not evidence: a policy without it is refused, with instructions for
+regenerating it by re-scoring. The backup also holds the previously served
+checkpoint.
 
 **Restore mode** (``--restore BACKUP_DIR``) puts back the state a backup
 recorded -- restoring each backed-up file and removing files that did not exist
@@ -97,6 +107,11 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+# Producer evidence lives in a sibling module, so this script stays orchestration.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+import prediction_evidence  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TARGET = REPO_ROOT / "app" / "artifacts"
@@ -496,6 +511,106 @@ def served_model_run(target: Path) -> Path | None:
     return from_display(manifest["model_run"])
 
 
+def policy_binding(provenance: Any, provenance_path: Path) -> dict[str, Any]:
+    """What the policy's producer evidence binds it to; refuse a policy without evidence.
+
+    Directory membership does not show which checkpoint, class order and
+    temperature produced the confidences a policy was fitted to; only the
+    evidence the rescorer recorded does (see ``scripts/prediction_evidence.py``).
+    """
+    try:
+        return prediction_evidence.policy_evidence(provenance, provenance_path)
+    except prediction_evidence.EvidenceError as exc:
+        raise DeployError(str(exc)) from exc
+
+
+def check_evidence_matches(
+    evidence: dict[str, Any], model: dict[str, Any], source: Path, what: str
+) -> str:
+    """Require the policy's producer evidence to match a model field by field.
+
+    Args:
+        evidence: ``policy_binding()`` of the policy run.
+        model: ``prediction_evidence.model_binding()`` of the model being
+            installed or served.
+        source: The policy run, for the message.
+        what: Which model, for the message (e.g. "the model being promoted").
+
+    Returns:
+        A one-line statement of what was checked, for the deployment record.
+    """
+    problems = prediction_evidence.binding_mismatches(evidence, model)
+    if problems:
+        raise DeployError(
+            f"The policy in {display(source)} was fitted on predictions that {what} did not "
+            f"produce ({'; '.join(problems)}). Its thresholds describe another model's or "
+            "another calibration's confidences: recalibrate on this model's own re-scored "
+            "predictions before deploying."
+        )
+    return (
+        "checkpoint_sha256, architecture, class_names_sha256, temperature (exact) and "
+        f"preprocessing match the policy's producer evidence for {what}"
+    )
+
+
+def target_temperature(target: Path) -> float:
+    """The temperature a target's validated ``calibration.json`` holds.
+
+    The backend reads calibration tolerantly and silently serves a built-in
+    default when the file is missing or unreadable, so a target without a
+    valid one has no calibration a policy or a live service can be checked
+    against.
+    """
+    path = target / "calibration.json"
+    if not path.exists():
+        raise DeployError(
+            f"{display(path)} is missing: the backend would silently serve its built-in "
+            "default temperature, so there is no calibration to bind or verify against."
+        )
+    return validated_temperature(read_json(path), path)
+
+
+def target_class_names(target: Path) -> list[str]:
+    """A target's ordered ``class_names.json``."""
+    path = target / "class_names.json"
+    names = read_json(path)
+    if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+        raise DeployError(f"{display(path)} must be a JSON list of class names.")
+    return names
+
+
+def served_model(target: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The model a target serves -- ``model.json`` or the legacy ResNet50 default.
+
+    Returns:
+        ``(identity, binding)``: the served model for the record, with the
+        actual checkpoint bytes' SHA-256, and its
+        ``prediction_evidence.model_binding()``.
+    """
+    manifest = read_manifest(target)
+    checkpoint = target / manifest["checkpoint"]
+    if not checkpoint.is_file():
+        raise DeployError(
+            f"{display(checkpoint)}, the checkpoint the target serves, is missing; no policy "
+            "can be shown to belong to it."
+        )
+    class_names = target_class_names(target)
+    binding = prediction_evidence.model_binding(
+        checkpoint_sha256=sha256(checkpoint),
+        architecture=manifest["architecture"],
+        class_names=class_names,
+        temperature=target_temperature(target),
+    )
+    identity = {
+        "manifest": MANIFEST_FILE if (target / MANIFEST_FILE).exists() else "legacy_default",
+        **manifest,
+        "checkpoint_sha256": binding["checkpoint_sha256"],
+        "temperature": binding["temperature"],
+        "class_names_sha256": binding["class_names_sha256"],
+    }
+    return identity, binding
+
+
 def live_service_note(target: Path) -> str:
     """The record's statement of what the file check does not prove."""
     return (
@@ -691,6 +806,11 @@ def deploy(source: Path, target: Path, dry_run: bool) -> dict[str, Any]:
     model_check = (
         check_policy_belongs_to_model(source, provenance, model_run) if model_run else None
     )
+    evidence = policy_binding(provenance, provenance_path)
+    served_identity, served_binding = served_model(target)
+    evidence_check = check_evidence_matches(
+        evidence, served_binding, source, "the target's served model"
+    )
 
     record: dict[str, Any] = {
         "deployed_at": now_utc(),
@@ -703,6 +823,15 @@ def deploy(source: Path, target: Path, dry_run: bool) -> dict[str, Any]:
         "hard_class_count": len(hard),
         "confusion_pair_count": len(pairs),
         "untouched": ["model checkpoint", "class_names.json", "calibration.json"],
+        "policy_evidence": evidence,
+        "served_model": served_identity,
+        "policy_evidence_matches_served_model": evidence_check,
+        # So --verify-live can tell when the served model's files change later.
+        "served_model_files_sha256": {
+            served_identity["checkpoint"]: served_identity["checkpoint_sha256"],
+            "calibration.json": sha256(target / "calibration.json"),
+            "class_names.json": sha256(target / "class_names.json"),
+        },
     }
     if model_check is not None:
         record["untouched"].append(MANIFEST_FILE)
@@ -825,6 +954,7 @@ def promote(
         raise DeployError(f"{provenance_path} must hold a provenance object.")
     policy, hard, pairs = read_policy_files(source)
     policy_check = check_policy_belongs_to_model(source, provenance, model_run)
+    evidence = policy_binding(provenance, provenance_path)
 
     checkpoint = model_run_checkpoint(model_run, checkpoint_name)
     temperature = validated_temperature(
@@ -849,6 +979,15 @@ def promote(
         raise DeployError(str(exc)) from exc
 
     checkpoint_sha = sha256(checkpoint)
+    # What the policy's producer evidence must match: the checkpoint bytes, the
+    # architecture, the class order and the calibration being installed. It is
+    # checked right after the checkpoint is shown to fit the architecture.
+    model = prediction_evidence.model_binding(
+        checkpoint_sha256=checkpoint_sha,
+        architecture=architecture,
+        class_names=class_names,
+        temperature=temperature,
+    )
     record: dict[str, Any] = {
         "operation": "model_promotion",
         "deployed_at": now_utc(),
@@ -872,10 +1011,15 @@ def promote(
             "class_names.json": sha256(model_run / "class_names.json"),
         },
         "checks": {"policy_belongs_to_model": policy_check, "class_names": names_check},
+        "policy_evidence": evidence,
     }
+    what = "the model being promoted"
     if dry_run:
         record["checks"]["checkpoint_fits_architecture"] = check_checkpoint_fits(
             checkpoint, architecture
+        )
+        record["checks"]["policy_evidence_matches_model"] = check_evidence_matches(
+            evidence, model, source, what
         )
         record["dry_run"] = True
         return record
@@ -896,6 +1040,9 @@ def promote(
         # Every check runs on the staged bytes, before the target is touched.
         record["checks"]["checkpoint_fits_architecture"] = check_checkpoint_fits(
             staging / checkpoint.name, architecture, f"{display(checkpoint)} (staged copy)"
+        )
+        record["checks"]["policy_evidence_matches_model"] = check_evidence_matches(
+            evidence, model, source, what
         )
         fingerprint = verify_through_backend(staging, policy, hard, pairs)
         verify_model_files(staging, manifest, temperature, class_names)

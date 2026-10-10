@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 import torch
+from evidence_fixtures import provenance_with_evidence, write_scored_split
 from torch import nn
 
 from app.backend import artifacts
@@ -48,19 +49,29 @@ def fake_builder(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def make_run(root: Path, name: str, architecture: str, policy: dict) -> tuple[Path, Path]:
-    """A training run with a checkpoint, and a closure policy fitted on its predictions."""
+    """A training run with a checkpoint, and a closure policy fitted on its predictions.
+
+    The predictions are re-scored CSVs with evidence sidecars written by the
+    rescorer's own writer, bound to this run's checkpoint, class order and
+    temperature, and the provenance carries that evidence as recalibration does.
+    """
     run = root / name
     run.mkdir()
     torch.save(tiny(architecture).state_dict(), run / f"{name}_best.pth")
     write_json(run / "class_names.json", CLASSES)
     write_json(run / "calibration.json", {"temperature": 0.884})
-    predictions = {}
-    for split, file_name in (("fit", "val_predictions.csv"), ("eval", "test_predictions.csv")):
-        (run / file_name).write_text(f"{name},{split}\n")
-        predictions[split] = {
-            "path": str(run / file_name),
-            "sha256": deploy_mod.sha256(run / file_name),
-        }
+    scored = {
+        split: write_scored_split(
+            run / file_name,
+            split=split,
+            checkpoint=run / f"{name}_best.pth",
+            architecture=architecture,
+            class_names=CLASSES,
+            temperature=0.884,
+            marker=name,
+        )
+        for split, file_name in (("val", "val_predictions.csv"), ("test", "test_predictions.csv"))
+    }
     closure = run / "closure"
     closure.mkdir()
     write_json(closure / "decision_policy.json", [{**policy, "fit_split": "val"}])
@@ -70,7 +81,7 @@ def make_run(root: Path, name: str, architecture: str, policy: dict) -> tuple[Pa
     )
     write_json(
         closure / "derivation_provenance.json",
-        {"schema_version": 2, "predictions": predictions},
+        provenance_with_evidence(scored["val"], scored["test"]),
     )
     return run, closure
 
@@ -242,8 +253,55 @@ def test_rejects_predictions_changed_after_fitting(runs, target, capsys):
     assert_rejected(runs, target, capsys, "changed after the policy was fitted")
 
 
+# --- Evidence binding: the policy's predictions must come from this model -----
+#
+# Codex's 2026-10-10 review, finding 1: directory membership plus CSV hashes
+# let a promotion keep the fitted CSVs while swapping in different weights or a
+# different calibration. These must fail before installation.
+
+
+def different_weights(architecture: str) -> dict:
+    """Valid weights for the architecture that differ from the fixture's."""
+    torch.manual_seed(1234)
+    model = tiny(architecture)
+    with torch.no_grad():
+        for parameter in model.parameters():
+            parameter.add_(1.0)
+    return model.state_dict()
+
+
+def test_rejects_different_valid_weights_with_the_fitted_predictions(runs, target, capsys):
+    torch.save(different_weights("convnext_tiny"), runs["a3b"] / "a3b_best.pth")
+    # The weights still fit the architecture: only the evidence can tell.
+    deploy_mod.check_checkpoint_fits(runs["a3b"] / "a3b_best.pth", "convnext_tiny")
+    assert_rejected(runs, target, capsys, "checkpoint_sha256: policy evidence")
+
+
+def test_rejects_a_changed_calibration_temperature(runs, target, capsys):
+    write_json(runs["a3b"] / "calibration.json", {"temperature": 2.0})
+    assert_rejected(runs, target, capsys, "temperature: policy evidence 0.884, model 2.0")
+
+
+def test_rejects_a_policy_without_producer_evidence(runs, target, capsys):
+    provenance_path = runs["a3b_policy"] / "derivation_provenance.json"
+    provenance = json.loads(provenance_path.read_text())
+    for split in ("fit", "eval"):
+        del provenance["predictions"][split]["evidence"]
+    write_json(provenance_path, provenance)
+    assert_rejected(runs, target, capsys, "Regenerate evidence by re-scoring")
+
+
+def test_dry_run_records_the_evidence_binding(runs, target, capsys):
+    assert deploy_mod.main([*promote_argv(runs, target), "--dry-run"]) == 0
+    record = json.loads(capsys.readouterr().out)
+    assert record["checks"]["policy_evidence_matches_model"].startswith("checkpoint_sha256")
+    assert record["policy_evidence"]["temperature"] == 0.884
+    assert record["policy_evidence"]["architecture"] == "convnext_tiny"
+
+
 def test_rejects_a_run_with_several_checkpoints_unless_one_is_named(runs, target, capsys):
-    torch.save(tiny("convnext_tiny").state_dict(), runs["a3b"] / "a3b_last.pth")
+    # A byte copy, so its evidence (the fitted predictions' checkpoint) matches.
+    (runs["a3b"] / "a3b_last.pth").write_bytes((runs["a3b"] / "a3b_best.pth").read_bytes())
     assert_rejected(runs, target, capsys, "name one with --checkpoint")
     assert deploy_mod.main([*promote_argv(runs, target), "--checkpoint", "a3b_last.pth"]) == 0
 
@@ -400,6 +458,39 @@ def test_policy_deploy_cannot_pair_a_promoted_model_with_another_models_policy(
     assert tree(target) == before
 
 
+def test_policy_deploy_rejects_evidence_for_another_served_checkpoint(runs, target, capsys):
+    promote(runs, target)
+    torch.save(different_weights("convnext_tiny"), target / "a3b_best.pth")
+    before = tree(target)
+    argv = ["--source", str(runs["a3b_policy"]), "--target", str(target)]
+    assert deploy_mod.main(argv) == 1
+    assert "checkpoint_sha256: policy evidence" in capsys.readouterr().err
+    assert tree(target) == before
+
+
+def test_policy_deploy_rejects_evidence_for_another_served_temperature(runs, target, capsys):
+    promote(runs, target)
+    write_json(target / "calibration.json", {"temperature": 2.0})
+    before = tree(target)
+    argv = ["--source", str(runs["a3b_policy"]), "--target", str(target)]
+    assert deploy_mod.main(argv) == 1
+    assert "temperature: policy evidence 0.884, model 2.0" in capsys.readouterr().err
+    assert tree(target) == before
+
+
+def test_policy_deploy_to_a_legacy_target_binds_to_the_legacy_resnet(runs, target, capsys):
+    # No model.json: the served model is the legacy ResNet50 default, whose
+    # checkpoint bytes are the champion's. Only the temperature differs.
+    argv = ["--source", str(runs["champion_policy"]), "--target", str(target), "--dry-run"]
+    assert deploy_mod.main(argv) == 1
+    assert "temperature: policy evidence 0.884, model 0.958111" in capsys.readouterr().err
+    write_json(target / "calibration.json", {"temperature": 0.884})
+    assert deploy_mod.main(argv) == 0
+    record = json.loads(capsys.readouterr().out)
+    assert record["served_model"]["manifest"] == "legacy_default"
+    assert record["served_model"]["architecture"] == "resnet50"
+
+
 def test_policy_deploy_for_the_promoted_model_leaves_model_files_alone(runs, target):
     promote(runs, target)
     model_files = {
@@ -416,13 +507,23 @@ def test_policy_deploy_for_the_promoted_model_leaves_model_files_alone(runs, tar
 # --- --verify-live model identity ----------------------------------------------
 
 
-def service(target: Path, model: dict | None):
-    """A fake API that serves the target's decision layer and the given model block."""
+def service(target: Path, model: dict | None, probe_temperature: float | None = None):
+    """A fake API that serves the target's decision layer and the given model block.
+
+    The probe response reports ``probe_temperature``, or by default the model
+    block's temperature, as a real runtime reports the one it cached.
+    """
     fingerprint = deploy_mod.read_through_backend(target)[3]
+    if probe_temperature is None and model is not None:
+        probe_temperature = model.get("temperature")
 
     def fetch(method, url, body, headers):
         if url.endswith("/predict/image"):
-            return {"artifact_status": "ready", "fallback_reason": None}
+            return {
+                "artifact_status": "ready",
+                "fallback_reason": None,
+                "temperature": probe_temperature,
+            }
         status = {"decision_layer": {"source": "loaded_runtime", "fingerprint": fingerprint}}
         if model is not None:
             status["model"] = model
@@ -435,8 +536,23 @@ def verify(target: Path, fetch) -> int:
     return deploy_mod.main(["--target", str(target), "--verify-live", "http://api.test"], fetch)
 
 
+def runtime_calibration(target: Path) -> dict:
+    """The temperature and class-names hash a runtime that loaded the target reports."""
+    return {
+        "temperature": json.loads((target / "calibration.json").read_text())["temperature"],
+        "class_names_sha256": artifacts.class_names_sha256(
+            json.loads((target / "class_names.json").read_text())
+        ),
+    }
+
+
 def loaded(target: Path) -> dict:
-    return {"source": "loaded_runtime", **deploy_mod.target_model_identity(target)}
+    """The status model block of a runtime freshly loaded from the target's files."""
+    return {
+        "source": "loaded_runtime",
+        **deploy_mod.target_model_identity(target),
+        **runtime_calibration(target),
+    }
 
 
 def test_verify_live_passes_and_reports_the_promoted_model(runs, target, capsys):
@@ -480,3 +596,4 @@ def test_verify_live_fails_when_the_checkpoint_changed_after_deployment(runs, ta
     capsys.readouterr()
     assert verify(target, service(target, loaded(target))) == 1
     assert "changed after deployment" in capsys.readouterr().err
+

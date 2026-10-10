@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 import pytest
+from evidence_fixtures import provenance_with_evidence, write_scored_split
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "deploy_decision_policy.py"
 _spec = importlib.util.spec_from_file_location("deploy_decision_policy", SCRIPT)
@@ -21,6 +22,10 @@ _spec.loader.exec_module(deploy_mod)
 
 CLASSES = ["apple_pie", "bread_pudding", "pizza", "steak", "filet_mignon", "sushi"]
 POLICY = {"auto_confidence": 0.7, "suggest_confidence": 0.35, "margin_threshold": 0.05}
+# The legacy target's checkpoint bytes and calibration, which the source policy's
+# producer evidence must match.
+CHECKPOINT = b"checkpoint"
+TEMPERATURE = 0.958
 
 
 def write_json(path: Path, value: object) -> None:
@@ -43,7 +48,25 @@ def source(tmp_path: Path) -> Path:
             {"actual": "apple_pie", "predicted": "bread_pudding"},
         ],
     )
-    write_json(run / "derivation_provenance.json", {"generator": "test"})
+    # Fitted on predictions the target's model produced, with their evidence.
+    model_run = tmp_path / "model_run"
+    model_run.mkdir()
+    (model_run / "resnet50_ft_v2_best.pth").write_bytes(CHECKPOINT)
+    scored = [
+        write_scored_split(
+            model_run / f"{split}_predictions_rescored.csv",
+            split=split,
+            checkpoint=model_run / "resnet50_ft_v2_best.pth",
+            architecture="resnet50",
+            class_names=CLASSES,
+            temperature=TEMPERATURE,
+        )
+        for split in ("val", "test")
+    ]
+    write_json(
+        run / "derivation_provenance.json",
+        {"generator": "test", **provenance_with_evidence(*scored)},
+    )
     return run
 
 
@@ -57,7 +80,8 @@ def target(tmp_path: Path) -> Path:
     write_json(art / "hard_classes.json", ["pizza"])
     write_json(art / "confusion_pairs.json", [{"actual": "pizza", "predicted": "sushi"}])
     # The checkpoint --verify-live compares with the service's model identity.
-    (art / "resnet50_ft_v2_best.pth").write_bytes(b"checkpoint")
+    (art / "resnet50_ft_v2_best.pth").write_bytes(CHECKPOINT)
+    write_json(art / "calibration.json", {"temperature": TEMPERATURE})
     return art
 
 
@@ -149,6 +173,51 @@ def test_malformed_json_is_a_handled_error(source, target, capsys):
     (source / "confusion_pairs.json").write_text("[{")
     assert deploy_mod.main(["--source", str(source), "--target", str(target)]) == 1
     assert "not valid JSON" in capsys.readouterr().err
+
+
+# --- The policy must be bound to the served model by producer evidence -------
+
+
+def test_a_policy_without_producer_evidence_is_rejected(source, target, capsys):
+    write_json(source / "derivation_provenance.json", {"generator": "test"})
+    before = {p.name: p.read_bytes() for p in target.iterdir()}
+    assert deploy_mod.main(["--source", str(source), "--target", str(target)]) == 1
+    err = capsys.readouterr().err
+    assert "records no producer evidence" in err
+    assert "Regenerate evidence by re-scoring" in err
+    assert {p.name: p.read_bytes() for p in target.iterdir()} == before
+
+
+@pytest.mark.parametrize(
+    ("change", "fragment"),
+    [
+        (lambda art: (art / "resnet50_ft_v2_best.pth").write_bytes(b"other"), "checkpoint_sha256"),
+        (lambda art: write_json(art / "calibration.json", {"temperature": 0.9581}), "temperature"),
+        (lambda art: write_json(art / "class_names.json", CLASSES[::-1]), "class_names_sha256"),
+    ],
+)
+def test_evidence_unlike_the_served_model_is_rejected(source, target, capsys, change, fragment):
+    change(target)
+    before = {p.name: p.read_bytes() for p in target.iterdir()}
+    assert deploy_mod.main(["--source", str(source), "--target", str(target)]) == 1
+    assert f"{fragment}: policy evidence" in capsys.readouterr().err
+    assert {p.name: p.read_bytes() for p in target.iterdir()} == before
+
+
+def test_a_target_without_calibration_is_rejected(source, target, capsys):
+    (target / "calibration.json").unlink()
+    assert deploy_mod.main(["--source", str(source), "--target", str(target)]) == 1
+    assert "built-in default temperature" in capsys.readouterr().err
+
+
+def test_record_names_the_served_model_and_its_files(source, target):
+    record = deploy_mod.deploy(source, target, dry_run=True)
+    assert record["served_model"]["manifest"] == "legacy_default"
+    assert record["served_model"]["temperature"] == TEMPERATURE
+    assert record["policy_evidence"]["architecture"] == "resnet50"
+    assert set(record["served_model_files_sha256"]) == {
+        "resnet50_ft_v2_best.pth", "calibration.json", "class_names.json",
+    }
 
 
 # --- Failure safety: a failed deploy leaves the target exactly as it was ------
