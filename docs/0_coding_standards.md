@@ -49,9 +49,9 @@ parameters, so "fixing" it would break request parsing.
 ## `kaggle/*/` holds immutable run records
 
 Each `kaggle/<run>/` directory is the code that produced one published result.
-`kernel-metadata.json` names the `.ipynb` as Kaggle's `code_file` with
-`kernel_sources` empty, so the notebook must stay self-contained and cannot
-import a shared module — master §4 requires this directly.
+`kernel-metadata.json` names each run's `code_file` with `kernel_sources`
+empty, so the executed file must stay self-contained and cannot import a shared
+module — master §4 requires this directly.
 
 The four training scripts therefore stay duplicated on purpose. They differ by
 46 to 282 lines, and that difference *is* the record of what changed between
@@ -62,9 +62,18 @@ that produced it.
 Do not edit a run record to satisfy a linter or a refactor. New experiments get
 a new directory, never an edit to an existing one.
 
-Each directory also carries a `.py` mirror of its notebook. The two have never
-been in sync — currently 97.8-98.1% similar — so the notebook, not the mirror,
-is the record of what ran. `scripts/check_kaggle_mirrors.py` reports the drift.
+Each directory carries both a `.py` and a `.ipynb`. **The record of what ran
+is whichever file `kernel-metadata.json` names as `code_file`** — the notebook
+for A1, A3 and A3b, but the `.py` for A4, a `script` kernel. Never assume the
+notebook. The pairs have never been in sync (97.8-98.1% similar);
+`scripts/check_kaggle_mirrors.py` reports the drift and names the authoritative
+side for each run.
+
+Known deviation: the A4 `.py` in the repo is not what ran. The source pulled
+from the Kaggle kernel matches commit `151986b` byte for byte; the repo copy has
+since drifted by 154 lines, through two June commits and S0's lint sweep. A4 was
+cancelled and has no published result, so no reported figure is affected.
+Whether to restore it is open decision O-2 in `10_decisions.md`.
 
 ## Seven notebooks retain outputs
 

@@ -27,7 +27,7 @@ Project-specific rules and deliberate overrides: @docs/0_coding_standards.md
 
 - `docs/3_model_results.md` — every metric; any accuracy claim traces to a row here
 - `docs/8_runtime_contract.md` — the API surface and runtime status semantics
-- `docs/9_agent_log.md` — append-only session history
+- `docs/10_decisions.md` — key decisions, open ones first; `9_agent_log.md` is the trail
 
 ## Current state
 

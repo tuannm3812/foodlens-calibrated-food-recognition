@@ -114,6 +114,42 @@ __all__ = [
     "MOCK_IMAGE_PREDICTIONS",
     "MOCK_VIDEO_PREDICTIONS",
     "MOCK_MULTI_FOOD_REGIONS",
+    # The module's own public API. Before S2 this module had no __all__, so a
+    # star-import exported every public name; restricting it to re-exports
+    # silently dropped the entry points. tests/backend/test_inference_public_api.py
+    # pins the full pre-S2 public surface.
+    "ARTIFACT_DIR",
+    "DETECTOR_WEIGHTS",
+    "IMAGE_SIZE",
+    "MODEL_NAME",
+    "MULTI_FOOD_POLICY",
+    "artifact_dir_path",
+    "artifact_file_status",
+    "artifact_status",
+    "build_crop_data_url",
+    "build_full_image_region",
+    "build_multi_food_classifier_fallback_response",
+    "build_multi_food_mock",
+    "build_multi_food_response",
+    "build_prediction_response",
+    "classifier_artifacts_ready",
+    "classify_pil_image",
+    "decision_layer_status",
+    "detect_candidate_regions",
+    "detector_label_filter_config",
+    "detector_weights_path",
+    "load_runtime",
+    "make_classifier_head",
+    "open_rgb_image",
+    "predict_image_bytes",
+    "predict_mock",
+    "predict_multi_food_image_bytes",
+    "read_confusion_pairs",
+    "read_hard_classes",
+    "read_json",
+    "read_policy",
+    "read_temperature",
+    "runtime_status",
 ]
 
 ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "artifacts"
