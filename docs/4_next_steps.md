@@ -1,4 +1,4 @@
-# 5. Next Steps
+# 4. Next Steps
 
 ## 1. Current Position
 
@@ -41,7 +41,7 @@ The active model-improvement direction is now:
 > the expanded 130-class classifier with controlled fine-tuning.
 
 The detailed execution plan is maintained in
-[`08_model_accuracy_improvement_plan.md`](08_model_accuracy_improvement_plan.md).
+[`7_accuracy_improvement_plan.md`](7_accuracy_improvement_plan.md).
 
 ## 2. What The Latest Output Means
 

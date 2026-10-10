@@ -6,7 +6,6 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -228,7 +227,7 @@ class FoodDataset(Dataset):
         self,
         dataframe: pd.DataFrame,
         class_to_idx: dict[str, int],
-        transform: Optional[transforms.Compose] = None,
+        transform: transforms.Compose | None = None,
     ) -> None:
         self.df = dataframe.reset_index(drop=True)
         self.class_to_idx = class_to_idx
@@ -283,7 +282,7 @@ def build_convnext_tiny(pretrained: bool = False) -> nn.Module:
     return model
 
 
-def resolve_frozen_head_checkpoint() -> Optional[Path]:
+def resolve_frozen_head_checkpoint() -> Path | None:
     candidates = [
         CFG.CHALLENGER_ARTIFACT_DIR / CFG.FROZEN_HEAD_CHECKPOINT_NAME,
         CFG.CHALLENGER_ARTIFACT_DIR
@@ -343,7 +342,7 @@ print(
 def run_epoch(
     model: nn.Module,
     loader: DataLoader,
-    optimizer: Optional[optim.Optimizer] = None,
+    optimizer: optim.Optimizer | None = None,
 ) -> dict[str, float]:
     is_train = optimizer is not None
     model.train(is_train)
@@ -495,7 +494,7 @@ def expected_calibration_error(
     bin_boundaries = torch.linspace(0, 1, n_bins + 1)
     ece = torch.zeros(1)
 
-    for lower, upper in zip(bin_boundaries[:-1], bin_boundaries[1:]):
+    for lower, upper in zip(bin_boundaries[:-1], bin_boundaries[1:], strict=True):
         in_bin = confidences.gt(lower) & confidences.le(upper)
         proportion = in_bin.float().mean()
         if proportion.item() > 0:

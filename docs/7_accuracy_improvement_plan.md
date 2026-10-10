@@ -1,4 +1,4 @@
-# 8. Model Accuracy Improvement Plan
+# 7. Model Accuracy Improvement Plan
 
 ## 1. Objective
 

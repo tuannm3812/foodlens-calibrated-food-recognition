@@ -2,17 +2,20 @@
 
 This folder keeps the detailed project reasoning, standards, results, and next
 steps. The root `README.md` stays focused on the high-level project story.
+This folder follows Shape A numbering per [`0_coding_standards.md`](0_coding_standards.md).
 
 | File | Purpose |
 | --- | --- |
-| [`01_project_instructions.md`](01_project_instructions.md) | project objective, dataset scope, evaluation contract, and artifact policy |
-| [`02_coding_standards.md`](02_coding_standards.md) | repository, notebook, code, documentation, and git standards |
-| [`03_modeling_approach.md`](03_modeling_approach.md) | notebook-by-notebook reasoning flow and modeling decisions |
-| [`04_model_results.md`](04_model_results.md) | baseline, refinement, backbone, calibration, and inference results |
-| [`05_next_steps.md`](05_next_steps.md) | recommended next work, demo validation, and decision-layer plan |
-| [`06_foodlens_app_concept.md`](06_foodlens_app_concept.md) | FoodLens product concept, MVP scope, app architecture, and roadmap |
-| [`07_multi_food_detection_plan.md`](07_multi_food_detection_plan.md) | detector-plus-classifier plan for multi-food image and video recognition |
-| [`08_model_accuracy_improvement_plan.md`](08_model_accuracy_improvement_plan.md) | phased plan for improving Food-101 accuracy, calibration, and product-level model quality |
+| [`0_coding_standards.md`](0_coding_standards.md) | deltas from the master standard — this repo's deliberate differences only |
+| [`1_instructions.md`](1_instructions.md) | project objective, dataset scope, evaluation contract, and artifact policy |
+| [`2_modeling_approach.md`](2_modeling_approach.md) | notebook-by-notebook reasoning flow and modeling decisions |
+| [`3_model_results.md`](3_model_results.md) | baseline, refinement, backbone, calibration, and inference results |
+| [`4_next_steps.md`](4_next_steps.md) | recommended next work, demo validation, and decision-layer plan |
+| [`5_app_concept.md`](5_app_concept.md) | FoodLens product concept, MVP scope, app architecture, and roadmap |
+| [`6_multi_food_detection_plan.md`](6_multi_food_detection_plan.md) | detector-plus-classifier plan for multi-food image and video recognition |
+| [`7_accuracy_improvement_plan.md`](7_accuracy_improvement_plan.md) | phased plan for improving Food-101 accuracy, calibration, and product-level model quality |
+| [`8_runtime_contract.md`](8_runtime_contract.md) | `/runtime/status` and multi-food response field semantics |
+| [`9_agent_log.md`](9_agent_log.md) | append-only session history |
 
 Active notebook sequence:
 
