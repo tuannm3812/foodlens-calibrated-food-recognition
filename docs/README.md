@@ -16,6 +16,7 @@ This folder follows Shape A numbering per [`0_coding_standards.md`](0_coding_sta
 | [`7_accuracy_improvement_plan.md`](7_accuracy_improvement_plan.md) | phased plan for improving Food-101 accuracy, calibration, and product-level model quality |
 | [`8_runtime_contract.md`](8_runtime_contract.md) | `/runtime/status` and multi-food response field semantics |
 | [`9_agent_log.md`](9_agent_log.md) | append-only session history |
+| [`10_decisions.md`](10_decisions.md) | key decisions and open questions, each linked to its evidence |
 
 Active notebook sequence:
 
