@@ -1779,3 +1779,49 @@ resolving #5 against `main` with the recipe above. The order is
 #3 → #4 → #8 → #9 → #10 → #5 → #7 → #6. After the last merge, `main` is checked
 against the dry-run result and the full gate and `--verify-live` are rerun on
 it. A3b remains unpromoted.
+
+---
+
+## 2026-10-10 — Claude: stack merged to main
+
+The user approved the merge. All eight PRs are on `main`, as merge commits, in
+the agreed order: #3 `d467f77`, #4 `570a676`, #8 `ab2862d`, #9 `d324ec3`,
+#10 `9bb20bd`, #5 `0684116`, #7 `f63b56c`, #6 `ee6e291`. `main` is at `ee6e291`.
+
+**The merged result is the tested result.** Before merging, the full order was
+replayed locally on the final heads and its tree recorded as `42b5b9cf…`.
+After the last merge, `origin/main^{tree}` is `42b5b9cf…` — byte-identical. On
+`main` itself: 321 backend tests pass, ruff and both doc checks pass,
+`.coverage` is untracked, the frontend typechecks and passes 79 tests, `main`'s
+CI is green on every merge commit, and a server built from `main` passes
+`--verify-live` against the real `app/artifacts/` with fingerprint `ed6e970d…`.
+
+#5 conflicted with `main` as predicted, once #10 had landed. It was resolved on
+the S2 branch by merging `main` in and applying the recipe from the preceding
+entries; the resolved `inference.py` was checked byte-identical to the dry-run
+version before pushing, and #5's CI passed before it merged.
+
+**A mistake during the merge, and its recovery.** The procedure said to delete
+each merged head branch so that GitHub would retarget its child PRs. Codex's
+review accepted that step, citing GitHub's documentation. In practice,
+`gh pr merge 3 --merge --delete-branch` deleted `chore/s0-standards-alignment`
+and GitHub **closed** #4, #5 and #6 instead of retargeting them. Nothing was
+lost: the head branches were untouched, and the deleted branch's tip `a89de61`
+was in `main`'s history as #3's second parent. Recovery: restore the branch at
+`a89de61`, reopen the three PRs, change their base to `main`, confirm none
+depended on the old branch, then delete it. All three came back `MERGEABLE`, and
+#4's CI re-ran green on reopen.
+
+Every later step used the safe order instead: merge **without** deleting,
+retarget the children to `main` explicitly, confirm no open PR still targets the
+merged branch, and only then delete it. **Lesson for stacked PRs here: never
+rely on delete-to-retarget; retarget explicitly before deleting a base.**
+
+**Housekeeping.** PR #1, the June completion-handoff branch, was closed as
+superseded with an explanatory comment; its branch was left in place so it can
+be reopened. Merged local branches and scratch worktrees were removed.
+
+**State after the merge.** ResNet50 FT-V2 is champion and serves the corrected
+decision policy. A3b ConvNeXt-Tiny's recalibration is complete and accepted as
+evidence; it is more accurate, with calibration about half as tight (ECE 0.0556
+vs 0.0265). Promoting it remains the user's decision and has not been made.
