@@ -57,8 +57,9 @@ Response shape:
     fingerprints mean identical routing.
   - `error`: present instead of the fields above when `source` is
     `"artifact_files"` and the files cannot be read.
-- `model` — the classifier this process serves. Reading it never loads the
-  model and never hashes the checkpoint.
+- `model` — the classifier this process serves and the calibration it applies.
+  Reading it never loads the model and never hashes the checkpoint or the
+  class names.
   - `source`: `"loaded_runtime"` once `load_runtime()` has run, reporting the
     identity **cached at load time**; `"artifact_files"` before that,
     reporting what the artifact files would load. As with `decision_layer`, a
@@ -68,6 +69,17 @@ Response shape:
     manifest records one).
   - `checkpoint_sha256`: SHA-256 of the exact bytes `load_runtime()` loaded,
     computed once at load. `null` before load, with a `note` saying so.
+  - `temperature`: once loaded, the temperature the runtime **caches** and
+    scales every prediction's logits by — the same value a prediction
+    response reports as `temperature`. Before load, the temperature
+    `calibration.json` would give (the built-in default when it is missing
+    or unreadable), and the `note` says so. A loaded process keeps its cached
+    temperature after `calibration.json` changes, until it restarts.
+  - `class_names_sha256`: SHA-256 of the ordered class-name list the runtime
+    maps output indices to, computed once at load (`null` before load). The
+    canonical form is the list's compact, ASCII-escaped JSON in UTF-8
+    (`class_names_sha256()` in `app/backend/artifacts.py`), so a reordered
+    list hashes differently.
   - `error`: present instead of the identity fields when `source` is
     `"artifact_files"` and `model.json` is invalid.
 
@@ -173,6 +185,89 @@ With no weights and no `ultralytics` install, `/predict/multi-food/*` serves
 the deterministic demo fallback (`detector_status: "fallback_demo"`). That is
 the expected state in CI, which does not install the detector extra.
 
+## Prediction evidence
+
+A decision policy is fitted to one model's temperature-scaled confidences, so
+the prediction CSVs it is fitted on mean something only together with what
+produced them. `kaggle/a3b_rescore/rescore_predictions.py` therefore writes,
+next to each `<output>.csv`, a sidecar **`<output>.csv.evidence.json`**
+(schema `foodlens.prediction_evidence`, version 1) recording:
+
+- `checkpoint`: its path and the **SHA-256 of the exact bytes loaded**;
+- `architecture`;
+- `class_names`: the SHA-256 of the **ordered** class list used for the
+  output indices (same canonical form as the status block's);
+- `temperature`: the effective value and its source;
+- `preprocessing`: the eval transform — `Resize((224, 224))` with bilinear
+  interpolation, `ToTensor`, then normalisation with mean
+  `[0.485, 0.456, 0.406]` and std `[0.229, 0.224, 0.225]` — the transform
+  `load_runtime()` also applies;
+- `producer`: the rescorer's path and SHA-256;
+- `self_check`: passed, or skipped (stated, with no recorded value), and the
+  accuracies compared;
+- `predictions`: the output CSV's file name, row count, split and
+  **SHA-256**, which binds the sidecar to exactly that file.
+
+The sidecar is written under the CSV's own rule: atomically, and only once the
+self-check passes. An existing sidecar is refused without `--overwrite`.
+
+`scripts/recalibrate_decision_layer.py` verifies each sidecar's CSV hash
+against the bytes it read and rejects a mismatch; rejects a `temperature`
+column that holds more than one value or differs from the sidecar's; and
+requires the fit and eval evidence to agree on checkpoint, architecture,
+class order, temperature and preprocessing. Evidence on one split only is
+rejected. The verified sidecars are recorded in `derivation_provenance.json`
+(schema version 3) under `predictions.fit.evidence` and
+`predictions.eval.evidence`. A run from CSVs with no sidecar still completes,
+but records no evidence, and the deploy script refuses its policy.
+`scripts/compare_provenance.py` treats the model-describing evidence
+(checkpoint, architecture, class names, temperature, self-check) as an
+expected difference between two models' runs; the evidence schema,
+preprocessing and producer hash must match.
+
+The consumer side, and the checks below, live in
+`scripts/prediction_evidence.py`. The rescorer keeps its own copy of the
+writer because it is a Kaggle `code_file` and must stay self-contained; tests
+pin the two together.
+
+### Regenerating evidence for older runs
+
+Prediction CSVs written before 2026-10-10 have no sidecar, and policies
+recalibrated from them record no evidence; the deploy script refuses them.
+Evidence is never written by hand: re-score with the rescorer, under a **new**
+output name so nothing existing is overwritten, then recalibrate from the new
+CSVs:
+
+```bash
+RUN=results/accuracy_phase1/a3b_convnext_tiny_continued_224
+for SPLIT in val test; do
+  python kaggle/a3b_rescore/rescore_predictions.py --results-dir $RUN \
+    --arch convnext_tiny --split $SPLIT --data-dir data/food41/images \
+    --output $RUN/${SPLIT}_predictions_rescored_<date>.csv
+done
+python scripts/recalibrate_decision_layer.py --results-dir $RUN \
+  --fit-split val --eval-split test \
+  --fit-predictions-file $RUN/val_predictions_rescored_<date>.csv \
+  --eval-predictions-file $RUN/test_predictions_rescored_<date>.csv \
+  --output-dir $RUN/decision_layer_closure_<date>
+```
+
+For a checkpoint outside the run directory, pass `--checkpoint` as an
+absolute path (a relative one is resolved inside `--results-dir`), and
+`--expected-top1`/`--expected-top5` when the run has no `<split>_metrics.csv`.
+
+This was done for both models on 2026-10-10, into
+`*_predictions_rescored_2026-10-11.csv` and `decision_layer_closure_2026-10-11/`.
+All four regenerated CSVs are byte-identical to the
+`*_predictions_rescored.csv` files the 2026-10-10 policies were fitted on, and
+every regenerated `decision_policy.json`, `hard_classes.json`,
+`confusion_pairs.json` and band-metric table is identical to the
+`decision_layer_closure_2026-10-10/` one. The policy deployed today is
+therefore the A3b `decision_layer_closure_2026-10-11/` policy byte for byte,
+now with evidence bound to the deployed checkpoint and calibration. ResNet50's
+val self-check compared against its earlier re-score (77.90% / 92.36%), as
+that split has no independently recorded figure.
+
 ## Deployed decision policy
 
 `app/artifacts/` is gitignored, so the policy the backend serves is not in
@@ -242,6 +337,17 @@ auto-accepted 59.02% at 94.83% and routed 11.52% of images to review — not the
 2. Stop or restart **every** API process that serves `app/artifacts/`.
 3. `scripts/deploy_decision_policy.py --verify-live <API base URL>`.
 
+A policy-only deploy requires the policy's producer evidence (see "Prediction
+evidence") to match the **served** model: the architecture `model.json` names
+(the legacy ResNet50 default when there is none), the SHA-256 of the actual
+checkpoint file it names, the target's class order and the temperature in the
+target's `calibration.json`, compared exactly. A target without
+`calibration.json` is refused, since the backend would silently serve a
+built-in default. When `model.json` records a `model_run`, the predictions
+must also live inside it. The record names the served model and the hashes
+of its checkpoint, `calibration.json` and `class_names.json`
+(`served_model_files_sha256`), so `--verify-live` can detect later drift.
+
 Never copy recalibration outputs by hand: the recalibration script writes
 `decision_policy.json` as a one-element list, while `read_policy()` expects a
 dict. A verbatim copy makes `load_runtime()`
@@ -259,22 +365,36 @@ and the new backup directory is removed.
 
 **Why the restart.** `load_runtime()` caches the model, policy, hard classes
 and confusion pairs in the process on first use, so a running API keeps
-serving the old model and decision layer after the files change. The deploy
-record's `artifact_files_verified` therefore covers the files only.
-`--verify-live` sends one synthetic image to `/predict/image` (any
-`fallback_reason` fails the check), then requires `/runtime/status` to report,
-as `loaded_runtime`:
+serving the old model, decision layer and temperature after the files change.
+The deploy record's `artifact_files_verified` therefore covers the files only.
 
-- `decision_layer.fingerprint` equal to the target files' and to
-  `deployment_provenance.json`'s, when it records one;
-- `model` with the target's `architecture`, `model_name` and
-  `checkpoint_sha256` (the target's checkpoint is hashed by the script; the
-  service reports the hash it computed at load). When the provenance records a
-  model, the target checkpoint must still match it.
+`--verify-live` first checks the target's files against
+`deployment_provenance.json`, where it records them: the decision-layer
+fingerprint, the checkpoint hash, the hashes of `calibration.json` and
+`class_names.json` (`deployed_files_sha256` or `served_model_files_sha256`)
+and the recorded temperature. A file changed after deployment fails here,
+before the service is probed, even if a restarted service would agree with
+it. It then sends one synthetic image to `/predict/image` (any
+`fallback_reason` fails the check) and reads `/runtime/status`. Three checks
+are reported **independently**, each as `passed` or `FAILED` with every
+problem found:
 
-Every mismatch is named, with both values, and the command exits 1. A service
-running code from before the `model` block fails the check: restart it on the
-current code.
+- **routing** — `decision_layer`, as `loaded_runtime`, with a fingerprint
+  equal to the target files';
+- **model** — the `model` block, as `loaded_runtime`, with the target's
+  `architecture`, `model_name` and `checkpoint_sha256` (the target's
+  checkpoint is hashed by the script; the service reports the hash it
+  computed at load);
+- **calibration** — the probe response's `temperature` equals the `model`
+  block's cached `temperature`, both equal the target's validated
+  `calibration.json` exactly, and the block's `class_names_sha256` equals the
+  target's. Temperature is in neither the model identity nor the routing
+  fingerprint, so a service with the right model and policy but a stale
+  temperature fails only here.
+
+The command exits 1 on any failure, naming both values of every mismatch. A
+service running code from before the `model` block, or before it reported
+`temperature`, fails the check: restart it on the current code.
 
 **Promoting a model.** A decision policy is fitted to one model's
 confidences, so a model and its policy deploy together, never apart:
@@ -294,6 +414,17 @@ the target is touched it refuses:
 - a policy whose `derivation_provenance.json` names fit or eval predictions
   outside `--model-run`, or whose prediction files no longer match their
   recorded hashes (for example, the champion's policy with A3b's checkpoint);
+- a policy whose producer evidence does not match what is being installed:
+  the checkpoint's SHA-256, `--architecture`, the class order and the
+  temperature in the `calibration.json` being installed, compared exactly
+  (tolerance zero; JSON round-trips the value bit for bit). Directory
+  membership is not evidence, so different valid weights of the same
+  architecture, or a changed temperature, are refused even when the fitted
+  CSVs are unchanged. A policy with **no** evidence is refused with
+  instructions to regenerate it (see "Regenerating evidence for older
+  runs"); no flag skips the check. The comparison runs right after the
+  checkpoint is shown to fit the architecture, so a checkpoint that does not
+  load reports that instead;
 - a `class_names.json` that differs from the target's in content **or order**
   — a reordered list would mislabel every prediction;
 - a checkpoint that does not load into `--architecture` with zero missing and
@@ -304,7 +435,8 @@ checkpoint, the previous `deployment_provenance.json`, and a
 `backup_record.json` that also records which files did not exist (for
 example, no `model.json` before the first promotion). After a promotion,
 policy-only deploys check that the policy was fitted on the predictions of the
-run `model.json` names.
+run `model.json` names, and that its evidence matches the served checkpoint
+and calibration.
 
 **Rolling back: `--restore`.**
 `scripts/deploy_decision_policy.py --restore <target>/replaced_<stamp>_<suffix>`
@@ -318,8 +450,12 @@ rolls back on any failure. `deployment_provenance.json` then records the
 restore, embedding the restored provenance as `restored_deployment_provenance`;
 every other file is byte-identical to the backed-up state. Backups made before
 `backup_record.json` existed (such as `replaced_20261009T224436Z/`) are
-refused, since the files that did not exist then are unknown. Restart every
-API process and run `--verify-live` after a restore, as after a deploy.
+refused, since the files that did not exist then are unknown. A restore puts
+back a recorded state exactly and does not re-check producer evidence; a
+policy-only deploy afterwards does. Rehearsed on a copy on 2026-10-10: after
+restoring the ResNet50 backup, ResNet50's `decision_layer_closure_2026-10-11/`
+policy validated against it and A3b's was refused. Restart every API process
+and run `--verify-live` after a restore, as after a deploy.
 
 **Verifying the deployed state.** Compare `deployment_provenance.json` against
 the hashes above, then run `--verify-live` against the running API. The
