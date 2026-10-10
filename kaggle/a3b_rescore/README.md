@@ -94,7 +94,7 @@ renamed into place first, so an interruption can leave a CSV without a
 sidecar (which every consumer rejects), never a sidecar for bytes that are not
 there. `scripts/recalibrate_decision_layer.py` verifies the sidecar and
 carries it into the policy's provenance, and `scripts/deploy_decision_policy.py`
-refuses a policy without it -- see "Prediction evidence" in
+(through `app/deployment/identity.py`) refuses a policy without it -- see "Prediction evidence" in
 `docs/8_runtime_contract.md`, which also covers regenerating evidence for
 CSVs written before the sidecar existed. The writer is part of this file
 rather than imported from `scripts/prediction_evidence.py` because Kaggle runs

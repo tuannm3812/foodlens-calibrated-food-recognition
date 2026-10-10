@@ -364,6 +364,14 @@ with the decision-layer fingerprint. Any failure after installation starts is
 rolled back: the target and its provenance are left byte-for-byte as they were,
 and the new backup directory is removed.
 
+The script itself only parses arguments, dispatches and prints; the logic lives
+in `app/deployment/`. `identity.py` holds the model and policy checks and the
+adapters to the backend's readers, `records.py` the provenance record's shape,
+`install.py` staging, backup, atomic install and rollback, one module per
+operation (`policy.py`, `promote.py`, `restore.py`), and `verify_live.py` the
+live check, which imports no write operation. The backend never imports
+`app/deployment/`.
+
 **Why the restart.** `load_runtime()` caches the model, policy, hard classes
 and confusion pairs in the process on first use, so a running API keeps
 serving the old model, decision layer and temperature after the files change.
