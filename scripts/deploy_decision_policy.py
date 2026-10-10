@@ -128,6 +128,8 @@ BACKUP_RECORD_FILE = "backup_record.json"
 RESERVED_NAMES = frozenset((*DEPLOYED_FILES, *MODEL_FILES, PROVENANCE_FILE, BACKUP_RECORD_FILE))
 CLASS_COUNT = 101
 IDENTITY_KEYS = ("architecture", "model_name", "checkpoint_sha256")
+# The model identity every deployment record carries under "model".
+RECORDED_MODEL_KEYS = ("architecture", "checkpoint", "model_name", "checkpoint_sha256")
 # What --verify-live checks, each reported on its own.
 CHECK_NAMES = ("model", "routing", "calibration")
 HTTP_TIMEOUT_SECONDS = 180  # the first prediction after a restart loads the model
@@ -830,6 +832,9 @@ def deploy(source: Path, target: Path, dry_run: bool) -> dict[str, Any]:
         "untouched": ["model checkpoint", "class_names.json", "calibration.json"],
         "policy_evidence": evidence,
         "served_model": served_identity,
+        # The same authoritative identity promotion and restore record, so
+        # --verify-live reads one representation whatever wrote the record.
+        "model": {key: served_identity[key] for key in RECORDED_MODEL_KEYS},
         "policy_evidence_matches_served_model": evidence_check,
         # So --verify-live can tell when the served model's files change later.
         "served_model_files_sha256": {
@@ -1405,6 +1410,21 @@ def live_calibration_problems(
     return problems
 
 
+def recorded_model_identity(provenance: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The model identity a deployment record says was deployed, or None.
+
+    Promotion, restore and (from 2026-10-11) policy-only records carry it under
+    ``model``. Policy-only records written before then carry it only under
+    ``served_model``; read that as a fallback so those records are still
+    checked rather than silently skipped.
+    """
+    for key in ("model", "served_model"):
+        identity = provenance.get(key)
+        if isinstance(identity, dict) and identity.get("checkpoint_sha256"):
+            return identity
+    return None
+
+
 def recorded_drift(
     provenance: Mapping[str, Any],
     target: Path,
@@ -1427,20 +1447,29 @@ def recorded_drift(
             f"{PROVENANCE_FILE} (fingerprint {recorded}); they changed after deployment. "
             "Redeploy before verifying the service."
         )
-    recorded_model = provenance.get("model")
-    if isinstance(recorded_model, dict) and recorded_model.get("checkpoint_sha256") not in (
-        None,
-        expected_model["checkpoint_sha256"],
-    ):
-        drift["model"].append(
-            f"The target checkpoint (sha256 {expected_model['checkpoint_sha256']}) no longer "
-            f"matches {PROVENANCE_FILE} (sha256 {recorded_model['checkpoint_sha256']}); "
-            + redeploy
-        )
+    recorded_model = recorded_model_identity(provenance)
+    if recorded_model is not None:
+        for key in ("checkpoint_sha256", "architecture", "checkpoint"):
+            recorded_value = recorded_model.get(key)
+            if recorded_value is not None and recorded_value != expected_model[key]:
+                drift["model"].append(
+                    f"The target's {key} ({expected_model[key]}) no longer matches "
+                    f"{PROVENANCE_FILE} ({recorded_value}); " + redeploy
+                )
     for key in ("deployed_files_sha256", "served_model_files_sha256"):
         hashes = provenance.get(key)
         if not isinstance(hashes, dict):
             continue
+        for name, recorded_hash in hashes.items():
+            if not name.endswith(".pth") or not (target / name).is_file():
+                continue
+            if recorded_hash != sha256(target / name):
+                problem = (
+                    f"The target's {name} (sha256 {sha256(target / name)}) no longer matches "
+                    f"{PROVENANCE_FILE}'s {key} (sha256 {recorded_hash}); " + redeploy
+                )
+                if problem not in drift["model"]:
+                    drift["model"].append(problem)
         for name in ("calibration.json", "class_names.json"):
             if name in hashes and hashes[name] != sha256(target / name):
                 drift["calibration"].append(

@@ -665,3 +665,84 @@ def test_verify_live_accepts_a_matching_restarted_runtime(runs, target, capsys):
     assert result["calibration"]["class_names_sha256"] == runtime_calibration(target)[
         "class_names_sha256"
     ]
+
+
+# --- --verify-live after a policy-only deploy -------------------------------------
+#
+# Codex's review of the evidence-binding fix (2026-10-10): a policy-only deploy
+# recorded the served checkpoint under `served_model`, but recorded_drift() read
+# the checkpoint only from `model`. A same-architecture checkpoint swap after a
+# policy-only deploy therefore went unnoticed: a restarted service serving the
+# swapped weights matched the swapped target, and nothing compared the target
+# with the record. Every deployment kind must now catch it, under `model`,
+# before the service is probed.
+
+
+def counting(fetch):
+    """Wrap a fake service so the test can see whether it was called at all."""
+    calls: list[str] = []
+
+    def wrapped(method, url, body, headers):
+        calls.append(url)
+        return fetch(method, url, body, headers)
+
+    return wrapped, calls
+
+
+def assert_model_drift_caught_before_probing(target: Path, capsys) -> None:
+    capsys.readouterr()
+    # A restarted runtime serving exactly the target's (swapped) files.
+    fetch, calls = counting(service(target, loaded(target)))
+    assert verify(target, fetch) == 1
+    err = capsys.readouterr().err
+    assert "model: FAILED" in err
+    assert "changed after deployment" in err
+    assert calls == []
+
+
+def test_policy_only_deploy_records_the_served_model_identity(runs, target):
+    promote(runs, target)
+    record = deploy_mod.deploy(runs["a3b_policy"], target, dry_run=False)
+    assert record["model"] == {
+        key: deploy_mod.target_model_identity(target)[key]
+        for key in ("architecture", "checkpoint", "model_name", "checkpoint_sha256")
+    }
+
+
+def test_verify_live_catches_a_checkpoint_swap_after_a_policy_only_deploy(runs, target, capsys):
+    promote(runs, target)
+    deploy_mod.deploy(runs["a3b_policy"], target, dry_run=False)
+    torch.save(different_weights("convnext_tiny"), target / "a3b_best.pth")
+    deploy_mod.check_checkpoint_fits(target / "a3b_best.pth", "convnext_tiny")
+    assert_model_drift_caught_before_probing(target, capsys)
+
+
+def test_verify_live_catches_a_checkpoint_swap_after_a_legacy_policy_only_deploy(
+    runs, target, capsys
+):
+    write_json(target / "calibration.json", {"temperature": 0.884})
+    deploy_mod.deploy(runs["champion_policy"], target, dry_run=False)
+    torch.save(different_weights("resnet50"), target / "resnet50_ft_v2_best.pth")
+    deploy_mod.check_checkpoint_fits(target / "resnet50_ft_v2_best.pth", "resnet50")
+    assert_model_drift_caught_before_probing(target, capsys)
+
+
+def test_verify_live_catches_a_checkpoint_swap_after_a_restore(runs, target, capsys):
+    promoted = promote(runs, target)
+    deploy_mod.restore(backup_path(promoted), target, False)
+    torch.save(different_weights("resnet50"), target / "resnet50_ft_v2_best.pth")
+    assert_model_drift_caught_before_probing(target, capsys)
+
+
+def test_verify_live_passes_after_a_policy_only_deploy(runs, target, capsys):
+    promote(runs, target)
+    deploy_mod.deploy(runs["a3b_policy"], target, dry_run=False)
+    capsys.readouterr()
+    assert verify(target, service(target, loaded(target))) == 0
+
+
+def test_verify_live_passes_after_a_legacy_policy_only_deploy(runs, target, capsys):
+    write_json(target / "calibration.json", {"temperature": 0.884})
+    deploy_mod.deploy(runs["champion_policy"], target, dry_run=False)
+    capsys.readouterr()
+    assert verify(target, service(target, loaded(target))) == 0

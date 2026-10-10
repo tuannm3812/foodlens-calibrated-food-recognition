@@ -344,9 +344,10 @@ checkpoint file it names, the target's class order and the temperature in the
 target's `calibration.json`, compared exactly. A target without
 `calibration.json` is refused, since the backend would silently serve a
 built-in default. When `model.json` records a `model_run`, the predictions
-must also live inside it. The record names the served model and the hashes
-of its checkpoint, `calibration.json` and `class_names.json`
-(`served_model_files_sha256`), so `--verify-live` can detect later drift.
+must also live inside it. The record names the served model — under `model`,
+the same key promotion and restore use — and the hashes of its checkpoint,
+`calibration.json` and `class_names.json` (`served_model_files_sha256`), so
+`--verify-live` can detect later drift.
 
 Never copy recalibration outputs by hand: the recalibration script writes
 `decision_policy.json` as a one-element list, while `read_policy()` expects a
@@ -370,9 +371,13 @@ The deploy record's `artifact_files_verified` therefore covers the files only.
 
 `--verify-live` first checks the target's files against
 `deployment_provenance.json`, where it records them: the decision-layer
-fingerprint, the checkpoint hash, the hashes of `calibration.json` and
-`class_names.json` (`deployed_files_sha256` or `served_model_files_sha256`)
-and the recorded temperature. A file changed after deployment fails here,
+fingerprint; the model's architecture, checkpoint name and checkpoint hash
+(from the record's `model` entry, which every kind of deployment writes — older
+policy-only records are read from `served_model`); every recorded checkpoint,
+`calibration.json` and `class_names.json` hash (`deployed_files_sha256` or
+`served_model_files_sha256`); and the recorded temperature. A file changed
+after deployment fails here, including a checkpoint swapped for different
+weights of the same architecture after a policy-only deploy,
 before the service is probed, even if a restarted service would agree with
 it. It then sends one synthetic image to `/predict/image` (any
 `fallback_reason` fails the check) and reads `/runtime/status`. Three checks
