@@ -319,7 +319,8 @@ Detailed documentation is available in:
 
 ## Roadmap
 
-- Recalibrate the decision layer around the A3b ConvNeXt-Tiny checkpoint.
+- Measure the deployed A3b champion's latency and representative crop errors
+  before choosing the next training experiment.
 - Build decision policy on the E2 expanded-taxonomy checkpoint (`notebooks/archive/14_expanded_taxonomy_v2_finetune.ipynb`)
   using `notebooks/archive/15_expanded_taxonomy_v2_decision_layer.ipynb`, then push policy artifacts.
 - Improve detector quality with food-specific detection or segmentation.

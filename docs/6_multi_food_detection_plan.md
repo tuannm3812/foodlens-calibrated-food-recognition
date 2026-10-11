@@ -19,7 +19,10 @@ The most practical next step is a **detector-plus-classifier pipeline**:
 
 1. Use **YOLO** or **RT-DETR** to propose food/object bounding boxes.
 2. Crop each detected region.
-3. Run the current **ResNet50 FT-V2 Food-101 classifier** on each crop.
+3. Run the served **Food-101 classifier** on each crop — ResNet50 FT-V2 when
+   this plan was written, A3b ConvNeXt-Tiny since 2026-10-10 (D-013). Crops go
+   through the same runtime as whole images, so they use whichever model
+   `model.json` names.
 4. Apply the existing calibrated decision layer per crop.
 5. Aggregate detections for image-level and video-level summaries.
 

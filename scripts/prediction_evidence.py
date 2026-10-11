@@ -13,9 +13,10 @@ This module is the consumer side:
   verify each sidecar against the CSV actually read, check the CSV's
   ``temperature`` column, require the fit and eval evidence to describe the same
   model, and carry the evidence into ``derivation_provenance.json``.
-- ``scripts/deploy_decision_policy.py`` calls ``policy_evidence()`` and
-  ``binding_mismatches()`` to require that evidence to match the model being
-  installed (promotion) or already served (policy-only deploy).
+- ``app/deployment/identity.py`` (behind ``scripts/deploy_decision_policy.py``)
+  calls ``policy_evidence()`` and ``binding_mismatches()`` to require that
+  evidence to match the model being installed (promotion) or already served
+  (policy-only deploy).
 
 The rescorer writes its sidecar itself rather than importing this module: it is
 a Kaggle ``code_file`` and must stay self-contained (see

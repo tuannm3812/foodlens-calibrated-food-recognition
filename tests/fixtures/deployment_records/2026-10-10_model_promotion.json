@@ -1,0 +1,65 @@
+{
+  "operation": "model_promotion",
+  "deployed_at": "2026-10-10T01:54:01+00:00",
+  "source_run": "results/accuracy_phase1/a3b_convnext_tiny_continued_224/decision_layer_closure_2026-10-10",
+  "source_provenance_sha256": "63d8befae476f430441406b1bf09970f48ea2993732c13b28c57a020f0521a52",
+  "source_files_sha256": {
+    "decision_policy.json": "07a7c341f1eb28d5a38c7b8b7b5940f3281983a6dd761bcb89e669e49651ff51",
+    "hard_classes.json": "2041f0126af23cd94e1e64d433e74054af53e76b11e7f0f010c35897658bb7ef",
+    "confusion_pairs.json": "93bbe2a10d8561b78b8bfec366f65bdf9afd73ec9abfcf90527efc3565ac445d"
+  },
+  "policy": {
+    "auto_confidence": 0.7,
+    "suggest_confidence": 0.35,
+    "margin_threshold": 0.05
+  },
+  "hard_class_count": 11,
+  "confusion_pair_count": 40,
+  "model_run": "results/accuracy_phase1/a3b_convnext_tiny_continued_224",
+  "model": {
+    "architecture": "convnext_tiny",
+    "checkpoint": "convnext_tiny_continued_best.pth",
+    "model_name": "a3b_convnext_tiny",
+    "checkpoint_sha256": "01d98554244d022d7a86d6158715dbf41364c51ee8ec8c2c7da325f5f852c8af"
+  },
+  "calibration_temperature": 0.88435298204422,
+  "model_source_files_sha256": {
+    "convnext_tiny_continued_best.pth": "01d98554244d022d7a86d6158715dbf41364c51ee8ec8c2c7da325f5f852c8af",
+    "calibration.json": "5560c41b7b821f7d5acbd04f24ee08feee3c6b22878161c4bfd74ab79f121df3",
+    "class_names.json": "90ae276a0af258b6f9f9d0fcd0d9e1b59119cb91e428abd1607c13f5c8ac5884"
+  },
+  "checks": {
+    "policy_belongs_to_model": "fit and eval predictions are inside results/accuracy_phase1/a3b_convnext_tiny_continued_224 with their recorded hashes",
+    "class_names": "identical in content and order to the target's",
+    "checkpoint_fits_architecture": "loads into convnext_tiny with 0 missing and 0 unexpected keys"
+  },
+  "deployed_files_sha256": {
+    "convnext_tiny_continued_best.pth": "01d98554244d022d7a86d6158715dbf41364c51ee8ec8c2c7da325f5f852c8af",
+    "calibration.json": "5560c41b7b821f7d5acbd04f24ee08feee3c6b22878161c4bfd74ab79f121df3",
+    "class_names.json": "90ae276a0af258b6f9f9d0fcd0d9e1b59119cb91e428abd1607c13f5c8ac5884",
+    "model.json": "dbbb04e6201e1a1c7854a1271e943c1c7347871f2c96c0807e7f5c912dc2210c",
+    "decision_policy.json": "377a98891a443faa3f2e76c3b9a1fbb9f963ec93447f693be6397b8a1673e465",
+    "hard_classes.json": "f383e78fd5d7d427dc3df2a32197ca6bd5550c517d08cf1de658d51aa16ec101",
+    "confusion_pairs.json": "642099c2c7bdd5a82b580bbfc43c5411241b23e6a312c8a88e76b2b826205427"
+  },
+  "artifact_files_verified": true,
+  "decision_layer_fingerprint": "39672f7878c13f211ecb9b252c9991aa307ec07cca10174c5fca437b4d97f7e4",
+  "live_service": "NOT verified by this deploy. artifact_files_verified means the files were read back freshly in the deploy process; a running API process keeps the model and decision layer it cached at load time until it is restarted. Stop/restart every API process, then run: python scripts/deploy_decision_policy.py --target app/artifacts --verify-live <API base URL>",
+  "previous_model": {
+    "manifest": "legacy_default",
+    "architecture": "resnet50",
+    "checkpoint": "resnet50_ft_v2_best.pth",
+    "model_name": "resnet50_ft_v2",
+    "checkpoint_sha256": "9a1b321597fa4f785e0cabd1e6581e37cc8c4297601cb919be2824c793f2f134"
+  },
+  "backup_dir": "app/artifacts/replaced_20261010T015403Z_alsevy57",
+  "replaced_files_sha256": {
+    "calibration.json": "4f7e301bcb7b7990dfad378388dd5ae610ac4f611776dc95c8862ef8f9e916ed",
+    "class_names.json": "90ae276a0af258b6f9f9d0fcd0d9e1b59119cb91e428abd1607c13f5c8ac5884",
+    "decision_policy.json": "377a98891a443faa3f2e76c3b9a1fbb9f963ec93447f693be6397b8a1673e465",
+    "hard_classes.json": "541b414421e18985b69dd5cfc357704bb482bdc77a8972e9d6d780d522ce329b",
+    "confusion_pairs.json": "80fc4b0adbdc7908c15c07aec41e715258357297859c3d6151602815d5793f24",
+    "resnet50_ft_v2_best.pth": "9a1b321597fa4f785e0cabd1e6581e37cc8c4297601cb919be2824c793f2f134"
+  },
+  "replaced_provenance_sha256": "672edcd75bb58d83495dac169b4949f5b4c4a7af644804ad9227074da566e65d"
+}

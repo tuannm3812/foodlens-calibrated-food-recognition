@@ -190,8 +190,9 @@ def test_artifact_readers_keep_their_no_argument_signature(
 
     The decomposition moved these readers into `artifacts.py` with a required
     `artifact_dir` parameter. Code outside the package -- the policy deploy
-    script -- calls them with no argument, so every PR passed on its own while
-    the integrated stack failed 24 tests. The wrappers default to
+    script, now `app/deployment/identity.py` -- calls them with no argument, so
+    every PR passed on its own while the integrated stack failed 24 tests. The
+    wrappers default to
     `artifact_dir_path()`; this pins that.
     """
     (tmp_path / "decision_policy.json").write_text(
