@@ -459,6 +459,21 @@ as follows:
 On 2026-10-11 `--verify-live` passed against a server on the real
 `app/artifacts/`, reading its 2026-10-10 record through this path.
 
+**Integrated release check, 2026-10-12.** Run from `main` at `3f87b67` (PR #15
+merged), against a freshly started API on the real `app/artifacts/`:
+`--verify-live` passed model, routing and calibration — `convnext_tiny`
+`a3b_convnext_tiny`, checkpoint SHA-256 `01d98554…52c8af`, temperature
+`0.88435298204422` in both the probe and the status, decision-layer fingerprint
+`39672f78…97f7e4` (0.70 / 0.35 / 0.05; 11 hard classes; 40 pairs). The record
+read as historical with its two limits. On a copy, `--restore` to
+`replaced_20261010T015403Z_alsevy57/` put back every backed-up file byte for
+byte, and a fresh API on the copy verified as ResNet50 FT-V2 (fingerprint
+`ed6e970d…`, temperature `0.9581114053726196`) under a schema-1 restore record
+with no limits. Undoing that restore left every model, calibration and policy
+file byte-identical to the original; its new record embeds the original
+promotion record unchanged, and a restarted API verified A3b again. The real
+`app/artifacts/` was only read.
+
 **Why the restart.** `load_runtime()` caches the model, policy, hard classes
 and confusion pairs in the process on first use, so a running API keeps
 serving the old model, decision layer and temperature after the files change.
