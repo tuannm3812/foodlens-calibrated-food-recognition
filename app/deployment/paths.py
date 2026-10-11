@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -51,13 +52,48 @@ def now_utc() -> str:
 
 
 def read_json(path: Path) -> Any:
-    """Read JSON, converting a missing or malformed file into a DeployError."""
+    """Read JSON, converting a missing or malformed file into a DeployError.
+
+    ``ValueError`` covers more than ``JSONDecodeError``: bytes that are not
+    UTF-8, and an integer longer than Python converts from text (4,300 digits).
+    """
     if not path.exists():
         raise DeployError(f"{path} does not exist.")
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise DeployError(f"{path} is not valid JSON: {exc}") from exc
+    except ValueError as exc:
+        raise DeployError(f"{path} is not valid JSON: {brief(exc)}") from exc
+
+
+def finite_float(value: Any) -> float | None:
+    """``value`` as a finite float, or None if it is not a number or has no finite float.
+
+    JSON integers are unbounded, and ``float()`` or ``math.isfinite()`` raise
+    ``OverflowError`` on one such as 10**400 instead of returning False.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
+
+
+def brief(value: Any, limit: int = 80) -> str:
+    """``repr(value)``, cut to ``limit`` characters, for quoting a value in an error.
+
+    A record can hold any JSON value, including a 4,000-digit integer, whose
+    ``repr`` would also raise past Python's integer-to-text limit.
+    """
+    if isinstance(value, BaseException):
+        text = str(value)
+    else:
+        try:
+            text = repr(value)
+        except ValueError:
+            text = f"<{type(value).__name__} too large to show>"
+    return text if len(text) <= limit else f"{text[: limit - 3]}..."
 
 
 def write_json_file(path: Path, value: Any) -> None:

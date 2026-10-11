@@ -21,7 +21,7 @@ from typing import Any
 
 from . import identity
 from .errors import DeployError
-from .paths import DEPLOYED_FILES, PROVENANCE_FILE, display, read_json, sha256
+from .paths import DEPLOYED_FILES, PROVENANCE_FILE, brief, display, read_json, sha256
 from .records import CALIBRATION_FILES, normalise_record
 
 # What --verify-live checks, each reported on its own.
@@ -218,7 +218,7 @@ def recorded_drift(
     if temperature is not None and temperature != expected_calibration["temperature"]:
         drift["calibration"].append(
             f"The target's temperature {expected_calibration['temperature']!r} differs from "
-            f"the {temperature!r} {PROVENANCE_FILE} recorded; " + redeploy
+            f"the {brief(temperature)} {PROVENANCE_FILE} recorded; " + redeploy
         )
     drift["calibration"] = list(dict.fromkeys(drift["calibration"]))
     return drift

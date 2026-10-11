@@ -1131,3 +1131,101 @@ def test_verify_live_refuses_a_current_record_edited_after_writing(runs, target,
     assert verify(target, fetch) == 1
     assert "model: missing" in capsys.readouterr().err
     assert calls == []
+
+
+# --- JSON values Python cannot hash or convert -----------------------------------
+#
+# Valid JSON can put a list or object where a string belongs, or an integer
+# past the float range where a number belongs. Each must reach the CLI's
+# handled path -- exit 1, one `error:` line naming the field -- before a probe,
+# a backup or a replace, never as a TypeError or OverflowError traceback.
+
+
+def unhashable_operation(record: dict) -> dict:
+    record["operation"] = []
+    return record
+
+
+def oversized_temperature(record: dict) -> dict:
+    record["calibration"]["temperature"] = 10**400
+    return record
+
+
+@pytest.mark.parametrize(
+    ("fault", "fragment"),
+    [
+        (unhashable_operation, "operation: must be one of"),
+        (oversized_temperature, "calibration.temperature: must be a finite, positive number"),
+    ],
+)
+@pytest.mark.parametrize("case", OPERATION_CASES)
+def test_a_builder_writing_an_unconvertible_value_fails_before_any_backup(
+    runs, target, monkeypatch, case, fault, fragment
+):
+    builder, run = prepare(case, runs, target)
+    before, names = tree(target), {p.name for p in target.iterdir()}
+    real = getattr(records, builder)
+    reached: list[str] = []
+
+    def faulty(*args, **kwargs):
+        reached.append(builder)
+        return fault(real(*args, **kwargs))
+
+    monkeypatch.setattr(records, builder, faulty)
+    backups = count_backups(monkeypatch)
+
+    with pytest.raises(deploy_mod.DeployError) as info:
+        run()
+    assert reached == [builder], "the faulty builder was used"
+    assert fragment in str(info.value) and "(base record)" in str(info.value)
+    assert backups == [], "validation ran before a backup was made"
+    assert_target_unchanged(target, before, names)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "fragment"),
+    [
+        ("operation", [], "operation: must be one of"),
+        ("operation", {}, "operation: must be one of"),
+        ("calibration", "temperature", "calibration.temperature: must be a finite"),
+    ],
+)
+def test_verify_live_refuses_an_unconvertible_current_record_without_probing(
+    runs, target, capsys, field, value, fragment
+):
+    promote(runs, target)
+    record = written_record(target)
+    if field == "calibration":
+        record["calibration"]["temperature"] = 10**400
+    else:
+        record[field] = value
+    write_json(target / "deployment_provenance.json", record)
+    before = tree(target)
+    capsys.readouterr()
+    fetch, calls = counting(service(target, loaded(target)))
+
+    assert verify(target, fetch) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ") and fragment in err
+    assert "Traceback" not in err and len(err) < 1000
+    assert calls == [], "refused before the service was probed"
+    assert tree(target) == before
+
+
+@pytest.mark.parametrize(
+    ("text", "fragment"),
+    [
+        ('{"temperature": ' + "1" + "0" * 400 + "}\n", "temperature must be finite and positive"),
+        ('{"temperature": ' + "9" * 5000 + "}\n", "is not valid JSON: Exceeds the limit"),
+    ],
+)
+def test_a_promotion_with_an_unconvertible_temperature_is_a_handled_cli_error(
+    runs, target, capsys, text, fragment
+):
+    (runs["a3b"] / "calibration.json").write_text(text, encoding="utf-8")
+    before = tree(target)
+    assert deploy_mod.main(promote_argv(runs, target)) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ") and fragment in err
+    assert len(err) < 1000
+    assert tree(target) == before

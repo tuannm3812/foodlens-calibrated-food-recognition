@@ -167,10 +167,14 @@ def test_a_record_without_the_model_identity_is_refused(operation: str) -> None:
         ("schema_version", True, "schema_version: must be 1, found True"),
         ("operation", "policy", "operation: must be one of"),
         ("operation", None, "operation: must be one of"),
+        ("operation", [], "operation: must be one of"),
+        ("operation", {}, "operation: must be one of"),
+        ("operation", {"model_promotion": 1}, "operation: must be one of"),
         ("decision_layer_fingerprint", "not-a-hash", "decision_layer_fingerprint: must be"),
         ("hard_class_count", -1, "hard_class_count: must be a non-negative integer"),
         ("artifact_files_verified", "yes", "artifact_files_verified: must be True"),
         ("policy", {"auto_confidence": math.nan}, "policy: must be a non-empty object"),
+        ("policy", {"auto_confidence": 10**400}, "policy: must be a non-empty object"),
         ("deployed_at", "earlier", "deployed_at: must be an ISO-8601 timestamp"),
         ("deployed_at", "2026-10-11T09:00:00", "deployed_at: must be an ISO-8601 timestamp"),
     ],
@@ -193,11 +197,40 @@ def test_a_checkpoint_hash_that_is_not_hex_sha256_is_refused(value) -> None:
     )
 
 
-@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf, 0, -0.5, True, "0.884", None])
+@pytest.mark.parametrize(
+    "value", [math.nan, math.inf, -math.inf, 0, -0.5, True, "0.884", None, 10**400]
+)
 def test_a_temperature_that_is_not_finite_and_positive_is_refused(value) -> None:
     record = finish(restore_record())
     record["calibration"]["temperature"] = value
     assert "calibration.temperature: must be a finite, positive number" in rejected(record)
+
+
+# Valid JSON that Python cannot hash or convert: a list or object where a string
+# belongs, and an integer past the float range. Each is a field problem, never
+# a TypeError or OverflowError escaping the validator.
+
+
+@pytest.mark.parametrize("stage", ["base", "final"])
+@pytest.mark.parametrize("value", [[], {}, ["model_promotion"]])
+def test_an_operation_that_is_not_a_string_is_a_field_problem(stage, value) -> None:
+    record = finish(promotion_record()) if stage == "final" else promotion_record()
+    record["operation"] = value
+    assert f"operation: must be one of {list(records.OPERATIONS)}" in rejected(record, stage)
+
+
+def test_a_promotion_calibration_temperature_past_the_float_range_is_refused() -> None:
+    record = finish(promotion_record())
+    record["calibration_temperature"] = 10**400
+    assert "calibration_temperature: must be a finite, positive number" in rejected(record)
+
+
+def test_an_oversized_value_is_shown_briefly() -> None:
+    record = finish(restore_record())
+    record["calibration"]["temperature"] = 10**4000
+    message = rejected(record)
+    assert "calibration.temperature: must be a finite, positive number, found 1000" in message
+    assert len(message) < 1000
 
 
 def test_a_missing_calibration_file_hash_is_named() -> None:
@@ -440,6 +473,43 @@ def test_a_current_record_edited_after_writing_is_refused_on_read() -> None:
     del record["model"]
     with pytest.raises(DeployError, match="model: missing"):
         records.normalise_record(record)
+
+
+@pytest.mark.parametrize("value", [[], {}])
+def test_a_current_record_with_an_unhashable_operation_is_refused_on_read(value) -> None:
+    record = finish(policy_record())
+    record["operation"] = value
+    with pytest.raises(DeployError, match="operation: must be one of"):
+        records.normalise_record(record)
+
+
+def test_a_current_record_with_an_oversized_temperature_is_refused_on_read() -> None:
+    record = finish(policy_record())
+    record["calibration"]["temperature"] = 10**400
+    with pytest.raises(DeployError, match="calibration.temperature: must be a finite"):
+        records.normalise_record(record)
+
+
+@pytest.mark.parametrize("value", [[], {}])
+def test_a_historical_record_with_an_unhashable_operation_names_it_as_a_limit(value) -> None:
+    original = fixture("2026-10-10_model_promotion.json")
+    original["operation"] = value
+    normalised = records.normalise_record(original)
+    assert normalised["historical"] is True
+    assert normalised["operation"] == value, "kept as recorded, not replaced"
+    assert any(
+        limit.startswith("operation as recorded is unusable: must be one of")
+        for limit in normalised["limits"]
+    )
+
+
+def test_a_historical_record_with_an_oversized_temperature_names_it_as_a_limit() -> None:
+    original = fixture("2026-10-10_model_promotion.json")
+    original["calibration_temperature"] = 10**400
+    limits = records.normalise_record(original)["limits"]
+    assert any(
+        limit.startswith("calibration.temperature as recorded is unusable") for limit in limits
+    )
 
 
 def test_a_record_that_is_not_an_object_is_refused_on_read() -> None:

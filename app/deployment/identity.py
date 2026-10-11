@@ -13,7 +13,6 @@ test that patches ``verify_through_backend``, ``verify_model_files`` or
 
 from __future__ import annotations
 
-import math
 import os
 import sys
 from collections.abc import Mapping
@@ -21,7 +20,16 @@ from pathlib import Path
 from typing import Any
 
 from .errors import DeployError
-from .paths import MANIFEST_FILE, REPO_ROOT, display, from_display, read_json, sha256
+from .paths import (
+    MANIFEST_FILE,
+    REPO_ROOT,
+    brief,
+    display,
+    finite_float,
+    from_display,
+    read_json,
+    sha256,
+)
 
 # Producer evidence is read by scripts/prediction_evidence.py. It stays a
 # script-level module: recalibration (scripts/recalibrate_decision_layer.py)
@@ -69,11 +77,13 @@ def runtime_policy(raw: Any, source: Path) -> dict[str, float]:
     for key in POLICY_KEYS:
         value = raw[key]
         if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise DeployError(f"{source}: {key} must be a number, found {value!r}.")
-        value = float(value)
-        if not math.isfinite(value) or not 0.0 <= value <= 1.0:
-            raise DeployError(f"{source}: {key} must be a finite value in [0, 1], found {value}.")
-        policy[key] = value
+            raise DeployError(f"{source}: {key} must be a number, found {brief(value)}.")
+        number = finite_float(value)
+        if number is None or not 0.0 <= number <= 1.0:
+            raise DeployError(
+                f"{source}: {key} must be a finite value in [0, 1], found {brief(value)}."
+            )
+        policy[key] = number
     if policy["suggest_confidence"] > policy["auto_confidence"]:
         raise DeployError(
             f"{source}: suggest_confidence ({policy['suggest_confidence']}) exceeds "
@@ -159,9 +169,12 @@ def validated_temperature(raw: Any, source: Path) -> float:
     value = raw.get("temperature") if isinstance(raw, dict) else None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise DeployError(f"{source} must hold a numeric 'temperature'.")
-    if not math.isfinite(value) or value <= 0:
-        raise DeployError(f"{source}: temperature must be finite and positive, found {value}.")
-    return float(value)
+    number = finite_float(value)
+    if number is None or number <= 0:
+        raise DeployError(
+            f"{source}: temperature must be finite and positive, found {brief(value)}."
+        )
+    return number
 
 
 def target_temperature(target: Path) -> float:

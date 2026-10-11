@@ -22,7 +22,6 @@ a record written before the schema mapped from its own fields, with explicit
 
 from __future__ import annotations
 
-import math
 import re
 from collections.abc import Callable, Mapping
 from datetime import datetime
@@ -30,7 +29,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .errors import DeployError
-from .paths import MANIFEST_FILE, PROVENANCE_FILE, display
+from .paths import MANIFEST_FILE, PROVENANCE_FILE, brief, display, finite_float
 
 SCHEMA_VERSION = 1
 # The operation discriminator. "policy_deploy" is the name install.make_backup
@@ -52,19 +51,19 @@ _SHA256 = re.compile(r"[0-9a-f]{64}")
 def _hex_sha256(value: Any) -> str | None:
     if isinstance(value, str) and _SHA256.fullmatch(value):
         return None
-    return f"must be a 64-character lowercase hex SHA-256, found {value!r}"
+    return f"must be a 64-character lowercase hex SHA-256, found {brief(value)}"
 
 
 def _text(value: Any) -> str | None:
     return None if isinstance(value, str) and value.strip() else (
-        f"must be a non-empty string, found {value!r}"
+        f"must be a non-empty string, found {brief(value)}"
     )
 
 
 def _file_name(value: Any) -> str | None:
     if _text(value) is None and "/" not in value and "\\" not in value:
         return None
-    return f"must be a plain file name, found {value!r}"
+    return f"must be a plain file name, found {brief(value)}"
 
 
 def _timestamp(value: Any) -> str | None:
@@ -73,71 +72,68 @@ def _timestamp(value: Any) -> str | None:
     except ValueError:
         parsed = None
     if parsed is None or parsed.tzinfo is None:
-        return f"must be an ISO-8601 timestamp with a UTC offset, found {value!r}"
+        return f"must be an ISO-8601 timestamp with a UTC offset, found {brief(value)}"
     return None
 
 
-def _number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
 def _finite_positive(value: Any) -> str | None:
-    if _number(value) and math.isfinite(value) and value > 0:
+    number = finite_float(value)
+    if number is not None and number > 0:
         return None
-    return f"must be a finite, positive number, found {value!r}"
+    return f"must be a finite, positive number, found {brief(value)}"
 
 
 def _count(value: Any) -> str | None:
     if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
         return None
-    return f"must be a non-negative integer, found {value!r}"
+    return f"must be a non-negative integer, found {brief(value)}"
 
 
 def _object(value: Any) -> str | None:
-    return None if isinstance(value, dict) else f"must be an object, found {value!r}"
+    return None if isinstance(value, dict) else f"must be an object, found {brief(value)}"
 
 
 def _object_or_null(value: Any) -> str | None:
     return None if value is None or isinstance(value, dict) else (
-        f"must be an object or null, found {value!r}"
+        f"must be an object or null, found {brief(value)}"
     )
 
 
 def _string_list(value: Any) -> str | None:
     if isinstance(value, list) and all(_text(item) is None for item in value):
         return None
-    return f"must be a list of non-empty strings, found {value!r}"
+    return f"must be a list of non-empty strings, found {brief(value)}"
 
 
 def _hash_map(value: Any) -> str | None:
     if not isinstance(value, dict):
-        return f"must be an object of file name to SHA-256, found {value!r}"
+        return f"must be an object of file name to SHA-256, found {brief(value)}"
     bad = {name: digest for name, digest in value.items() if _hex_sha256(digest)}
-    return f"holds values that are not hex SHA-256 digests: {bad!r}" if bad else None
+    return f"holds values that are not hex SHA-256 digests: {brief(bad)}" if bad else None
 
 
 def _policy_values(value: Any) -> str | None:
     if (
         isinstance(value, dict)
         and value
-        and all(_number(item) and math.isfinite(item) for item in value.values())
+        and all(finite_float(item) is not None for item in value.values())
     ):
         return None
-    return f"must be a non-empty object of finite thresholds, found {value!r}"
+    return f"must be a non-empty object of finite thresholds, found {brief(value)}"
 
 
 def _exactly(expected: Any) -> Check:
     def check(value: Any) -> str | None:
         if value is expected or (type(value) is type(expected) and value == expected):
             return None
-        return f"must be {expected!r}, found {value!r}"
+        return f"must be {expected!r}, found {brief(value)}"
 
     return check
 
 
 def _one_of(allowed: tuple[str, ...]) -> Check:
     def check(value: Any) -> str | None:
-        return None if value in allowed else f"must be one of {list(allowed)}, found {value!r}"
+        return None if value in allowed else f"must be one of {list(allowed)}, found {brief(value)}"
 
     return check
 
@@ -249,7 +245,7 @@ def _field_problems(
         value = record[name]
         if isinstance(check, Mapping):
             if not isinstance(value, dict):
-                problems.append((path, f"must be an object, found {value!r}"))
+                problems.append((path, f"must be an object, found {brief(value)}"))
             else:
                 problems += _field_problems(value, check, required=True, prefix=f"{path}.")
             continue
@@ -270,7 +266,9 @@ def schema_problems(record: Any, stage: Stage) -> list[tuple[str, str | None]]:
         return [("record", f"must be an object, found {type(record).__name__}")]
     problems = _field_problems(record, COMMON_FIELDS, required=True)
     operation = record.get("operation")
-    if operation not in OPERATION_FIELDS:
+    # Type first: a JSON list or object cannot be a dictionary key, and its
+    # problem is already reported against "operation" by COMMON_FIELDS.
+    if not isinstance(operation, str) or operation not in OPERATION_FIELDS:
         return problems
     problems += _field_problems(record, OPERATION_FIELDS[operation], required=True)
     problems += _field_problems(record, OPTIONAL_FIELDS[operation], required=False)
@@ -583,7 +581,8 @@ def _normalise_historical(record: Mapping[str, Any]) -> dict[str, Any]:
     # inferred operation; schema_version and operation are accounted for above.
     probe = {**normalised, "schema_version": SCHEMA_VERSION}
     for path, problem in schema_problems(probe, "final"):
-        if path in ("schema_version", "operation"):
+        # A missing operation is already a limit; a malformed one is reported.
+        if path == "schema_version" or (path == "operation" and operation is None):
             continue
         if problem is None:
             limits.append(f"no {path} recorded")
@@ -622,8 +621,8 @@ def normalise_record(record: Any) -> dict[str, Any]:
         return _normalise_historical(record)
     if record["schema_version"] != SCHEMA_VERSION or isinstance(record["schema_version"], bool):
         raise DeployError(
-            f"{PROVENANCE_FILE} declares schema_version {record['schema_version']!r}; this code "
-            f"reads schema {SCHEMA_VERSION} and records written before it."
+            f"{PROVENANCE_FILE} declares schema_version {brief(record['schema_version'])}; "
+            f"this code reads schema {SCHEMA_VERSION} and records written before it."
         )
     problems = schema_problems(record, "final")
     if problems:
