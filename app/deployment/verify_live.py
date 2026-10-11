@@ -21,7 +21,15 @@ from typing import Any
 
 from . import identity
 from .errors import DeployError
-from .paths import DEPLOYED_FILES, PROVENANCE_FILE, brief, display, read_json, sha256
+from .paths import (
+    DEPLOYED_FILES,
+    PROVENANCE_FILE,
+    brief,
+    display,
+    is_plain_file_name,
+    read_json,
+    sha256,
+)
 from .records import CALIBRATION_FILES, normalise_record, policy_problem
 
 # What --verify-live checks, each reported on its own.
@@ -204,7 +212,10 @@ def recorded_drift(
         if not isinstance(hashes, dict):
             continue
         for name, recorded_hash in hashes.items():
-            if not name.endswith(".pth") or not (target / name).is_file():
+            # A recorded name is joined to the target only if it cannot leave it.
+            if not is_plain_file_name(name) or not name.endswith(".pth"):
+                continue
+            if not (target / name).is_file():
                 continue
             if recorded_hash != sha256(target / name):
                 problem = (
@@ -224,7 +235,12 @@ def recorded_drift(
     calibration = record.get("calibration")
     calibration = calibration if isinstance(calibration, Mapping) else {}
     files = calibration.get("files_sha256")
-    for name, recorded_hash in (files if isinstance(files, Mapping) else {}).items():
+    files = files if isinstance(files, Mapping) else {}
+    # Only the defined calibration files: any other key is never read.
+    for name in CALIBRATION_FILES:
+        if name not in files:
+            continue
+        recorded_hash = files[name]
         # A restore records the calibration it leaves in place only here.
         if name not in compared and recorded_hash != sha256(target / name):
             drift["calibration"].append(

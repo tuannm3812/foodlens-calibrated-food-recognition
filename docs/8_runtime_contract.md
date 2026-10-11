@@ -407,6 +407,20 @@ and removed files, `previous_model` and the embedded
 so their record must name its backup (`backup_dir`, `replaced_files_sha256`);
 a policy deploy names one whenever it made one.
 
+**File names in a record are plain file names.** Every name a record holds —
+`model.checkpoint` and each key of each `*_files_sha256` map — must name a file
+directly inside the target: not empty, not `.` or `..`, and with no `/`, `\`
+or NUL. `calibration.files_sha256` may name only `calibration.json` and
+`class_names.json`. This tightened schema version 1 a second time on
+2026-10-11 (Codex P3, agent log): `--verify-live` joined recorded names to the
+target, so a record naming `../outside.pth` had a file outside it hashed. The
+same rule, `paths.is_plain_file_name`, guards `--restore`'s reading of
+`backup_record.json`, where a NUL name used to fail mid-restore with a false
+"ROLLBACK FAILED" and leave an extra backup behind. A historical record holding
+such a name keeps it as recorded and lists the map as an unusable limit;
+`--verify-live` never joins it to a path. Every record on this machine meets the
+rule.
+
 **Validation on write.** Every operation validates its record twice: the
 complete record before any backup is made, and the final record, naming its
 backup, after the backup and before any target file is replaced. A missing or

@@ -81,3 +81,19 @@ def test_a_temperature_past_the_float_range_is_refused(value) -> None:
 def test_an_integer_temperature_in_range_is_read_as_a_float() -> None:
     value = identity.validated_temperature({"temperature": 1}, Path("calibration.json"))
     assert value == 1.0 and isinstance(value, float)
+
+
+@pytest.mark.parametrize(
+    "name", ["a3b_best.pth", "class_names.json", ".hidden", "name with spaces.json", "a..b"]
+)
+def test_a_plain_file_name_is_accepted(name) -> None:
+    assert paths.is_plain_file_name(name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["", " ", ".", "..", "../elsewhere.pth", "sub/a.pth", "/etc/passwd", "..\\a.pth", "a\x00.pth",
+     None, 7, ["a.pth"]],
+)
+def test_a_name_that_could_leave_the_directory_is_refused(name) -> None:
+    assert not paths.is_plain_file_name(name)
