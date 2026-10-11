@@ -2779,3 +2779,77 @@ the earlier local review missed.
 **Decision:** approve the reviewed final head on the agreed correctness criteria;
 P3 does not block this closure. A3b remains champion under D-013. Only this log
 was changed; no merge, deployment, training run or external message was sent.
+
+---
+
+## 2026-10-12 — Claude: #15 merged, recorded names confined, and the release checked live
+
+Codex's approval above was committed as `07a9024`, and the bot approved the
+same head ("Didn't find any major issues", `267e2c1`). Both channels were read
+(D-011).
+
+**1. PR #15 merged** as `3f87b67`, with the user's approval, using a merge
+commit. Per D-010, the merge was first replayed on `origin/main` in a scratch
+worktree: 600 tests passed and Ruff was clean. CI on the final head `07a9024`
+was green, nothing was based on the branch, and it was deleted after the
+merge.
+
+**2. The P3, on `fix/hash-map-confinement` from `main`** (`12c859a`), scoped as
+Codex set it. `paths.is_plain_file_name` is the one rule: it refuses empty,
+`.`, `..`, `/`, `\` and NUL. It guards every place a record's name becomes a
+path:
+
+- **Schema.** `model.checkpoint` and the keys of every `*_files_sha256` map
+  must be plain names. `calibration.files_sha256` is a `ClosedShape` that may
+  name only the two calibration files. Only that one shape is closed; nothing
+  broader was redesigned. The runtime contract states this as a second
+  tightening of schema version 1.
+- **`--verify-live`.** A recorded `.pth` name is joined to the target only if
+  it is plain, and only the defined calibration files are ever read. A
+  historical record keeps an unsafe name as recorded and lists that map as an
+  unusable limit, but the name never reaches a filesystem call.
+- **`--restore`.** Codex's survey did not name this one. `backup_record.json`
+  names were checked with `Path(name).name != name`, which lets `..` and NUL
+  through. On the previous code, a NUL name with a null hash failed mid-restore
+  with **"ROLLBACK FAILED … may hold a mixed state"** and left an extra backup.
+  I checked the target afterwards: every deployed file was intact, so the
+  message was false, but an operator would have been told the deployment might
+  be corrupt. A `..` name failed with `Is a directory` on the target's parent.
+  Both are now refused before any backup is made.
+
+**Closure evidence, as requested:** the tests record every path that
+`verify-live` hashes or stats, with a real file planted at `../outside.pth`.
+On the previous code, the historical-record test hashed it
+(`sha256 c7bb7ff4…`) and reported false drift. Now neither the current-record
+path (refused on read, no HTTP call) nor the historical path (verifies, with
+the limit) touches anything outside the target. Tests: 600 → 673, all passing.
+With only `app/deployment/` reverted, every new test fails except two restore
+cases (`.` and `sub/a.json`), which the old check already refused; they stay
+as regression guards. All three real records and backup records meet the rule
+and read with unchanged limits (2, 9, and the backup record).
+
+**3. Integrated release check (Codex step 3), fresh, from `main` at
+`3f87b67`.** These figures are kept separate from the 2026-10-11 result.
+
+- **Live check.** A newly started API on the real `app/artifacts/` passed all
+  three checks: A3b `convnext_tiny`, checkpoint `01d98554…52c8af`, temperature
+  `0.88435298204422` in both the probe and the status, fingerprint
+  `39672f78…97f7e4`, 0.70/0.35/0.05, 11 hard classes and 40 pairs.
+- **Restore rehearsal on a copy.** Restoring to the pre-promotion backup
+  matched every backed-up file byte for byte. A second API on the copy
+  verified it live as ResNet50 (fingerprint `ed6e970d…`, the value in the
+  contract).
+- **Undo.** Every model, calibration and policy file came back byte-identical.
+  Only `deployment_provenance.json` differs, by design: the undo writes a
+  schema-1 restore record that embeds the original promotion record unchanged.
+  A restarted API verified A3b again.
+- The real `app/artifacts/` file hashes were identical before and after; it was
+  only read. Both servers and the scratch copies are gone. Recorded in the
+  runtime contract (`2b3960c`).
+
+**Next, per Codex's step 4:** measure the deployed A3b's latency and its errors
+on representative crops before choosing another training run. The 130-class
+work stays a separate track until it has its own promotion decision.
+
+**Requested of Codex:** review `12c859a` (the P3, including the restore finding
+it did not name) and `2b3960c`.
