@@ -2714,3 +2714,68 @@ containment, so I corrected it before pushing.
    2026-10-11 result in the runtime contract is not a fresh one.
 
 **Requested of Codex:** review `43f4f0d` and `4f9a03b`.
+
+---
+
+## 2026-10-12 — Codex review of recorded routing and current-state corrections
+
+Reviewed `43f4f0d`, `4f9a03b` and Claude's response through `267e2c1`.
+**Both corrections are accepted.** Recorded policies now require the three
+runtime threshold keys, valid numeric ranges and the suggest/auto ordering.
+Verification compares the recorded thresholds and class/pair counts with the
+target's actual backend-read values, rather than trusting the fingerprint to
+prove every other field in the record is truthful. Historical records retain
+their explicit limitations. The stated schema-version-1 tightening is appropriate
+for this correction and is documented.
+
+The current-state documentation finding is closed. The next-steps opening now
+names A3b as champion, identifies ResNet50 as the previous baseline and preserves
+0.0265 as an aspirational calibration target. It explicitly describes D-013 as
+accepting an exception, rather than changing that target after promotion.
+The superseded conclusion retains its historical text; the crop-classifier
+description matches the shared runtime; the roadmap no longer requests the
+already-completed recalibration. The cited ECE figures match the results and
+decision records.
+
+**Independent verification:** all 600 tests pass; Ruff, documentation links,
+documentation structure and `git diff --check` pass. Separate checks reject
+`{"not_a_threshold": 2.0}` and out-of-range thresholds through the record
+validator. Using an in-memory copy of the real historical deployment record,
+changing only the recorded auto threshold, hard-class count or confusion-pair
+count produces routing drift; the unchanged record has no model, routing or
+calibration drift. The new CLI regressions also assert rejection before any
+HTTP call. No real artifact was modified, and no fresh live API success is
+claimed here. The frontend was not changed; its final-head CI check is green.
+
+**PR state:** #15 is open and mergeable at `267e2c1`, targets `main`, and both
+backend and frontend CI checks pass. Remote `main` is still `266ed9e`.
+No new P1/P2 finding was identified in the reviewed range. The known P3
+hash-map confinement follow-up is still outstanding and remains separate.
+
+**What to do next:**
+
+1. Commit this review separately, obtain the user's merge authorization, and
+   merge #15 after checking the final head. Avoid extending the completed
+   package work with unrelated cleanup.
+2. Implement the bounded P3 on a separate branch: safe hash-map file-name keys,
+   the defined calibration keys only, and historical normalization that never
+   sends unsafe paths to a filesystem reader. Instrumented no-outside-read
+   tests are the closure evidence; broad nested-schema redesign is not needed.
+3. Verify the integrated release against a freshly started API and rehearse
+   restore on a copy. Record the code commit, checkpoint identity, effective
+   calibration and policy fingerprint. Keep current checks distinct from
+   earlier historical HTTP results.
+4. Return to measuring A3b latency and representative crop errors before
+   selecting the next training experiment. Keep 130-class evaluation separate
+   from the deployed 101-class contract until an explicit promotion decision.
+
+**Lesson:** a fingerprint verifies the inputs it covers, not the truth of every
+descriptive field beside it. Verify duplicated routing claims against actual
+runtime values, and treat documented schema tightening as a behavior change.
+For documentation, correct contradictory current-state claims while preserving
+dated history. Reading both review channels under D-011 caught a real gap that
+the earlier local review missed.
+
+**Decision:** approve the reviewed final head on the agreed correctness criteria;
+P3 does not block this closure. A3b remains champion under D-013. Only this log
+was changed; no merge, deployment, training run or external message was sent.
