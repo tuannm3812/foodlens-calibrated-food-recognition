@@ -414,7 +414,8 @@ Interpretation:
 
 Final project conclusion:
 
-- The champion model remains **ResNet50 FT-V2**.
+- The champion model remains **ResNet50 FT-V2**. *(Superseded 2026-10-10: A3b
+  ConvNeXt-Tiny is the champion — decision D-013, section 17.)*
 - The best product use case is **assisted food tagging with ranked
   suggestions**, not fully automatic labeling for every image.
 - The main limitation is **visual ambiguity between similar dishes**, especially

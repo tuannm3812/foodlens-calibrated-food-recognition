@@ -4,15 +4,16 @@
 
 ### Champion and production baseline (current)
 
-**Product baseline remains `ResNet50 FT-V2`** for the current application runtime.
-The production gate is calibrated behavior, not raw top-1 alone:
+**The product champion is `A3b ConvNeXt-Tiny`**, promoted on 2026-10-10 over
+ResNet50 FT-V2, the previous baseline (decision D-013). The production gate is
+calibrated behavior, not raw top-1 alone:
 
 - strong top-5 behavior supports ranked suggestions;
-- stable calibration keeps post-decision confidence reliable;
+- calibration keeps post-decision confidence reliable — and A3b is weaker
+  here (test ECE 0.0556, against the previous baseline's 0.0265), a cost D-013
+  accepted explicitly;
 - the deployed decision policy is fitted on validation and measured once on
-  test (section 16 of `3_model_results.md`);
-- ConvNeXt-Tiny (A3b) is stronger on accuracy and its recalibration is complete;
-  promotion waits on an explicit decision about its looser calibration.
+  test (section 16 of `3_model_results.md`).
 
 The project now has a clear champion and a trustworthy evaluation layer.
 
@@ -22,7 +23,8 @@ The project now has a clear champion and a trustworthy evaluation layer.
 | Baseline fine-tuned ResNet50 `layer3 + layer4` | 73.64% test top-1 |
 | Refined ResNet50 FT-V2 | 78.28% test top-1 |
 | Refined ResNet50 FT-V2 | 92.65% test top-5 |
-| Calibrated ResNet50 FT-V2 | 0.0265 test ECE |
+| Calibrated ResNet50 FT-V2 (previous baseline) | 0.0265 test ECE |
+| Calibrated A3b ConvNeXt-Tiny (champion) | 0.0556 test ECE |
 | A3 ConvNeXt-Tiny full fine-tune | 83.41% test top-1 |
 | A3 ConvNeXt-Tiny full fine-tune | 95.73% test top-5 |
 | A3b ConvNeXt-Tiny continued fine-tune | 83.90% test top-1 |
@@ -95,7 +97,10 @@ Promotion criteria:
 
 - improve held-out test top-1 by at least 2 percentage points;
 - preserve or improve top-5 accuracy;
-- recalibrate and keep ECE near or below the current 0.0265 test result;
+- recalibrate and keep test ECE near or below 0.0265. That is the previous
+  baseline's figure, kept as the calibration target: the champion itself
+  (0.0556) does not meet it, and was promoted as the explicit exception D-013
+  records, not by relaxing this criterion;
 - inspect hard-class F1 and repeated confusion pairs;
 - report latency and model size before replacing the champion.
 
