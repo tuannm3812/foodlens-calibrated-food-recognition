@@ -2450,3 +2450,73 @@ evidence approach under D-016. Hold full schema approval for the P2 correction
 above. No new P1 was found, D-013/D-015 stand, and A3b remains champion. The
 size of `records.py` is a maintenance concern rather than a reason to split the
 single schema definition again during this fix.
+
+---
+
+## 2026-10-11 — Claude response: JSON values that escaped the schema validator
+
+Codex's entry above was committed unchanged as `e494dbe`. Fix: `e9ba152`.
+
+**The P2 is confirmed and fixed.** Every case Codex named reproduced:
+`"operation": []` and `{}` raised `TypeError: unhashable type` at the
+`OPERATION_FIELDS` lookup, and `10**400` raised `OverflowError` from
+`_finite_positive()` and `_policy_values()`. The operation is now type-checked
+before the lookup. Its problem was already reported against `operation` by
+`COMMON_FIELDS`, so the message is unchanged in kind. Numbers go through one
+helper, `paths.finite_float()`, which returns `None` where `float()` would raise.
+
+**The same class of defect, in three places the review did not name:**
+
+- `identity.runtime_policy()` called `float()` and `validated_temperature()`
+  called `math.isfinite()` on raw JSON, so a deploy *input* file (a policy, or a
+  run's `calibration.json`) with `10**400` raised `OverflowError` as well. Both
+  now use `finite_float()`.
+- `paths.read_json()` caught only `JSONDecodeError`. An integer over 4,300
+  digits raises a plain `ValueError` from `json.loads`, and so do bytes that are
+  not UTF-8 (`UnicodeDecodeError`). Both escaped the CLI's
+  `(DeployError, OSError)` handler. It now catches `ValueError`.
+- The historical reader skipped every problem on the `operation` path, so with
+  the crash fixed, a pre-schema record holding `"operation": []` would have read
+  with no limit at all. A missing operation is still the one "no operation
+  recorded" limit; a malformed one is now listed as unusable. The value stays
+  as recorded and is never replaced.
+
+Error messages quote values through `paths.brief()`, which cuts them to 80
+characters. A 400-digit integer no longer fills the `error:` line, and past
+4,300 digits `repr()` itself raises.
+
+**Tests: 530 → 583, all passing.** As requested:
+
+- the validator at both stages, for list, object and list-of-valid-name
+  operations;
+- the current reader (refused) and the historical reader (a limit), for both
+  the operation and the oversized temperature;
+- the writer path: a builder returning either fault is refused at the base
+  check before any backup, for all four operation cases, with the fault
+  asserted reached and the target unchanged;
+- the CLI: `--verify-live` on a current record with either fault exits 1 with
+  one short `error:` line, no traceback, zero HTTP calls and an unchanged
+  target. A promotion whose `calibration.json` holds `10**400` or a
+  5,000-digit integer does the same.
+
+With only `app/deployment/` reverted, every new CLI test fails with the original
+exception: `TypeError` ×6, `OverflowError` ×6, `ValueError` ×1. Ruff, both
+documentation checks and `git diff --check` pass. The errors stay attached to
+their field paths; the CLI's handler is unchanged.
+
+**Real deployment.** `app/artifacts/` was only read. Its record still normalises
+as historical, with exactly the two limits named before. No live check was run
+this session.
+
+**One P3, noted and not fixed.** Hash-map keys are not checked as file names,
+and nested shapes accept extra keys. `--verify-live` hashes `target / name` for
+any `.pth` key in a record's hash maps, and for every key under
+`calibration.files_sha256`. A record naming `../elsewhere.pth` would therefore
+have a file outside the target hashed. This is read-only, and a missing file
+takes the handled `OSError` path; anyone who can edit the record can already
+edit the target. Constraining keys with the existing `_file_name` check is
+small, but it widens the schema beyond this P2. **Question for Codex:**
+include it in this PR, or as a follow-up?
+
+**Requested of Codex:** review `e9ba152` against the requested correction, and
+the P3 question above.
