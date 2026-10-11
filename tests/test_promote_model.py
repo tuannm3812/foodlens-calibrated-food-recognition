@@ -1229,3 +1229,59 @@ def test_a_promotion_with_an_unconvertible_temperature_is_a_handled_cli_error(
     assert err.startswith("error: ") and fragment in err
     assert len(err) < 1000
     assert tree(target) == before
+
+
+# --- The recorded policy must be the target's -------------------------------------
+#
+# Codex GitHub review on PR #15: a record's policy was checked only as a
+# non-empty map of finite numbers, and --verify-live compared only the record's
+# fingerprint. A record could verify while describing routing the target does
+# not hold. Now the schema requires the runtime's thresholds, and verify-live
+# compares the recorded policy and counts with the target's decision layer.
+
+
+def edited_record(target: Path, **changes) -> dict:
+    record = written_record(target)
+    record.update(changes)
+    write_json(target / "deployment_provenance.json", record)
+    return record
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [{"not_a_threshold": 2.0}, {**NEW_POLICY, "auto_confidence": 1.5}, {**NEW_POLICY, "x": 0.1}],
+)
+def test_verify_live_refuses_a_recorded_policy_the_runtime_could_not_load(
+    runs, target, capsys, policy
+):
+    promote(runs, target)
+    edited_record(target, policy=policy)
+    before = tree(target)
+    capsys.readouterr()
+    fetch, calls = counting(service(target, loaded(target)))
+    assert verify(target, fetch) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ") and "policy: must hold" in err
+    assert calls == [] and tree(target) == before
+
+
+@pytest.mark.parametrize(
+    ("changes", "fragment"),
+    [
+        ({"policy": {**NEW_POLICY, "auto_confidence": 0.95}}, "thresholds"),
+        ({"hard_class_count": 99}, "hard_class_count"),
+        ({"confusion_pair_count": 0}, "confusion_pair_count"),
+    ],
+)
+def test_verify_live_refuses_a_record_that_misdescribes_the_target_routing(
+    runs, target, capsys, changes, fragment
+):
+    promote(runs, target)
+    record = edited_record(target, **changes)
+    records.validate_record(record, "final")  # well-formed: only its content is untrue
+    capsys.readouterr()
+    fetch, calls = counting(service(target, loaded(target)))
+    assert verify(target, fetch) == 1
+    err = capsys.readouterr().err
+    assert "routing: FAILED" in err and fragment in err
+    assert calls == [], "refused before the service was probed"

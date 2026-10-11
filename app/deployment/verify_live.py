@@ -22,7 +22,7 @@ from typing import Any
 from . import identity
 from .errors import DeployError
 from .paths import DEPLOYED_FILES, PROVENANCE_FILE, brief, display, read_json, sha256
-from .records import CALIBRATION_FILES, normalise_record
+from .records import CALIBRATION_FILES, normalise_record, policy_problem
 
 # What --verify-live checks, each reported on its own.
 CHECK_NAMES = ("model", "routing", "calibration")
@@ -151,11 +151,16 @@ def recorded_drift(
     files_fingerprint: str,
     expected_model: Mapping[str, str],
     expected_calibration: Mapping[str, Any],
+    expected_layer: Mapping[str, Any],
 ) -> dict[str, list[str]]:
     """Each way the target's files changed after the deployment record was written.
 
     Args:
         record: The deployment record as ``records.normalise_record`` reads it.
+        expected_layer: The target's ``policy``, ``hard_class_count`` and
+            ``confusion_pair_count`` as the backend reads them. The record's
+            copies are compared too, not only its fingerprint, so a record
+            cannot verify while describing a policy the target does not hold.
 
     Returns:
         Problems by check (``model``, ``routing``, ``calibration``); a field
@@ -171,6 +176,19 @@ def recorded_drift(
             f"{PROVENANCE_FILE} (fingerprint {recorded}); they changed after deployment. "
             "Redeploy before verifying the service."
         )
+    recorded_policy = record.get("policy")
+    if policy_problem(recorded_policy) is None and recorded_policy != expected_layer["policy"]:
+        drift["routing"].append(
+            f"The target's thresholds {brief(expected_layer['policy'])} differ from the "
+            f"{brief(recorded_policy)} {PROVENANCE_FILE} recorded; " + redeploy
+        )
+    for key in ("hard_class_count", "confusion_pair_count"):
+        count = record.get(key)
+        if isinstance(count, int) and not isinstance(count, bool) and count != expected_layer[key]:
+            drift["routing"].append(
+                f"The target's {key} ({expected_layer[key]}) differs from the {brief(count)} "
+                f"{PROVENANCE_FILE} recorded; " + redeploy
+            )
     recorded_model = record.get("model")
     if isinstance(recorded_model, Mapping):
         for key in ("checkpoint_sha256", "architecture", "checkpoint"):
@@ -283,7 +301,12 @@ def verify_live(url: str, target: Path, fetch: Fetch = http_fetch) -> dict[str, 
             f"{display(target)} is missing {', '.join(missing)}; the backend would "
             "serve built-in defaults, so there is no deployed policy to verify."
         )
-    _, _, _, files_fingerprint = identity.read_through_backend(target)
+    policy, hard, pairs, files_fingerprint = identity.read_through_backend(target)
+    expected_layer = {
+        "policy": policy,
+        "hard_class_count": len(hard),
+        "confusion_pair_count": len(pairs),
+    }
     expected_model = identity.target_model_identity(target)
     expected_calibration = identity.target_calibration(target)
 
@@ -300,7 +323,9 @@ def verify_live(url: str, target: Path, fetch: Fetch = http_fetch) -> dict[str, 
         "historical": record["historical"],
         "limits": record["limits"],
     }
-    drift = recorded_drift(record, target, files_fingerprint, expected_model, expected_calibration)
+    drift = recorded_drift(
+        record, target, files_fingerprint, expected_model, expected_calibration, expected_layer
+    )
     if any(drift.values()):
         raise verification_failure(
             drift,

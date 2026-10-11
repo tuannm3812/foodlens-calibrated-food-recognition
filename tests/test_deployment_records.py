@@ -173,8 +173,8 @@ def test_a_record_without_the_model_identity_is_refused(operation: str) -> None:
         ("decision_layer_fingerprint", "not-a-hash", "decision_layer_fingerprint: must be"),
         ("hard_class_count", -1, "hard_class_count: must be a non-negative integer"),
         ("artifact_files_verified", "yes", "artifact_files_verified: must be True"),
-        ("policy", {"auto_confidence": math.nan}, "policy: must be a non-empty object"),
-        ("policy", {"auto_confidence": 10**400}, "policy: must be a non-empty object"),
+        ("policy", {**POLICY, "auto_confidence": math.nan}, "policy: must hold finite"),
+        ("policy", {**POLICY, "auto_confidence": 10**400}, "policy: must hold finite"),
         ("deployed_at", "earlier", "deployed_at: must be an ISO-8601 timestamp"),
         ("deployed_at", "2026-10-11T09:00:00", "deployed_at: must be an ISO-8601 timestamp"),
     ],
@@ -231,6 +231,54 @@ def test_an_oversized_value_is_shown_briefly() -> None:
     message = rejected(record)
     assert "calibration.temperature: must be a finite, positive number, found 1000" in message
     assert len(message) < 1000
+
+
+# The recorded policy is the runtime's: verify-live trusts it as a statement of
+# what routes predictions, so it must be one the runtime could have loaded.
+
+
+@pytest.mark.parametrize(
+    ("policy", "fragment"),
+    [
+        ({"not_a_threshold": 2.0}, "must hold exactly the thresholds"),
+        ({}, "must hold exactly the thresholds"),
+        ({k: v for k, v in POLICY.items() if k != "margin_threshold"}, "must hold exactly"),
+        ({**POLICY, "extra": 0.5}, "must hold exactly the thresholds"),
+        ({**POLICY, "auto_confidence": 1.5}, "auto_confidence is not"),
+        ({**POLICY, "margin_threshold": -0.1}, "margin_threshold is not"),
+        ({**POLICY, "suggest_confidence": "0.35"}, "suggest_confidence is not"),
+        ({**POLICY, "suggest_confidence": True}, "suggest_confidence is not"),
+        ({**POLICY, "suggest_confidence": 0.8}, "suggest_confidence above auto_confidence"),
+        ([0.7, 0.35, 0.05], "must hold exactly the thresholds"),
+    ],
+)
+def test_a_policy_the_runtime_could_not_load_is_refused(policy, fragment) -> None:
+    record = finish(policy_record())
+    record["policy"] = policy
+    message = rejected(record)
+    assert "policy: " in message and fragment in message
+
+
+def test_the_recorded_policy_rule_matches_the_deploy_input_rule() -> None:
+    """A recorded policy is valid exactly when runtime_policy would have produced it."""
+    from app.deployment import identity
+
+    cases = [
+        dict(POLICY),
+        {**POLICY, "auto_confidence": 1.0, "suggest_confidence": 1.0},
+        {**POLICY, "margin_threshold": 0},
+        {**POLICY, "auto_confidence": 1.5},
+        {**POLICY, "suggest_confidence": 0.8},
+        {**POLICY, "margin_threshold": math.inf},
+        {**POLICY, "margin_threshold": False},
+    ]
+    for policy in cases:
+        try:
+            identity.runtime_policy(policy, Path("policy.json"))
+            accepted = True
+        except DeployError:
+            accepted = False
+        assert (records.policy_problem(policy) is None) == accepted, policy
 
 
 def test_a_missing_calibration_file_hash_is_named() -> None:

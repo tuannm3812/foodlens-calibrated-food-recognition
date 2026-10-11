@@ -28,6 +28,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
+from app.backend.policy_fingerprint import POLICY_KEYS
+
 from .errors import DeployError
 from .paths import MANIFEST_FILE, PROVENANCE_FILE, brief, display, finite_float
 
@@ -112,14 +114,22 @@ def _hash_map(value: Any) -> str | None:
     return f"holds values that are not hex SHA-256 digests: {brief(bad)}" if bad else None
 
 
-def _policy_values(value: Any) -> str | None:
-    if (
-        isinstance(value, dict)
-        and value
-        and all(finite_float(item) is not None for item in value.values())
-    ):
-        return None
-    return f"must be a non-empty object of finite thresholds, found {brief(value)}"
+def policy_problem(value: Any) -> str | None:
+    """What is wrong with a recorded runtime policy, or None if the runtime could use it.
+
+    The recorded policy is the one ``identity.runtime_policy`` returned: exactly
+    the thresholds the backend reads and fingerprints, each in [0, 1], with
+    ``suggest_confidence`` no higher than ``auto_confidence``.
+    """
+    if not isinstance(value, dict) or set(value) != set(POLICY_KEYS):
+        return f"must hold exactly the thresholds {list(POLICY_KEYS)}, found {brief(value)}"
+    numbers = {key: finite_float(value[key]) for key in POLICY_KEYS}
+    bad = [key for key, number in numbers.items() if number is None or not 0 <= number <= 1]
+    if bad:
+        return f"must hold finite thresholds in [0, 1]; {', '.join(bad)} is not, in {brief(value)}"
+    if numbers["suggest_confidence"] > numbers["auto_confidence"]:
+        return f"has suggest_confidence above auto_confidence, in {brief(value)}"
+    return None
 
 
 def _exactly(expected: Any) -> Check:
@@ -163,7 +173,7 @@ COMMON_FIELDS: Mapping[str, Check | Shape] = {
     "operation": _one_of(OPERATIONS),
     "model": MODEL_SHAPE,
     "calibration": CALIBRATION_SHAPE,
-    "policy": _policy_values,
+    "policy": policy_problem,
     "hard_class_count": _count,
     "confusion_pair_count": _count,
     "decision_layer_fingerprint": _hex_sha256,

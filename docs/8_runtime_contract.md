@@ -384,7 +384,14 @@ from 2026-10-11). Every record carries:
   `calibration.json` and `class_names.json` (`files_sha256`) as the target
   holds them afterwards;
 - the routing: `policy`, `hard_class_count`, `confusion_pair_count` and
-  `decision_layer_fingerprint`;
+  `decision_layer_fingerprint`. The `policy` must be one the runtime could
+  load: exactly `auto_confidence`, `suggest_confidence` and `margin_threshold`
+  (the keys `app/backend/policy_fingerprint.py` fingerprints), each in [0, 1],
+  with `suggest_confidence` no higher than `auto_confidence` — the rule
+  `runtime_policy` applies to a deploy's input. This tightened schema version 1
+  on 2026-10-11, after its first release, which accepted any non-empty map of
+  finite numbers (Codex GitHub review on PR #15). Every record already written
+  on this machine meets it;
 - a timestamp (`deployed_at`, or `restored_at` for a restore) and the file
   check: `deployed_files_sha256`, `artifact_files_verified`, `live_service`.
 
@@ -445,7 +452,10 @@ The deploy record's `artifact_files_verified` therefore covers the files only.
 
 `--verify-live` first checks the target's files against
 `deployment_provenance.json`, read through the normalisation above, where it
-records them: the decision-layer fingerprint; the model's architecture,
+records them: the decision-layer fingerprint, and also the recorded `policy`,
+`hard_class_count` and `confusion_pair_count` against the target's decision
+layer as the backend reads it, so a record cannot verify while describing
+routing the target does not hold; the model's architecture,
 checkpoint name and checkpoint hash (from the record's `model` entry, which
 every kind of deployment writes — older policy-only records are read from
 `served_model`); every recorded checkpoint, `calibration.json` and

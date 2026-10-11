@@ -19,6 +19,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from app.backend.policy_fingerprint import POLICY_KEYS
+
 from .errors import DeployError
 from .paths import (
     MANIFEST_FILE,
@@ -40,7 +42,6 @@ if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 import prediction_evidence  # noqa: E402
 
-POLICY_KEYS = ("auto_confidence", "suggest_confidence", "margin_threshold")
 CLASS_COUNT = 101
 # What identifies a served model, as /runtime/status reports it.
 IDENTITY_KEYS = ("architecture", "model_name", "checkpoint_sha256")
