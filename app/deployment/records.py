@@ -31,7 +31,14 @@ from typing import Any, Literal
 from app.backend.policy_fingerprint import POLICY_KEYS
 
 from .errors import DeployError
-from .paths import MANIFEST_FILE, PROVENANCE_FILE, brief, display, finite_float
+from .paths import (
+    MANIFEST_FILE,
+    PROVENANCE_FILE,
+    brief,
+    display,
+    finite_float,
+    is_plain_file_name,
+)
 
 SCHEMA_VERSION = 1
 # The operation discriminator. "policy_deploy" is the name install.make_backup
@@ -63,7 +70,7 @@ def _text(value: Any) -> str | None:
 
 
 def _file_name(value: Any) -> str | None:
-    if _text(value) is None and "/" not in value and "\\" not in value:
+    if is_plain_file_name(value):
         return None
     return f"must be a plain file name, found {brief(value)}"
 
@@ -110,6 +117,9 @@ def _string_list(value: Any) -> str | None:
 def _hash_map(value: Any) -> str | None:
     if not isinstance(value, dict):
         return f"must be an object of file name to SHA-256, found {brief(value)}"
+    names = [name for name in value if not is_plain_file_name(name)]
+    if names:
+        return f"names files that are not plain file names: {brief(names)}"
     bad = {name: digest for name, digest in value.items() if _hex_sha256(digest)}
     return f"holds values that are not hex SHA-256 digests: {brief(bad)}" if bad else None
 
@@ -153,6 +163,14 @@ def _one_of(allowed: tuple[str, ...]) -> Check:
 Shape = Mapping[str, Check]
 
 
+class ClosedShape(dict):
+    """A shape that also refuses keys it does not declare.
+
+    Used where a reader would act on every key: the calibration hashes, whose
+    names verify-live would otherwise join to the target.
+    """
+
+
 # --- The schema ------------------------------------------------------------------
 
 MODEL_SHAPE: Shape = {
@@ -163,7 +181,7 @@ MODEL_SHAPE: Shape = {
 }
 CALIBRATION_SHAPE: Mapping[str, Check | Shape] = {
     "temperature": _finite_positive,
-    "files_sha256": {name: _hex_sha256 for name in CALIBRATION_FILES},
+    "files_sha256": ClosedShape({name: _hex_sha256 for name in CALIBRATION_FILES}),
 }
 
 # Every operation records: what it is, the model identity, the calibration and
@@ -256,8 +274,13 @@ def _field_problems(
         if isinstance(check, Mapping):
             if not isinstance(value, dict):
                 problems.append((path, f"must be an object, found {brief(value)}"))
-            else:
-                problems += _field_problems(value, check, required=True, prefix=f"{path}.")
+                continue
+            problems += _field_problems(value, check, required=True, prefix=f"{path}.")
+            extra = [key for key in value if key not in check]
+            if isinstance(check, ClosedShape) and extra:
+                problems.append(
+                    (path, f"may name only {list(check)}, found also {brief(extra)}")
+                )
             continue
         problem = check(value)
         if problem is not None:

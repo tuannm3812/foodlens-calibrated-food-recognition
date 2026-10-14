@@ -407,6 +407,22 @@ and removed files, `previous_model` and the embedded
 so their record must name its backup (`backup_dir`, `replaced_files_sha256`);
 a policy deploy names one whenever it made one.
 
+**File names in a record are plain file names.** Every name a record holds —
+`model.checkpoint` and each key of each `*_files_sha256` map — must name a file
+directly inside the target: not empty, not `.` or `..`, and with no `/`, `\`,
+`:` or NUL. The colon was added on 2026-10-15 (Codex P2 on PR #16): on Windows
+`C:outside.pth` is drive-relative, not a child of the target.
+`calibration.files_sha256` may name only `calibration.json` and
+`class_names.json`. This tightened schema version 1 a second time on
+2026-10-11 (Codex P3, agent log): `--verify-live` joined recorded names to the
+target, so a record naming `../outside.pth` had a file outside it hashed. The
+same rule, `paths.is_plain_file_name`, guards `--restore`'s reading of
+`backup_record.json`, where a NUL name used to fail mid-restore with a false
+"ROLLBACK FAILED" and leave an extra backup behind. A historical record holding
+such a name keeps it as recorded and lists the map as an unusable limit;
+`--verify-live` never joins it to a path. Every record on this machine meets the
+rule.
+
 **Validation on write.** Every operation validates its record twice: the
 complete record before any backup is made, and the final record, naming its
 backup, after the backup and before any target file is replaced. A missing or
@@ -444,6 +460,21 @@ as follows:
 
 On 2026-10-11 `--verify-live` passed against a server on the real
 `app/artifacts/`, reading its 2026-10-10 record through this path.
+
+**Integrated release check, 2026-10-12.** Run from `main` at `3f87b67` (PR #15
+merged), against a freshly started API on the real `app/artifacts/`:
+`--verify-live` passed model, routing and calibration — `convnext_tiny`
+`a3b_convnext_tiny`, checkpoint SHA-256 `01d98554…52c8af`, temperature
+`0.88435298204422` in both the probe and the status, decision-layer fingerprint
+`39672f78…97f7e4` (0.70 / 0.35 / 0.05; 11 hard classes; 40 pairs). The record
+read as historical with its two limits. On a copy, `--restore` to
+`replaced_20261010T015403Z_alsevy57/` put back every backed-up file byte for
+byte, and a fresh API on the copy verified as ResNet50 FT-V2 (fingerprint
+`ed6e970d…`, temperature `0.9581114053726196`) under a schema-1 restore record
+with no limits. Undoing that restore left every model, calibration and policy
+file byte-identical to the original; its new record embeds the original
+promotion record unchanged, and a restarted API verified A3b again. The real
+`app/artifacts/` was only read.
 
 **Why the restart.** `load_runtime()` caches the model, policy, hard classes
 and confusion pairs in the process on first use, so a running API keeps

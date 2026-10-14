@@ -22,6 +22,22 @@ BACKUP_RECORD_FILE = "backup_record.json"
 RESERVED_NAMES = frozenset((*DEPLOYED_FILES, *MODEL_FILES, PROVENANCE_FILE, BACKUP_RECORD_FILE))
 
 
+def is_plain_file_name(name: Any) -> bool:
+    """True for a name that can only mean a file directly inside a directory.
+
+    Records name files by bare name, and every reader joins that name to the
+    target or a backup. This refuses each name that would leave the directory
+    or fail to open: empty, ``.``, ``..``, a path separator, NUL, or a colon,
+    since on Windows ``target / "C:name"`` is drive-relative, not inside target.
+    """
+    return (
+        isinstance(name, str)
+        and name.strip() != ""
+        and name not in (".", "..")
+        and not any(character in name for character in "/\\:\x00")
+    )
+
+
 def display(path: Path) -> str:
     """Repo-relative path when inside the repo, absolute otherwise."""
     resolved = path.resolve()

@@ -23,7 +23,7 @@ from evidence_fixtures import provenance_with_evidence, write_scored_split
 from torch import nn
 
 from app.backend import artifacts
-from app.deployment import identity, install, paths, records
+from app.deployment import identity, install, paths, records, verify_live
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "deploy_decision_policy.py"
 _spec = importlib.util.spec_from_file_location("deploy_decision_policy_promote", SCRIPT)
@@ -1285,3 +1285,121 @@ def test_verify_live_refuses_a_record_that_misdescribes_the_target_routing(
     err = capsys.readouterr().err
     assert "routing: FAILED" in err and fragment in err
     assert calls == [], "refused before the service was probed"
+
+
+# --- Recorded file names never leave the target ----------------------------------
+#
+# Codex P3 (agent log, 2026-10-11): verify-live joined every recorded .pth name
+# and every calibration.files_sha256 key to the target, so a record naming
+# "../outside.pth" had a file outside the target hashed. A real file is planted
+# there, and every path verify-live stats or hashes is recorded: the previous
+# code read it.
+
+OUTSIDE = "../outside.pth"
+
+
+def watch_file_access(monkeypatch) -> list[Path]:
+    """Record every path verify-live hashes and every path anything stats."""
+    seen: list[Path] = []
+    real_sha256 = verify_live.sha256
+
+    def hashing(path):
+        seen.append(Path(path))
+        return real_sha256(path)
+
+    monkeypatch.setattr(verify_live, "sha256", hashing)
+    for method in ("is_file", "exists"):
+        real = getattr(Path, method)
+
+        def statting(self, *args, _real=real, **kwargs):
+            seen.append(self)
+            return _real(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, method, statting)
+    return seen
+
+
+def assert_never_outside(seen: list[Path], target: Path) -> None:
+    """Under the test's directory, nothing but the target was stat'ed or hashed."""
+    root, inside = target.parent.resolve(), target.resolve()
+    strays = set()
+    for path in seen:
+        resolved = path.resolve()
+        if root in resolved.parents and not (resolved == inside or inside in resolved.parents):
+            strays.add(str(resolved))
+    assert strays == set(), "verify-live touched files outside the target"
+
+
+@pytest.fixture
+def outside(target: Path) -> Path:
+    path = (target / OUTSIDE).resolve()
+    path.write_bytes(b"not part of the deployment\n")
+    return path
+
+
+@pytest.mark.parametrize(
+    ("place", "fragment"),
+    [
+        ("deployed_files_sha256", "deployed_files_sha256: names files that are not plain"),
+        ("calibration", "calibration.files_sha256: may name only"),
+    ],
+)
+def test_verify_live_refuses_a_current_record_naming_a_path_without_reading_it(
+    runs, target, outside, monkeypatch, capsys, place, fragment
+):
+    promote(runs, target)
+    record = written_record(target)
+    if place == "calibration":
+        record["calibration"]["files_sha256"][OUTSIDE] = "0" * 64
+    else:
+        record[place][OUTSIDE] = "0" * 64
+    write_json(target / "deployment_provenance.json", record)
+    before = tree(target)
+    capsys.readouterr()
+    fetch, calls = counting(service(target, loaded(target)))
+    seen = watch_file_access(monkeypatch)
+
+    assert verify(target, fetch) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ") and fragment in err
+    assert calls == [] and tree(target) == before
+    assert outside.resolve() not in [path.resolve() for path in seen]
+    assert_never_outside(seen, target)
+
+
+def test_verify_live_reads_a_historical_record_naming_a_path_without_reading_it(
+    runs, target, outside, monkeypatch, capsys
+):
+    promote(runs, target)
+    deploy_mod.deploy(runs["a3b_policy"], target, dry_run=False)
+    record = written_record(target)
+    for key in ("schema_version", "operation", "model", "calibration"):
+        del record[key]
+    # A hash the planted file does not have: reading it would report drift.
+    record["served_model_files_sha256"][OUTSIDE] = "0" * 64
+    write_json(target / "deployment_provenance.json", record)
+    seen = watch_file_access(monkeypatch)
+
+    result = verified(target, capsys)
+    limits = result["deployment_record"]["limits"]
+    assert any("served_model_files_sha256 as recorded is unusable" in limit for limit in limits)
+    assert outside.resolve() not in [path.resolve() for path in seen]
+    assert_never_outside(seen, target)
+
+
+@pytest.mark.parametrize("name", ["..", ".", "a\x00b", "sub/a.json", "C:outside.json"])
+def test_restore_refuses_a_backup_record_naming_a_path(runs, target, capsys, name):
+    promoted = promote(runs, target)
+    backup = backup_path(promoted)
+    record_path = backup / "backup_record.json"
+    backup_record = json.loads(record_path.read_text())
+    backup_record["files"][name] = None
+    write_json(record_path, backup_record)
+    before = tree(target)
+    parent = sorted(p.name for p in target.parent.iterdir())
+
+    assert deploy_mod.main(["--target", str(target), "--restore", str(backup)]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ") and "names an invalid file" in err
+    assert tree(target) == before
+    assert sorted(p.name for p in target.parent.iterdir()) == parent

@@ -293,6 +293,56 @@ def test_a_checkpoint_name_with_a_path_is_refused() -> None:
     assert "model.checkpoint: must be a plain file name" in rejected(record)
 
 
+# Hash-map keys are file names a reader joins to the target or a backup. Codex
+# P3 (agent log, 2026-10-11): they were checked only for their values, so a
+# record could name "../elsewhere.pth". Tightened in schema version 1.
+
+UNSAFE_NAMES = ["../elsewhere.pth", "/etc/passwd", "sub/a.pth", "..", ".", "", "a\x00.pth"]
+
+
+@pytest.mark.parametrize("name", [".", "..", "a\x00.pth"])
+def test_a_checkpoint_name_that_is_not_a_plain_file_is_refused(name) -> None:
+    record = finish(policy_record())
+    record["model"]["checkpoint"] = name
+    assert "model.checkpoint: must be a plain file name" in rejected(record)
+
+
+@pytest.mark.parametrize("name", UNSAFE_NAMES)
+@pytest.mark.parametrize(
+    ("builder", "field"),
+    [
+        ("policy_deploy", "deployed_files_sha256"),
+        ("policy_deploy", "served_model_files_sha256"),
+        ("policy_deploy", "source_files_sha256"),
+        ("model_promotion", "model_source_files_sha256"),
+        ("restore", "restored_files_sha256"),
+        ("restore", "replaced_files_sha256"),
+    ],
+)
+def test_a_hash_map_naming_a_path_is_refused(builder, field, name) -> None:
+    record = finish(BUILDERS[builder]())
+    record[field][name] = digest("9")
+    assert f"{field}: names files that are not plain file names" in rejected(record)
+
+
+@pytest.mark.parametrize("name", ["../elsewhere.pth", "model.json", "a3b_best.pth"])
+def test_calibration_hashes_may_name_only_the_calibration_files(name) -> None:
+    record = finish(restore_record())
+    record["calibration"]["files_sha256"][name] = digest("9")
+    assert "calibration.files_sha256: may name only" in rejected(record)
+
+
+def test_a_historical_hash_map_naming_a_path_is_a_limit() -> None:
+    original = fixture("2026-10-10_model_promotion.json")
+    original["deployed_files_sha256"]["../elsewhere.pth"] = digest("9")
+    normalised = records.normalise_record(original)
+    assert normalised["deployed_files_sha256"] == original["deployed_files_sha256"]
+    assert any(
+        limit.startswith("deployed_files_sha256 as recorded is unusable: names files")
+        for limit in normalised["limits"]
+    )
+
+
 @pytest.mark.parametrize(
     ("operation", "field"),
     [
