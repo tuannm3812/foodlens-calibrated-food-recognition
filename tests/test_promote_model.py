@@ -1285,3 +1285,16 @@ def test_verify_live_refuses_a_record_that_misdescribes_the_target_routing(
     err = capsys.readouterr().err
     assert "routing: FAILED" in err and fragment in err
     assert calls == [], "refused before the service was probed"
+
+
+@pytest.mark.parametrize("name", ["..", "../elsewhere.json", "C:elsewhere.json"])
+def test_restore_refuses_a_backup_record_naming_an_unsafe_file(runs, target, capsys, name):
+    record = promote(runs, target)
+    backup_record = backup_path(record) / "backup_record.json"
+    recorded = json.loads(backup_record.read_text())
+    recorded["files"][name] = None
+    write_json(backup_record, recorded)
+    promoted = tree(target)
+    assert deploy_mod.main(["--target", str(target), "--restore", str(backup_path(record))]) == 1
+    assert "names an invalid file" in capsys.readouterr().err
+    assert tree(target) == promoted

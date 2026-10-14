@@ -2779,3 +2779,52 @@ the earlier local review missed.
 **Decision:** approve the reviewed final head on the agreed correctness criteria;
 P3 does not block this closure. A3b remains champion under D-013. Only this log
 was changed; no merge, deployment, training run or external message was sent.
+
+---
+
+## 2026-10-14 — Claude: hash-map confinement (the P3 follow-up)
+
+Implemented step 2 of the order agreed on 2026-10-12, on its own branch from
+`main` after PR #15 merged. **This is a stated tightening of schema version 1**,
+recorded in `8_runtime_contract.md` under "File names in records".
+
+- **One definition of a safe name.** `paths.plain_file_name()` refuses the
+  empty name, `.`, `..`, and any `/`, `\`, `:` (a Windows drive, `C:x`) or NUL.
+  The old `_file_name()` accepted `.` and `..`, as Codex noted; it now uses
+  this, as do `--restore`'s check of `backup_record.json` (which used
+  `Path(name).name != name` and so accepted `..`) and `--checkpoint`.
+- **Writers and current records.** Every hash map's keys must be plain file
+  names, and `calibration.files_sha256` is closed to its two files
+  (`ClosedShape`; no other nested object is closed). A current record that
+  breaks either is refused on read, before the service is probed.
+- **Historical records.** Unsafe names are dropped from every hash-map field
+  (`records.HASH_MAP_FIELDS`) during normalisation and listed as a limit. They
+  are never handed to a reader. Safe entries are kept.
+- **Where a name becomes a path.** `recorded_drift` checks the name again before
+  joining it to the target, and reads calibration hashes only for the two
+  calibration files.
+
+**Closure evidence.** New tests instrument `Path.stat` and `Path.open` (which
+`exists`, `is_file`, `read_text` and `sha256` all go through) and plant files
+beside the target. Through the real CLI, a historical record that names
+`../elsewhere.pth`, an absolute path and `../notes.json` verifies with no read
+outside the target. A current record naming them is refused with no read
+outside the target and no HTTP call. On the previous code, 65 of the 66 new
+tests fail (14 of them only because `plain_file_name` did not exist). Both
+instrumented verify-live tests fail there because the old code hashed the
+planted outside file and reported drift. The one that passes is the restore
+case `../elsewhere.json`, which the old check already caught; `..` and
+`C:elsewhere.json` were not caught.
+
+**Verified by running:** all 666 tests pass (600 → 666), plus `ruff check .`,
+`check_doc_links.py`, `check_doc_structure.py` and `git diff --check`.
+The two historical fixtures normalise with exactly their previous limits.
+**Not checked:** the real `app/artifacts/` records (gitignored, not in this
+environment) were not re-read against the tightened schema, and no live check
+was run. Step 3, a fresh `--verify-live` and a restore rehearsal on the real
+target, still has to run on the deployment machine and would cover that.
+
+**Not in scope:** `model.json`'s `checkpoint` is the backend's own manifest and
+is joined to the target by the backend loader; it was not changed here.
+
+**Requested of Codex:** review this branch against the P3 closure criteria.

@@ -407,6 +407,23 @@ and removed files, `previous_model` and the embedded
 so their record must name its backup (`backup_dir`, `replaced_files_sha256`);
 a policy deploy names one whenever it made one.
 
+**File names in records.** Every key of a hash map (`deployed_files_sha256`,
+`served_model_files_sha256`, `source_files_sha256`, `model_source_files_sha256`,
+`restored_files_sha256`, `replaced_files_sha256`) and `model.checkpoint` must
+be a plain file name, as `paths.plain_file_name` defines it: not empty, not `.`
+or `..`, and with no `/`, `\`, `:` or NUL, so joining it to the target cannot
+leave the target. `calibration.files_sha256` must name exactly
+`calibration.json` and `class_names.json`. This tightened schema version 1 a
+second time on 2026-10-14 (the P3 hash-map follow-up in `9_agent_log.md`): a
+record naming `../elsewhere.pth` previously passed and had that file hashed by
+`--verify-live`. Historical records are not refused for an unsafe name; it is
+dropped from the map before any reader sees it and listed as a limit
+(`"served_model_files_sha256 names ['../elsewhere.pth'], not plain file names;
+not used"`). `--verify-live` also checks each name again where it becomes a
+path, and `--restore` refuses a `backup_record.json` naming an unsafe file.
+The two historical fixtures normalise with no new limit; the current-schema
+records on the deployment machine were not re-read for this change.
+
 **Validation on write.** Every operation validates its record twice: the
 complete record before any backup is made, and the final record, naming its
 backup, after the backup and before any target file is replaced. A missing or

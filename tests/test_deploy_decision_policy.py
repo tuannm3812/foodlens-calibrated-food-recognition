@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -589,3 +590,89 @@ def test_verify_live_rejects_a_stale_temperature_with_matching_model_and_routing
     err = capsys.readouterr().err
     assert "model: passed" in err and "routing: passed" in err
     assert "cached temperature 0.884" in err
+
+
+# --- --verify-live reads only inside the target --------------------------------
+
+
+@pytest.fixture
+def reads(monkeypatch) -> list[Path]:
+    """Every path stat'ed or opened, which covers exists, is_file, read_text and sha256."""
+    seen: list[Path] = []
+    real_stat, real_open = Path.stat, Path.open
+
+    def stat(self, *args, **kwargs):
+        seen.append(self)
+        return real_stat(self, *args, **kwargs)
+
+    def open_(self, *args, **kwargs):
+        seen.append(self)
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat)
+    monkeypatch.setattr(Path, "open", open_)
+    return seen
+
+
+def outside(reads: list[Path], target: Path) -> list[str]:
+    # os.path, not Path.resolve, which would stat and so grow ``reads`` while
+    # it is being read.
+    root = os.path.realpath(target)
+    return [
+        str(path) for path in list(reads)
+        if os.path.commonpath([root, os.path.realpath(path)]) != root
+    ]
+
+
+@pytest.fixture
+def planted(tmp_path: Path) -> list[str]:
+    """Files beside the target that a record could name by an unsafe path."""
+    (tmp_path / "elsewhere.pth").write_bytes(b"not the target's")
+    (tmp_path / "notes.json").write_text("{}")
+    return ["../elsewhere.pth", str(tmp_path / "elsewhere.pth"), "../notes.json"]
+
+
+def test_verify_live_never_reads_a_historical_records_unsafe_names(
+    target, planted, reads, capsys
+):
+    # A pre-schema record whose hash maps also name files outside the target.
+    checkpoint = paths.sha256(target / "resnet50_ft_v2_best.pth")
+    write_json(
+        target / "deployment_provenance.json",
+        {
+            "backend_verified": True,
+            "served_model_files_sha256": {
+                "resnet50_ft_v2_best.pth": checkpoint,
+                **{name: "0" * 64 for name in planted},
+            },
+            "deployed_files_sha256": {name: "0" * 64 for name in planted},
+        },
+    )
+    fetch = fake_service(files_fingerprint(target), model=served_model(target))
+    reads.clear()
+    assert verify_live(target, fetch) == 0
+    assert reads and outside(reads, target) == []
+    limits = json.loads(capsys.readouterr().out)["deployment_record"]["limits"]
+    assert any(
+        limit.startswith("served_model_files_sha256 names") and limit.endswith("not used")
+        for limit in limits
+    )
+
+
+def test_verify_live_refuses_a_current_record_naming_an_unsafe_file(
+    source, target, planted, reads, capsys
+):
+    deploy_mod.deploy(source, target, dry_run=False)
+    record = json.loads((target / "deployment_provenance.json").read_text())
+    record["served_model_files_sha256"].update({name: "0" * 64 for name in planted})
+    record["calibration"]["files_sha256"]["../notes.json"] = "0" * 64
+    write_json(target / "deployment_provenance.json", record)
+    capsys.readouterr()
+    fetch = fake_service(files_fingerprint(target), model=served_model(target))
+    reads.clear()
+    assert verify_live(target, fetch) == 1
+    assert reads and outside(reads, target) == []
+    err = capsys.readouterr().err
+    assert "served_model_files_sha256: names files that are not plain file names" in err
+    assert "calibration.files_sha256: names '../notes.json'" in err
+    assert fetch.calls == []

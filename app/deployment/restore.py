@@ -21,6 +21,7 @@ from .paths import (
     PROVENANCE_FILE,
     display,
     now_utc,
+    plain_file_name,
     read_json,
     sha256,
 )
@@ -51,7 +52,7 @@ def read_backup_record(backup: Path, target: Path) -> dict[str, Any]:
     if not isinstance(files, dict) or not files:
         raise DeployError(f"{display(record_path)} lists no files.")
     for name, digest in files.items():
-        if Path(name).name != name or name == BACKUP_RECORD_FILE:
+        if not plain_file_name(name) or name == BACKUP_RECORD_FILE:
             raise DeployError(f"{display(record_path)} names an invalid file {name!r}.")
         if digest is None:
             continue

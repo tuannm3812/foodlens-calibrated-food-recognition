@@ -23,6 +23,7 @@ from .paths import (
     RESERVED_NAMES,
     display,
     now_utc,
+    plain_file_name,
     read_json,
     sha256,
     write_json_file,
@@ -41,7 +42,7 @@ def model_run_checkpoint(model_run: Path, checkpoint_name: str | None) -> Path:
                 f"({', '.join(candidates) or 'none'}); name one with --checkpoint."
             )
         checkpoint_name = candidates[0]
-    if Path(checkpoint_name).name != checkpoint_name or checkpoint_name in RESERVED_NAMES:
+    if not plain_file_name(checkpoint_name) or checkpoint_name in RESERVED_NAMES:
         raise DeployError(
             f"--checkpoint must be a plain checkpoint file name, not {checkpoint_name!r}."
         )

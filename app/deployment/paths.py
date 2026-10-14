@@ -22,6 +22,22 @@ BACKUP_RECORD_FILE = "backup_record.json"
 RESERVED_NAMES = frozenset((*DEPLOYED_FILES, *MODEL_FILES, PROVENANCE_FILE, BACKUP_RECORD_FILE))
 
 
+def plain_file_name(value: Any) -> bool:
+    """Whether ``value`` names a file directly inside a directory, and nothing else.
+
+    A record or backup can hold any string, and ``directory / name`` leaves the
+    directory for an absolute path, a separator, ``..`` or a Windows drive
+    (``C:name``). Those, the empty name, ``.`` and a NUL byte are refused, so a
+    name that passes can be joined to a target and read without escaping it.
+    """
+    return (
+        isinstance(value, str)
+        and value.strip() != ""
+        and value not in {".", ".."}
+        and not any(char in value for char in "/\\:\0")
+    )
+
+
 def display(path: Path) -> str:
     """Repo-relative path when inside the repo, absolute otherwise."""
     resolved = path.resolve()

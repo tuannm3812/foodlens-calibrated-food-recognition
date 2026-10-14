@@ -31,7 +31,7 @@ from typing import Any, Literal
 from app.backend.policy_fingerprint import POLICY_KEYS
 
 from .errors import DeployError
-from .paths import MANIFEST_FILE, PROVENANCE_FILE, brief, display, finite_float
+from .paths import MANIFEST_FILE, PROVENANCE_FILE, brief, display, finite_float, plain_file_name
 
 SCHEMA_VERSION = 1
 # The operation discriminator. "policy_deploy" is the name install.make_backup
@@ -63,9 +63,7 @@ def _text(value: Any) -> str | None:
 
 
 def _file_name(value: Any) -> str | None:
-    if _text(value) is None and "/" not in value and "\\" not in value:
-        return None
-    return f"must be a plain file name, found {brief(value)}"
+    return None if plain_file_name(value) else f"must be a plain file name, found {brief(value)}"
 
 
 def _timestamp(value: Any) -> str | None:
@@ -110,6 +108,10 @@ def _string_list(value: Any) -> str | None:
 def _hash_map(value: Any) -> str | None:
     if not isinstance(value, dict):
         return f"must be an object of file name to SHA-256, found {brief(value)}"
+    # The keys are joined to the target and read, so each must stay inside it.
+    unsafe = [name for name in value if not plain_file_name(name)]
+    if unsafe:
+        return f"names files that are not plain file names: {brief(unsafe)}"
     bad = {name: digest for name, digest in value.items() if _hex_sha256(digest)}
     return f"holds values that are not hex SHA-256 digests: {brief(bad)}" if bad else None
 
@@ -153,6 +155,14 @@ def _one_of(allowed: tuple[str, ...]) -> Check:
 Shape = Mapping[str, Check]
 
 
+class ClosedShape(dict):
+    """A ``Shape`` that also refuses keys it does not name.
+
+    Only ``calibration.files_sha256`` is closed: its keys are file names a
+    reader hashes in the target. Other nested objects still accept extra keys.
+    """
+
+
 # --- The schema ------------------------------------------------------------------
 
 MODEL_SHAPE: Shape = {
@@ -163,7 +173,7 @@ MODEL_SHAPE: Shape = {
 }
 CALIBRATION_SHAPE: Mapping[str, Check | Shape] = {
     "temperature": _finite_positive,
-    "files_sha256": {name: _hex_sha256 for name in CALIBRATION_FILES},
+    "files_sha256": ClosedShape({name: _hex_sha256 for name in CALIBRATION_FILES}),
 }
 
 # Every operation records: what it is, the model identity, the calibration and
@@ -258,6 +268,12 @@ def _field_problems(
                 problems.append((path, f"must be an object, found {brief(value)}"))
             else:
                 problems += _field_problems(value, check, required=True, prefix=f"{path}.")
+                if isinstance(check, ClosedShape):
+                    problems += [
+                        (path, f"names {brief(extra)}, which is not one of {list(check)}")
+                        for extra in value
+                        if extra not in check
+                    ]
             continue
         problem = check(value)
         if problem is not None:
@@ -524,6 +540,17 @@ HISTORICAL_SOURCES: Mapping[str, tuple[tuple[str, ...], ...]] = {
     # deploys hashed the served model's files they left in place.
     "calibration.files_sha256": (("deployed_files_sha256",), ("served_model_files_sha256",)),
 }
+# The top-level fields that map file names to SHA-256, in any operation. A
+# historical record is not held to the schema, so its unsafe names are dropped
+# from these before any reader can join them to the target.
+HASH_MAP_FIELDS = tuple(
+    dict.fromkeys(
+        name
+        for fields in (COMMON_FIELDS, *OPERATION_FIELDS.values(), BACKUP_FIELDS)
+        for name, check in fields.items()
+        if check is _hash_map
+    )
+)
 # Before the discriminator, promotion and restore records already named their
 # operation; only policy-only deploys wrote "untouched".
 POLICY_ONLY_MARKER = "untouched"
@@ -541,6 +568,17 @@ def _normalise_historical(record: Mapping[str, Any]) -> dict[str, Any]:
     normalised = dict(record)
     read_from: dict[str, str] = {}
     limits: list[str] = []
+
+    for field in HASH_MAP_FIELDS:
+        hashes = record.get(field)
+        if not isinstance(hashes, Mapping):
+            continue
+        unsafe = [name for name in hashes if not plain_file_name(name)]
+        if unsafe:
+            normalised[field] = {
+                name: digest for name, digest in hashes.items() if plain_file_name(name)
+            }
+            limits.append(f"{field} names {brief(unsafe)}, not plain file names; not used")
 
     operation = record.get("operation")
     if operation is None and POLICY_ONLY_MARKER in record:

@@ -21,7 +21,15 @@ from typing import Any
 
 from . import identity
 from .errors import DeployError
-from .paths import DEPLOYED_FILES, PROVENANCE_FILE, brief, display, read_json, sha256
+from .paths import (
+    DEPLOYED_FILES,
+    PROVENANCE_FILE,
+    brief,
+    display,
+    plain_file_name,
+    read_json,
+    sha256,
+)
 from .records import CALIBRATION_FILES, normalise_record, policy_problem
 
 # What --verify-live checks, each reported on its own.
@@ -204,7 +212,11 @@ def recorded_drift(
         if not isinstance(hashes, dict):
             continue
         for name, recorded_hash in hashes.items():
-            if not name.endswith(".pth") or not (target / name).is_file():
+            # The record is read as normalised, so its names are plain; checked
+            # again here because this is where a name becomes a path to read.
+            if not plain_file_name(name) or not name.endswith(".pth"):
+                continue
+            if not (target / name).is_file():
                 continue
             if recorded_hash != sha256(target / name):
                 problem = (
@@ -224,9 +236,14 @@ def recorded_drift(
     calibration = record.get("calibration")
     calibration = calibration if isinstance(calibration, Mapping) else {}
     files = calibration.get("files_sha256")
-    for name, recorded_hash in (files if isinstance(files, Mapping) else {}).items():
+    files = files if isinstance(files, Mapping) else {}
+    for name in CALIBRATION_FILES:
         # A restore records the calibration it leaves in place only here.
-        if name not in compared and recorded_hash != sha256(target / name):
+        # Only the two calibration files are read; the schema allows no others.
+        if name not in files or name in compared:
+            continue
+        recorded_hash = files[name]
+        if recorded_hash != sha256(target / name):
             drift["calibration"].append(
                 f"The target's {name} (sha256 {sha256(target / name)}) no longer matches "
                 f"{PROVENANCE_FILE}'s calibration.files_sha256 (sha256 {recorded_hash}); "
