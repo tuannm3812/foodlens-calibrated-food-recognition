@@ -1387,7 +1387,7 @@ def test_verify_live_reads_a_historical_record_naming_a_path_without_reading_it(
     assert_never_outside(seen, target)
 
 
-@pytest.mark.parametrize("name", ["..", ".", "a\x00b", "sub/a.json"])
+@pytest.mark.parametrize("name", ["..", ".", "a\x00b", "sub/a.json", "C:outside.json"])
 def test_restore_refuses_a_backup_record_naming_a_path(runs, target, capsys, name):
     promoted = promote(runs, target)
     backup = backup_path(promoted)

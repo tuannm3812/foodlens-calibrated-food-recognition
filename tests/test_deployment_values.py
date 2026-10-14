@@ -93,7 +93,7 @@ def test_a_plain_file_name_is_accepted(name) -> None:
 @pytest.mark.parametrize(
     "name",
     ["", " ", ".", "..", "../elsewhere.pth", "sub/a.pth", "/etc/passwd", "..\\a.pth", "a\x00.pth",
-     None, 7, ["a.pth"]],
+     "C:outside.pth", "c:", None, 7, ["a.pth"]],
 )
 def test_a_name_that_could_leave_the_directory_is_refused(name) -> None:
     assert not paths.is_plain_file_name(name)

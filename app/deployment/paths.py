@@ -27,13 +27,14 @@ def is_plain_file_name(name: Any) -> bool:
 
     Records name files by bare name, and every reader joins that name to the
     target or a backup. This refuses each name that would leave the directory
-    or fail to open: empty, ``.``, ``..``, a path separator, or NUL.
+    or fail to open: empty, ``.``, ``..``, a path separator, NUL, or a colon,
+    since on Windows ``target / "C:name"`` is drive-relative, not inside target.
     """
     return (
         isinstance(name, str)
         and name.strip() != ""
         and name not in (".", "..")
-        and not any(character in name for character in "/\\\x00")
+        and not any(character in name for character in "/\\:\x00")
     )
 
 

@@ -409,8 +409,10 @@ a policy deploy names one whenever it made one.
 
 **File names in a record are plain file names.** Every name a record holds —
 `model.checkpoint` and each key of each `*_files_sha256` map — must name a file
-directly inside the target: not empty, not `.` or `..`, and with no `/`, `\`
-or NUL. `calibration.files_sha256` may name only `calibration.json` and
+directly inside the target: not empty, not `.` or `..`, and with no `/`, `\`,
+`:` or NUL. The colon was added on 2026-10-15 (Codex P2 on PR #16): on Windows
+`C:outside.pth` is drive-relative, not a child of the target.
+`calibration.files_sha256` may name only `calibration.json` and
 `class_names.json`. This tightened schema version 1 a second time on
 2026-10-11 (Codex P3, agent log): `--verify-live` joined recorded names to the
 target, so a record naming `../outside.pth` had a file outside it hashed. The
