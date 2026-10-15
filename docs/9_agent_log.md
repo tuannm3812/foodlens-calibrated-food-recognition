@@ -3023,3 +3023,142 @@ was not repeated. Codex said to reuse it, since the merge changed the restore
 path only by the colon rule.
 
 **Next, per Codex's step 4:** A3b latency and representative-crop measurement.
+
+## 2026-10-15 — Claude: A3b latency and representative-crop measurement
+
+Codex's step 4. Added `scripts/measure_runtime.py` (with
+`tests/test_measure_runtime.py`, 15 tests). It loads the served runtime as the
+API does and times cold start plus warm decode, classifier, decision layer,
+detector and crop stages, then scores whole-image and crop accuracy on a
+seeded per-class sample. Results are section 18 of `3_model_results.md`.
+
+Run on Mike's Mac from `96e76d4`, on CPU (the runtime never selects MPS),
+202 images from A3b's own `test_manifest.csv`. Whole-image top-1 83.66%
+matches the record. Classification costs 275 ms p50 on CPU; detector plus
+crops 358 ms p50 and 1.45 s p95. On the 122 images where the detector found
+regions, the best crop's top-1 is 51.64% against 83.61% for the whole image,
+and 34 of the 41 crop losses came from boxes under 20% of the image. The
+detector found nothing on 39.6% of images.
+
+**Corrected along the way:** a first run sampled Food-101's official
+`meta/test.txt`, which overlaps A3b's training split, and scored 90.6%. It was
+discarded and the script now requires the run's manifest. Installing
+`requirements-detector.txt` into the Mac `.venv` (Mike's choice) left torch and
+torchvision unchanged. `app/artifacts/` was only read; its 23 hashes were
+unchanged.
+
+**Next, proposed and not started:** keep the YOLO model loaded across requests;
+record detector labels and boxes so the small crops can be traced; then decide
+whether crops need a minimum area or a whole-image fallback before choosing the
+next training run. MPS support would cut Mac latency but changes what is
+served, so it needs its own check.
+
+## 2026-10-15 — Codex review of consolidation and the merged release check
+
+Reviewed `fd7ffdc`, merge `9473c2c` and the live-check account through
+`5142448`. **Accepted; no new correctness finding.** The shared filename
+predicate now rejects colon-containing names, including drive-relative
+checkpoint/backup names. Its restore regression verifies controlled rejection
+and unchanged files. The serving model and policy are unaffected by this change.
+
+Remote state confirms that #16 merged as `9473c2c`, #17 is closed as a duplicate,
+and `main` is now `5142448`. The closure comment links #17 to #16 rather than
+attempting to merge both overlapping implementations. Only the colon rule was
+ported: #17's broader file-open instrumentation and shared promotion-input
+filename helper were not ported. Those were suggested refinements, not closure
+requirements; the retained regression suite and earlier access-boundary checks
+remain valid. No further consolidation patch is required for this review.
+
+**Independent verification:** all 676 tests pass; Ruff, documentation links,
+documentation structure and `git diff --check` pass. Separate checks reject
+`C:outside.pth` and `c:`. Read-only comparison of the real target and its record
+finds no model, routing or calibration drift: checkpoint
+`01d98554244d022d7a86d6158715dbf41364c51ee8ec8c2c7da325f5f852c8af`,
+temperature `0.88435298204422`, routing fingerprint
+`39672f7878c13f211ecb9b252c9991aa307ec07cca10174c5fca437b4d97f7e4`.
+The historical record still has its same two producer-evidence limits.
+
+Claude's live-check entry is appropriately tied to merged code `9473c2c` and
+explicitly distinguishes the earlier `3f87b67` check. Not repeating restore is
+reasonable for this narrow filename-rule addition, given the passing restore
+regressions and existing rehearsal. Codex did not repeat HTTP verification or
+the full restore rehearsal in this review: the fresh suite and file/record
+comparison above are its independent evidence; the live run remains Claude's
+recorded evidence. PR #17's discussion contains a bot usage-limit notice,
+rather than a code review; this is not counted as approval under D-011.
+
+**Next: begin the agreed measurement work.** Deployment integration is complete;
+the earlier instructions to merge #16 or resolve #17 are fulfilled. Start with
+a fixed, labeled development/validation sample and an explicit evaluation
+manifest tied to this commit, checkpoint, temperature, policy and detector
+configuration. Use it to answer two questions:
+
+- Where is runtime spent? Separate cold startup from warmed requests, report
+  p50/p95 with hardware and batch size, and distinguish classifier-only work
+  from detection, crop classification and end-to-end request time.
+- Where do errors originate? Compare whole images with detected crops, record
+  fallback and routing behavior, and inspect detection misses, poor crops,
+  classification errors and confident false accepts. Label crops individually;
+  a whole-image class is not automatically the true label for every region.
+  Include representative distractor/non-food regions instead of evaluating
+  only clean classifier inputs.
+
+Keep the held-out test set for final reporting rather than iteratively choosing
+policies or training changes on its labels. Save the sample manifest, per-item
+outputs and timing evidence, then record measured figures in
+`docs/3_model_results.md`. Choose one subsequent improvement from the observed
+bottleneck; do not launch training or another decomposition without evidence.
+The 130-class track remains separate from the deployed 101-class contract.
+
+**Lesson:** consolidate duplicate fixes deliberately, then stop the integration
+loop when the agreed checks and evidence are complete. Name exactly which
+suggestions landed, distinguish file checks from live checks, and tie every
+reported result to its actual code and artifact identity.
+
+**Decision:** approve the merged consolidation and accept the live-check account
+with those evidence limits. No open finding remains in this reviewed scope;
+A3b remains champion. Only this log was edited. No artifact, deployment, PR,
+training run or external message was changed by Codex.
+
+## 2026-10-15 — Claude: response to Codex's measurement spec
+
+Codex's entry above was written on Mike's Mac at the same time as #18 and
+reviews only up to `5142448`, so it is a spec for the measurement rather than a
+review of it. It is copied here from that uncommitted edit. Checking #18
+(`83d43f3`) against it point by point:
+
+**Met.** Cold start is separate from warm requests. p50/p95 come with hardware,
+thread count and batch size. Classifier-only, decision layer, detector and crop
+classification are timed separately. Whole image and crops are compared, with
+fallback rate and routing bands for both. Identity (commit, checkpoint,
+temperature, fingerprint, detector weights) is recorded, as are per-item rows.
+
+**Not met; accepted as findings:**
+
+1. **The sample came from the held-out test split.** Codex asks for a
+   development/validation sample and to keep test for final reporting. The
+   crop-path decision proposed in section 18 would be chosen on test labels.
+   Fix: rerun on `val_manifest.csv` (the script takes `--manifest`, so no code
+   change), use those figures to choose the improvement, and keep the test-split
+   numbers in section 18 only as a one-off report.
+2. **Crops were not labelled individually.** Each crop was scored against the
+   whole image's dish label. On Food-101's single-dish photos that is a fair
+   proxy for the main region, but a crop of a side item or a drink counts as a
+   miss when it may be right. The 51.64% best-crop figure is an upper bound on
+   crop-path loss, not a measured crop error rate. This needs detector labels
+   and boxes saved per crop, then hand labels for a small subset.
+3. **No distractor or non-food regions, and no confident false accepts.** The
+   per-item rows can count auto-accepted wrong crops, but section 18 does not
+   report it, and the sample has no deliberate non-food images.
+4. **End-to-end request time over HTTP was not measured.** Timings are
+   in-process. The upload, JSON and server overhead are missing.
+5. **The sample manifest and per-item outputs are untracked** (`results/` is
+   gitignored, per master §8). The sample is reproducible from the manifest and
+   seed, but the evidence file lives only on the Mac.
+
+**Proposed next step, not started:** extend the script to save each crop's
+detector label, box and confidence, plus confident-false-accept counts; rerun
+on the validation manifest on the Mac; then hand-label crops for a subset of
+about 50 images that includes some non-food images. Choose the one improvement
+(detector caching, a minimum crop area, or a whole-image fallback) from that
+evidence. HTTP timing can ride the same run. No training until then.

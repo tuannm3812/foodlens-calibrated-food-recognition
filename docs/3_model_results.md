@@ -759,3 +759,83 @@ signal more than a literal probability.
 HTTP matched the offline closure routing on top-1 class and decision band for
 400 of 400. The previous ResNet50 state is backed up and restorable with one
 command; see `8_runtime_contract.md`, "Deployed decision policy".
+
+## 18. A3b Runtime Latency and Crop Errors (Mac CPU)
+
+On 2026-10-15 the deployed A3b champion was measured on Mike's Mac with
+`scripts/measure_runtime.py`, from commit `96e76d4` (merged `main` `5142448`
+plus the script). It loads the served runtime the same way the API does.
+
+**Identity.** `convnext_tiny`, checkpoint `convnext_tiny_continued_best.pth`
+(sha256 `01d98554…52c8af`), temperature `0.88435298204422`, class-names sha256
+`ee6c8945…5f1ba6`, policy 0.70/0.35/0.05 with 11 hard classes and 40 pairs,
+fingerprint `39672f78…97f7e4`. Detector `yolo11n.pt` (ultralytics 8.4.177).
+
+**Setup.** macOS 27.0 arm64, Python 3.11.9, torch 2.14.0, 8 threads, on AC
+power. The runtime chose `cpu`: `load_runtime` picks CUDA or CPU only, so MPS
+was available but unused. Batch size 1. The sample is 2 images per class (202)
+from A3b's own `test_manifest.csv` (10,100 rows), seed `20261015`. The
+`app/artifacts/` hashes (23 files) were unchanged after the run. Raw output:
+`results/runtime_measurement_20261015T035652Z/measurement.json` (untracked).
+
+**Use A3b's own test manifest, not Food-101's `meta/test.txt`.** A3b split all
+101,000 images itself (stratified 80/10/10, seed 42), so the official test list
+overlaps its training data. A first run on the official list scored 90.6% top-1,
+beyond chance of the recorded 83.90%; that run is discarded.
+
+### Latency
+
+| Stage (warm, n=202) | p50 ms | p95 ms | mean ms | max ms |
+| --- | ---: | ---: | ---: | ---: |
+| Decode | 0.57 | 0.76 | 0.57 | 1.12 |
+| Classifier only | 275.37 | 347.63 | 293.02 | 824.60 |
+| Classifier + decision layer | 274.31 | 364.98 | 290.63 | 814.57 |
+| Detector only | 53.35 | 97.12 | 63.37 | 343.32 |
+| Multi-food crops | 286.69 | 1400.55 | 509.20 | 3289.03 |
+| Detector + crops | 357.54 | 1447.66 | 572.57 | 3374.38 |
+
+Cold start: `load_runtime` 1306 ms, first classification 220 ms, first
+detection 286 ms. CPU classification is about 50 times the T4's 5.29 ms. The
+decision layer adds no measurable time. The crop path's p95 grows with the
+number of regions, since each crop is classified separately. The detector is
+also constructed afresh on every request (`app/backend/detection.py`), which
+this measurement includes in its timings.
+
+### Whole-image accuracy
+
+Top-1 83.66%, top-5 96.53%, consistent with the recorded 83.90% / 95.78% for a
+202-image sample.
+
+| Band | n | Share | Top-1 | Top-5 contains actual |
+| --- | ---: | ---: | ---: | ---: |
+| Auto-accept | 128 | 63.37% | 96.88% | 100.00% |
+| Suggest | 47 | 23.27% | 68.09% | 95.74% |
+| Confirm | 23 | 11.39% | 56.52% | 82.61% |
+| Review | 4 | 1.98% | 0.00% | 75.00% |
+
+### Crop errors
+
+The detector found no region on 80 of 202 images (fallback rate 39.6%), so those
+images were classified whole. The other 122 averaged 2.2 regions (up to
+12). "Best crop" is the crop with the highest detector confidence.
+
+| Images with regions (n=122) | Top-1 |
+| --- | ---: |
+| Whole image | 83.61% |
+| Best crop | 51.64% |
+
+Across all 202 images, best-crop top-1 is 64.36% and any-crop top-1 is 70.79%.
+On 41 images the whole image was right and the best crop wrong; on 2 the reverse.
+None of the 41 were fallbacks, and 34 had a best-crop area under 20% of the
+image: the detector's most confident box is often a small part of the dish
+(for example bibimbap read as guacamole from a 2.6% crop). Crops are routed by
+the stricter multi-food policy (0.85/0.50/0.40 in `app/backend/demo.py`), not
+the deployed one; best-crop bands were 85 auto-accept, 47 suggest, 38 confirm
+and 32 review.
+
+**Reading.** On these single-dish images the classifier holds its recorded
+accuracy and the losses come from what is cropped. That is an inference: the
+measurement did not record detector labels or boxes, so it cannot say which
+COCO classes produce the small crops. Food-101 images are mostly one dish, so
+this measures the cost of cropping where cropping was not needed, not
+multi-food accuracy.
