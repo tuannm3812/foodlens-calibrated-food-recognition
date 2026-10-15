@@ -952,7 +952,9 @@ Raw output: `results/runtime_measurement_val_20261015T060352Z/measurement.json`
 
 `--reanalyze` on section 19's saved output gives the same strategy counts as
 this rerun, so the correction comes from the selector alone, not from new
-inference.
+inference. Both saved runs round crop scores to four decimals. Neither has a
+tied maximum after rounding, so their reanalysed picks match the live ones.
+The script now saves full precision for later runs (Codex P3, 2026-10-16).
 
 ### Strategies
 

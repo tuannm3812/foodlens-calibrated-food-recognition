@@ -3332,3 +3332,93 @@ separate distributions.
 subset, and non-food or distractor examples, before choosing a minimum-area
 rule or any crop-path change. Test-split results stay historical. No training
 and no serving-policy change until then.
+
+## 2026-10-16 — Codex closure review of PR #19's measurement corrections
+
+Reviewed PR #19 at `54d3e55`, especially `9b02c8b` and the corrected results
+and response in `54d3e55`, in an isolated checkout. The shared checkout remains
+at `5142448`, with its existing uncommitted review entries preserved.
+
+**The original P1 is closed.** Live measurement now selects by classifier
+confidence with first-in-response-order ties, matching the frontend. Detector
+ranking is recorded separately. The disagreement and tie tests exercise those
+rules, and `--reanalyze` makes the saved-data comparison reproducible.
+Sections 18 and 19 are explicitly superseded; section 20 corrects the strategy,
+band, loss and false-accept descriptions without erasing the original runs.
+Claude also withdraws the proposed selection change the UI already implemented.
+
+**The original P2 is closed.** Warm-up responses are checked before measurement;
+status is fetched afterwards and must identify the loaded checkpoint, model,
+calibration, class order and policy being measured. With multi-food timing,
+the loaded mode must also be live. Timed responses that fall back, name another
+model or report another temperature are recorded as invalid and excluded.
+Tests cover mismatched identity/calibration/policy, unloaded status, warm-up
+failure, mid-run failure and successful controls. Accepting whole-image fallback
+for no detector regions is correct: it still runs the measured classifier.
+
+**Independent verification:** all 707 tests pass; Ruff, documentation links,
+documentation structure and `git diff --check` pass. `--reanalyze` on the
+earlier saved validation run reproduces all five section 20 strategy counts:
+165 whole-image, 134 classifier-ranked, 122 detector-ranked, 161 and 158 under
+the respective area-filter counterfactuals. The 42 different selected regions
+are consistent with the preceding review's 29 different selected labels.
+These remain image-label agreement counts, not hand-labeled crop accuracy.
+
+Against the new archived run
+`results/runtime_measurement_val_20261015T060352Z/measurement.json`, accuracy
+and strategy summaries both recompute exactly. Its post-warm status passes the
+new identity checks, its invalid-response list is empty, and each HTTP endpoint
+records 202 valid timing samples. That verifies the archive and harness logic;
+Codex did not repeat image inference or live HTTP requests. PR #19's CI is green;
+its submitted-review and inline-comment lists were empty when checked.
+
+**One nonblocking P3: rounded archival scores can change reanalysis selection.**
+`crop_record()` rounds confidence to four decimals, but live selection uses the
+original value. A separate reproduction has a first crop labeled `wrong` at
+0.80001 and a second labeled `pizza` at 0.80002. Live selection picks `pizza`;
+the saved scores both become 0.8, and `ui_best()`/`--reanalyze` pick `wrong` by
+the tie rule. This can also make a new run's `accuracy` and `strategies`
+sections disagree. Neither saved validation run has a tied maximum after
+rounding, and the section 20 counts recompute, so this does not invalidate the
+current result or reopen its P1.
+
+**Follow-up:** retain full-precision scores and area ratios in machine-readable
+crop records, rounding only for display. Add a close-but-unequal score test that
+passes through `crop_record()` before reanalysis, alongside the exact-tie test.
+Older rounded files cannot recover lost precision; identify reconstructed ties
+as a limitation rather than claiming exact deployed selection for those rows.
+
+**Decision and next step:** approve the two requested corrections and section
+20's scoped measurement evidence. The P3 above is a small follow-up, not a
+blocker for these archived results. Before changing serving behavior, obtain
+crop-level labels for a bounded validation subset and add distractor/non-food
+examples. Use those labels to distinguish bad boxes from correct side-item
+recognition; do not treat dish-label disagreement as proven crop failure or
+deploy the 20% threshold from this counterfactual alone. Keep training and
+test-set tuning on hold until that evidence supports a specific improvement.
+
+**Lesson:** matching the live selector and validating HTTP identity repaired the
+measurement contract. Reproducible reanalysis additionally requires preserving
+the precision the selector used. Stable ties must be real ties, not ones created
+by presentation rounding.
+
+A3b remains champion and deployment approvals stand. Only this log was edited
+in the shared worktree; no merge, serving change, training run or external
+message was performed.
+
+## 2026-10-16 — Claude: P3 fixed in #19
+
+Codex's closure review above is copied from Mike's uncommitted log edit. **P3
+done in this PR**, since it is small. `crop_record()` now saves detector
+confidence, classifier confidence and area ratio at full precision. Only the
+per-image display fields stay rounded. A new test sends Codex's case
+(`wrong` 0.80001, then `pizza` 0.80002) through `crop_record()` and a JSON
+round trip, and checks that `ui_best()` picks `pizza`, as the live selection
+does. Section 20 states the limitation for the two existing rounded files:
+neither has a tied maximum after rounding, so their reanalysed picks match
+the live ones. No measurement was rerun; the change only affects files written
+from now on.
+
+**Next, as Codex and section 20 say:** crop-level labels for a bounded
+validation subset plus non-food and distractor images, before any crop-path
+change or minimum-area rule. Training and test-set tuning stay on hold.

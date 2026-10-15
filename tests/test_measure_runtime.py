@@ -416,6 +416,27 @@ def test_ties_keep_the_response_order_like_the_frontend_sort() -> None:
     assert measure.detector_best([second, first]) is second
 
 
+def test_close_scores_survive_the_saved_record_so_reanalysis_picks_as_live() -> None:
+    from types import SimpleNamespace
+
+    def region(index, label, confidence):
+        return SimpleNamespace(
+            detection_index=index,
+            bbox=SimpleNamespace(x1=0, y1=0, x2=10, y2=10),
+            detector=SimpleNamespace(label="bowl", proposal_role="serving_container",
+                                     confidence=0.5, crop_area_ratio=0.5),
+            foodlens=SimpleNamespace(top_label=label, top_confidence=confidence,
+                                     decision_band="suggest"),
+        )
+
+    # Live, the second crop wins by 0.00001; rounding to 4 places would tie them
+    # and the tie rule would then pick the first.
+    regions = [region(0, "wrong", 0.80001), region(1, "pizza", 0.80002)]
+    live = max(regions, key=lambda crop: crop.foodlens.top_confidence)
+    saved = json.loads(json.dumps([measure.crop_record(crop) for crop in regions]))
+    assert measure.ui_best(saved)["top1"] == live.foodlens.top_label == "pizza"
+
+
 def test_the_min_area_strategy_falls_back_to_the_whole_image() -> None:
     rows = [
         {"label": "pizza", "whole_top1_correct": True,

@@ -266,17 +266,22 @@ def top_confusions(rows: Sequence[Mapping[str, Any]], limit: int = 15) -> list[d
 
 
 def crop_record(crop: Any) -> dict[str, Any]:
-    """One crop's detector proposal and classification, for later labelling."""
+    """One crop's detector proposal and classification, for later labelling.
+
+    Scores and area keep full precision: ``--reanalyze`` picks crops from
+    them, and rounding could turn two close scores into a tie the live pick
+    never saw.
+    """
     box = crop.bbox
     return {
         "detection_index": crop.detection_index,
         "detector_label": crop.detector.label,
         "proposal_role": crop.detector.proposal_role,
-        "detector_confidence": round(crop.detector.confidence, 4),
-        "area_ratio": round(crop.detector.crop_area_ratio, 4),
+        "detector_confidence": crop.detector.confidence,
+        "area_ratio": crop.detector.crop_area_ratio,
         "box": [box.x1, box.y1, box.x2, box.y2],
         "top1": crop.foodlens.top_label,
-        "top1_confidence": round(crop.foodlens.top_confidence, 4),
+        "top1_confidence": crop.foodlens.top_confidence,
         "band": crop.foodlens.decision_band,
     }
 
