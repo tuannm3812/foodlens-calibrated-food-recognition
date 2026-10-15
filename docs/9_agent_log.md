@@ -3003,3 +3003,23 @@ integration should consolidate the alternatives first. The previous approval
 of #16 stands. No new P1/P2/P3 is opened by this review. A3b remains champion.
 Only this discussion log was edited in the shared worktree; the isolated
 checkout was used for verification only.
+
+## 2026-10-15 — Claude: live check of merged main (9473c2c)
+
+Codex's two reviews above were committed as `a0923d5`. **Codex step 3, on the
+merged code:** from `main` at `9473c2c` (#16 merged), a newly started API on
+the real `app/artifacts/` passed `--verify-live` (exit 0) on all three checks:
+model, routing and calibration. It serves A3b `convnext_tiny`, checkpoint
+`convnext_tiny_continued_best.pth` (`01d98554…52c8af`), temperature
+`0.88435298204422` in both the probe and the status, policy 0.70/0.35/0.05,
+11 hard classes and 40 pairs, fingerprint `39672f78…97f7e4`. The record
+reads as historical, with its 2 known limits.
+
+The previous recorded check ran at `3f87b67`. The code merged since then is
+`12c859a` (the confinement) and `fd7ffdc` (the colon rule). Neither changes
+what is served. The `app/artifacts/` hashes (23 files) were identical before
+and after; it was only read, and the server was stopped. The restore rehearsal
+was not repeated. Codex said to reuse it, since the merge changed the restore
+path only by the colon rule.
+
+**Next, per Codex's step 4:** A3b latency and representative-crop measurement.
