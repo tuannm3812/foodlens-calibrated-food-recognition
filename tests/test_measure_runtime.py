@@ -29,6 +29,11 @@ def test_the_sample_takes_per_class_entries_from_every_class() -> None:
     assert all(labels.count(label) == 3 for label in set(labels))
 
 
+def test_manifest_entries_keep_the_label_and_file_name_only() -> None:
+    rows = [{"path": "/kaggle/input/food41/images/pizza/123.jpg", "label": "pizza"}]
+    assert measure.manifest_entries(rows) == ["pizza/123.jpg"]
+
+
 def test_a_class_with_fewer_entries_than_asked_gives_all_of_them() -> None:
     assert measure.select_sample(["steak/1", "steak/2"], 5, seed=0) == ["steak/1", "steak/2"]
 
@@ -124,15 +129,17 @@ def test_top_confusions_count_only_whole_image_errors() -> None:
 def food101(tmp_path: Path) -> Path:
     from PIL import Image
 
-    root = tmp_path / "food-101"
-    (root / "meta").mkdir(parents=True)
-    entries = [f"{label}/{index}" for label in ("pizza", "sushi") for index in range(3)]
-    (root / "meta" / "test.txt").write_text("\n".join(entries) + "\n")
-    for entry in entries:
-        path = root / "images" / f"{entry}.jpg"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (64, 48), (200, 100, 50)).save(path)
-    return root
+    images = tmp_path / "images"
+    lines = ["path,label"]
+    for label in ("pizza", "sushi"):
+        (images / label).mkdir(parents=True)
+        for index in range(3):
+            Image.new("RGB", (64, 48), (200, 100, 50)).save(images / label / f"{index}.jpg")
+            # The path the training machine recorded; only the file name is used.
+            lines.append(f"/kaggle/input/food41/images/{label}/{index}.jpg,{label}")
+    manifest = tmp_path / "test_manifest.csv"
+    manifest.write_text("\n".join(lines) + "\n")
+    return images, manifest
 
 
 def test_measure_records_timings_accuracy_and_identity(food101, tmp_path, monkeypatch, capsys):
@@ -170,10 +177,13 @@ def test_measure_records_timings_accuracy_and_identity(food101, tmp_path, monkey
     monkeypatch.setattr(inference, "decision_layer_status", lambda: {"fingerprint": "f" * 64})
 
     out = tmp_path / "out"
-    assert measure.main(["--food101-root", str(food101), "--per-class", "2",
-                         "--output-dir", str(out)]) == 0
+    images, manifest = food101
+    assert measure.main(["--images-dir", str(images), "--manifest", str(manifest),
+                         "--per-class", "2", "--output-dir", str(out)]) == 0
     result = json.loads((out / "measurement.json").read_text())
     assert result["sample"]["images"] == 4
+    assert result["sample"]["manifest_rows"] == 6
+    assert result["rows"][0]["image"] == "pizza/0.jpg"
     assert result["model"]["checkpoint_sha256"] == "a" * 64
     assert result["decision_layer"]["fingerprint"] == "f" * 64
     assert set(result["warm_ms"]) == {
@@ -213,7 +223,9 @@ def test_a_detector_that_cannot_run_is_reported_and_crops_skipped(food101, tmp_p
     monkeypatch.setattr(inference, "decision_layer_status", lambda: {})
 
     out = tmp_path / "out"
-    assert measure.main(["--food101-root", str(food101), "--output-dir", str(out)]) == 0
+    images, manifest = food101
+    assert measure.main(["--images-dir", str(images), "--manifest", str(manifest),
+                         "--output-dir", str(out)]) == 0
     result = json.loads((out / "measurement.json").read_text())
     assert result["detector"] == {
         "weights": inference.detector_weights_path(),

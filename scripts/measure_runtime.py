@@ -2,7 +2,7 @@
 
 Runs the backend's own inference functions in this process, against the real
 ``app/artifacts/`` (or ``FOODLENS_ARTIFACT_DIR``), on a fixed, seeded sample of
-the Food-101 test split. It answers the question Codex set before the next
+the served run's own held-out test split. It answers the question Codex set before the next
 training run (docs/9_agent_log.md, 2026-10-12 and 2026-10-15): is the limit
 detection, cropping, classification or calibration?
 
@@ -12,7 +12,7 @@ What it records, per image and summarised:
   first classification, first detection) and warm p50/p95/mean for decoding,
   classifier-only, classifier plus decision, detector-only, and the full
   multi-food path (detector plus crop classification).
-- **Whole-image errors**: top-1/top-5 against the Food-101 label, and accuracy
+- **Whole-image errors**: top-1/top-5 against the true label, and accuracy
   per decision band under the deployed policy.
 - **Crop errors**: how many regions the detector proposed, how often it found
   none (the whole-image fallback), and whether the highest-confidence crop, or
@@ -20,16 +20,25 @@ What it records, per image and summarised:
   a crop that loses the label is a cropping or detection loss, not a second
   food.
 
+**The split must be the served run's own.** A3b trained on a stratified
+80/10/10 split of all 101,000 images (seed 42), not on Food-101's official
+``meta/test.txt``, so most official test images were in its training set. A
+sample from that file measured 90.6% top-1 against the recorded 83.90%. Pass
+the run's ``test_manifest.csv`` (``path,label``); each row's file is found by
+label and file name under ``--images-dir``, whatever machine wrote the path.
+
 Nothing is written to the artifact directory. Results go to ``--output-dir``
 (default ``results/runtime_measurement_<UTC stamp>/``, untracked).
 
 Usage:
-    python scripts/measure_runtime.py --food101-root data/food-101 --per-class 2
+    python scripts/measure_runtime.py --images-dir data/food41/images \
+        --manifest results/accuracy_phase1/a3b_convnext_tiny_continued_224/test_manifest.csv
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import platform
@@ -50,11 +59,19 @@ BANDS = ("auto_accept", "suggest", "confirm", "review")
 # --- Pure helpers (no torch), tested in tests/test_measure_runtime.py ----------
 
 
-def select_sample(test_list: Iterable[str], per_class: int, seed: int) -> list[str]:
-    """A fixed sample of ``per_class`` entries per class from Food-101's ``meta/test.txt``.
+def manifest_entries(rows: Iterable[Mapping[str, str]]) -> list[str]:
+    """``<label>/<file name>`` for each row of a run's ``path,label`` manifest.
 
-    Entries are ``<class>/<image id>``. Classes and entries are sorted before a
-    seeded draw, so the same seed and file give the same sample on any machine.
+    The recorded path is the training machine's; only its file name is kept.
+    """
+    return [f"{row['label']}/{Path(row['path']).name}" for row in rows]
+
+
+def select_sample(test_list: Iterable[str], per_class: int, seed: int) -> list[str]:
+    """A fixed sample of ``per_class`` entries per class.
+
+    Entries are ``<class>/<file name>``. Classes and entries are sorted before a
+    seeded draw, so the same seed and manifest give the same sample anywhere.
     """
     by_class: dict[str, list[str]] = defaultdict(list)
     for line in test_list:
@@ -203,13 +220,10 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
     from app.backend.decision import build_decision
     from app.backend.imaging import build_full_image_region, open_rgb_image
 
-    root = args.food101_root
-    sample = select_sample(
-        (root / "meta" / "test.txt").read_text(encoding="utf-8").splitlines(),
-        args.per_class,
-        args.seed,
-    )
-    images = [(entry, root / "images" / f"{entry}.jpg") for entry in sample]
+    with args.manifest.open(newline="", encoding="utf-8") as handle:
+        entries = manifest_entries(csv.DictReader(handle))
+    sample = select_sample(entries, args.per_class, args.seed)
+    images = [(entry, args.images_dir / entry) for entry in sample]
     missing = [str(path) for _, path in images if not path.is_file()]
     if missing:
         raise SystemExit(f"{len(missing)} sampled images are missing, e.g. {missing[0]}")
@@ -300,7 +314,8 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
         "device": str(runtime["device"]),
         "batch_size": 1,
         "sample": {
-            "split": "Food-101 meta/test.txt",
+            "manifest": str(args.manifest),
+            "manifest_rows": len(entries),
             "per_class": args.per_class,
             "seed": args.seed,
             "images": len(images),
@@ -333,10 +348,16 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument(
-        "--food101-root",
+        "--images-dir",
         type=Path,
         required=True,
-        help="Food-101 directory holding meta/test.txt and images/",
+        help="directory of class folders holding the images",
+    )
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        required=True,
+        help="the served run's test_manifest.csv (path,label)",
     )
     parser.add_argument("--per-class", type=int, default=2)
     parser.add_argument("--seed", type=int, default=20261015)
