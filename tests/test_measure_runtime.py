@@ -111,6 +111,28 @@ def test_crop_accuracy_separates_detector_fallbacks_and_disagreements() -> None:
     assert crops["whole_wrong_best_crop_right"] == 1
 
 
+def test_confident_false_accepts_count_wrong_auto_accepts_only() -> None:
+    rows = [
+        row("pizza", "pizza", "auto_accept", crop="pizza"),
+        row("steak", "filet_mignon", "auto_accept", crop="steak"),
+        row("sushi", "sashimi", "suggest", crop="sashimi"),
+    ]
+    rows[2]["best_crop_band"] = "auto_accept"
+    summary = measure.accuracy_summary(rows)
+    assert summary["whole_image"]["confident_false_accepts"] == 1
+    assert summary["crops"]["best_crop_confident_false_accepts"] == 1
+
+
+def test_the_multipart_body_carries_the_file_under_one_boundary() -> None:
+    body, content_type = measure.multipart_body("1.jpg", b"\xff\xd8data")
+    boundary = content_type.split("boundary=")[1]
+    assert content_type.startswith("multipart/form-data; ")
+    assert body.startswith(f"--{boundary}\r\n".encode())
+    assert body.endswith(f"\r\n--{boundary}--\r\n".encode())
+    assert b'name="file"; filename="1.jpg"' in body
+    assert b"\r\n\r\n\xff\xd8data\r\n" in body
+
+
 def test_top_confusions_count_only_whole_image_errors() -> None:
     rows = [
         row("steak", "filet_mignon", "suggest"),
@@ -198,6 +220,12 @@ def test_measure_records_timings_accuracy_and_identity(food101, tmp_path, monkey
     assert accuracy["crops"]["best_crop_top1_accuracy"] == 0.5
     assert accuracy["crops"]["whole_right_best_crop_wrong"] == 2
     assert accuracy["crops"]["detector_fallback_rate"] == 0.0
+    assert accuracy["whole_image"]["confident_false_accepts"] == 2
+    assert result["api"] is None
+    crop = result["rows"][0]["crops"][0]
+    assert crop["detector_label"] == "bowl"
+    assert crop["box"] == [0, 0, 32, 48]
+    assert crop["top1"] == "sushi"
     assert "rows" not in json.loads(capsys.readouterr().out)
 
 
@@ -234,3 +262,46 @@ def test_a_detector_that_cannot_run_is_reported_and_crops_skipped(food101, tmp_p
     }
     assert "detector_only" not in result["warm_ms"]
     assert result["accuracy"]["crops"]["images"] == 0
+
+
+def test_an_api_url_times_both_endpoints_after_one_warmup_each(food101, tmp_path, monkeypatch):
+    pytest.importorskip("torch")
+    from app.backend import inference
+    from app.backend.schemas import Prediction
+
+    def classify(image, _runtime):
+        return [Prediction(rank=i + 1, class_name=n, confidence=0.2)
+                for i, n in enumerate(["pizza", "sushi", "steak", "ramen", "pho"])]
+
+    runtime = {"device": "cpu", "temperature": 1.0, "class_names_sha256": "c" * 64,
+               "model_identity": {}, "policy": {"auto_confidence": 0.7,
+               "suggest_confidence": 0.35, "margin_threshold": 0.05},
+               "hard_classes": set(), "confusion_pairs": set()}
+    monkeypatch.setattr(inference, "load_runtime", lambda: runtime)
+    monkeypatch.setattr(inference, "classify_pil_image", classify)
+    monkeypatch.setattr(inference, "detect_candidate_regions", lambda image: [])
+    monkeypatch.setattr(inference, "decision_layer_status", lambda: {})
+    posted = []
+
+    def post(url, name, data):
+        posted.append(url)
+        return {"model_name": "a3b", "artifact_status": "live",
+                "detector_status": "live", "crop_count": 1}
+
+    monkeypatch.setattr(measure, "post_image", post)
+    monkeypatch.setattr(measure, "get_json", lambda url: {"url": url})
+
+    out = tmp_path / "out"
+    images, manifest = food101
+    assert measure.main(["--images-dir", str(images), "--manifest", str(manifest),
+                         "--per-class", "1", "--api-url", "http://api/",
+                         "--output-dir", str(out)]) == 0
+    result = json.loads((out / "measurement.json").read_text())
+    assert result["api"]["runtime_status"] == {"url": "http://api/runtime/status"}
+    assert result["api"]["warmup"]["image_model_name"] == "a3b"
+    assert result["warm_ms"]["http_image"]["n"] == 2
+    assert result["warm_ms"]["http_multi_food"]["n"] == 2
+    # One warm-up per endpoint, then one timed request per image per endpoint.
+    assert posted.count("http://api/predict/image") == 3
+    assert posted.count("http://api/predict/multi-food/image") == 3
+    assert result["rows"][0]["detector_fallback"] is True

@@ -2,7 +2,7 @@
 
 Runs the backend's own inference functions in this process, against the real
 ``app/artifacts/`` (or ``FOODLENS_ARTIFACT_DIR``), on a fixed, seeded sample of
-the served run's own held-out test split. It answers the question Codex set before the next
+one of the served run's own splits. It answers the question Codex set before the next
 training run (docs/9_agent_log.md, 2026-10-12 and 2026-10-15): is the limit
 detection, cropping, classification or calibration?
 
@@ -16,23 +16,31 @@ What it records, per image and summarised:
   per decision band under the deployed policy.
 - **Crop errors**: how many regions the detector proposed, how often it found
   none (the whole-image fallback), and whether the highest-confidence crop, or
-  any crop, carries the true label. Food-101 images hold one labelled dish, so
-  a crop that loses the label is a cropping or detection loss, not a second
-  food.
+  any crop, carries the true label. Every crop's detector label, box, area and
+  classification is saved per image, so crops can be labelled individually
+  later: a crop scored against the dish label is only a proxy, since it may
+  hold a side item.
+- **Confident false accepts**: wrong answers routed to auto-accept, for whole
+  images and for best crops.
+- **HTTP request time**, optionally (``--api-url``): each image posted to a
+  running API's whole-image and multi-food endpoints, timed end to end.
 
 **The split must be the served run's own.** A3b trained on a stratified
 80/10/10 split of all 101,000 images (seed 42), not on Food-101's official
 ``meta/test.txt``, so most official test images were in its training set. A
 sample from that file measured 90.6% top-1 against the recorded 83.90%. Pass
-the run's ``test_manifest.csv`` (``path,label``); each row's file is found by
-label and file name under ``--images-dir``, whatever machine wrote the path.
+one of the run's manifests (``path,label``); each row's file is found by label
+and file name under ``--images-dir``, whatever machine wrote the path. Use
+``val_manifest.csv`` to choose what to change next, and keep
+``test_manifest.csv`` for a final report, so no decision is tuned on test labels.
 
 Nothing is written to the artifact directory. Results go to ``--output-dir``
 (default ``results/runtime_measurement_<UTC stamp>/``, untracked).
 
 Usage:
     python scripts/measure_runtime.py --images-dir data/food41/images \
-        --manifest results/accuracy_phase1/a3b_convnext_tiny_continued_224/test_manifest.csv
+        --manifest results/accuracy_phase1/a3b_convnext_tiny_continued_224/val_manifest.csv \
+        --api-url http://127.0.0.1:8000
 """
 
 from __future__ import annotations
@@ -46,6 +54,8 @@ import random
 import statistics
 import sys
 import time
+import urllib.request
+import uuid
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, datetime
@@ -125,6 +135,9 @@ def accuracy_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 sum(row["whole_top5_correct"] for row in in_band), len(in_band)
             ),
         }
+    false_accepts = sum(
+        row["whole_band"] == "auto_accept" and not row["whole_top1_correct"] for row in rows
+    )
     detected = [row for row in rows if row.get("crop_count") is not None]
     real_crops = [row for row in detected if not row["detector_fallback"]]
     crop_bands = Counter(row["best_crop_band"] for row in detected)
@@ -134,6 +147,7 @@ def accuracy_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "top1_accuracy": rate(sum(row["whole_top1_correct"] for row in rows), total),
             "top5_accuracy": rate(sum(row["whole_top5_correct"] for row in rows), total),
             "by_band": by_band,
+            "confident_false_accepts": false_accepts,
         },
         "crops": {
             "images": len(detected),
@@ -171,6 +185,10 @@ def accuracy_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 for row in detected
             ),
             "best_crop_bands": {band: crop_bands.get(band, 0) for band in BANDS},
+            "best_crop_confident_false_accepts": sum(
+                row["best_crop_band"] == "auto_accept" and not row["best_crop_top1_correct"]
+                for row in detected
+            ),
         },
     }
 
@@ -184,6 +202,51 @@ def top_confusions(rows: Sequence[Mapping[str, Any]], limit: int = 15) -> list[d
         {"actual": actual, "predicted": predicted, "count": count}
         for (actual, predicted), count in counts.most_common(limit)
     ]
+
+
+def crop_record(crop: Any) -> dict[str, Any]:
+    """One crop's detector proposal and classification, for later labelling."""
+    box = crop.bbox
+    return {
+        "detection_index": crop.detection_index,
+        "detector_label": crop.detector.label,
+        "proposal_role": crop.detector.proposal_role,
+        "detector_confidence": round(crop.detector.confidence, 4),
+        "area_ratio": round(crop.detector.crop_area_ratio, 4),
+        "box": [box.x1, box.y1, box.x2, box.y2],
+        "top1": crop.foodlens.top_label,
+        "top1_confidence": round(crop.foodlens.top_confidence, 4),
+        "band": crop.foodlens.decision_band,
+    }
+
+
+def multipart_body(file_name: str, data: bytes) -> tuple[bytes, str]:
+    """A ``multipart/form-data`` body with one ``file`` field, and its type."""
+    boundary = uuid.uuid4().hex
+    body = b"".join(
+        [
+            f"--{boundary}\r\n".encode(),
+            f'Content-Disposition: form-data; name="file"; filename="{file_name}"\r\n'.encode(),
+            b"Content-Type: image/jpeg\r\n\r\n",
+            data,
+            f"\r\n--{boundary}--\r\n".encode(),
+        ]
+    )
+    return body, f"multipart/form-data; boundary={boundary}"
+
+
+def post_image(url: str, file_name: str, data: bytes) -> dict[str, Any]:
+    body, content_type = multipart_body(file_name, data)
+    request = urllib.request.Request(
+        url, data=body, method="POST", headers={"Content-Type": content_type}
+    )
+    with urllib.request.urlopen(request, timeout=120) as response:
+        return json.loads(response.read())
+
+
+def get_json(url: str) -> dict[str, Any]:
+    with urllib.request.urlopen(url, timeout=30) as response:
+        return json.loads(response.read())
 
 
 # --- Measurement (needs torch, the artifacts and, for crops, ultralytics) -------
@@ -243,6 +306,22 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
         except Exception as exc:  # reported, never hidden: crops are then skipped
             detector_error = f"{type(exc).__name__}: {exc}"
     run_detector = not args.skip_detector and detector_error is None
+    api_url = args.api_url.rstrip("/") if args.api_url else None
+    api_status = get_json(f"{api_url}/runtime/status") if api_url else None
+    api_warmup: dict[str, Any] = {}
+    if api_url:
+        # One request per endpoint first, so a lazily loaded server is warm
+        # and its served model and status are on record before timing.
+        first_bytes = images[0][1].read_bytes()
+        whole = post_image(f"{api_url}/predict/image", images[0][1].name, first_bytes)
+        api_warmup["image_model_name"] = whole.get("model_name")
+        api_warmup["image_artifact_status"] = whole.get("artifact_status")
+        if run_detector:
+            multi = post_image(
+                f"{api_url}/predict/multi-food/image", images[0][1].name, first_bytes
+            )
+            api_warmup["multi_food_detector_status"] = multi.get("detector_status")
+            api_warmup["multi_food_artifact_status"] = multi.get("artifact_status")
 
     def route(predictions: list[Any]) -> str:
         return build_decision(
@@ -300,8 +379,17 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
                     "any_crop_top1_correct": any(
                         crop.foodlens.top_label == label for crop in crops
                     ),
+                    "crops": [crop_record(crop) for crop in crops],
                 }
             )
+        if api_url:
+            _, ms = timed(post_image, f"{api_url}/predict/image", path.name, image_bytes)
+            timings["http_image"].append(ms)
+            if run_detector:
+                _, ms = timed(
+                    post_image, f"{api_url}/predict/multi-food/image", path.name, image_bytes
+                )
+                timings["http_multi_food"].append(ms)
         rows.append(row)
         if (index + 1) % 50 == 0:
             print(f"{index + 1}/{len(images)} images", file=sys.stderr)
@@ -337,6 +425,11 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
             "ran": run_detector,
             "error": detector_error,
         },
+        "api": (
+            {"url": api_url, "runtime_status": api_status, "warmup": api_warmup}
+            if api_url
+            else None
+        ),
         "cold_ms": {key: round(value, 2) for key, value in cold.items()},
         "warm_ms": {stage: timing_summary(values) for stage, values in timings.items()},
         "accuracy": accuracy_summary(rows),
@@ -357,11 +450,15 @@ def main(argv: list[str] | None = None) -> int:
         "--manifest",
         type=Path,
         required=True,
-        help="the served run's test_manifest.csv (path,label)",
+        help="one of the served run's manifests (path,label): val to decide, test to report",
     )
     parser.add_argument("--per-class", type=int, default=2)
     parser.add_argument("--seed", type=int, default=20261015)
     parser.add_argument("--skip-detector", action="store_true")
+    parser.add_argument(
+        "--api-url",
+        help="a running API (e.g. http://127.0.0.1:8000) to time end-to-end requests against",
+    )
     parser.add_argument("--output-dir", type=Path)
     args = parser.parse_args(argv)
     if args.per_class < 1:
