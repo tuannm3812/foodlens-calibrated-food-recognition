@@ -319,9 +319,10 @@ Detailed documentation is available in:
 
 ## Roadmap
 
-- Fix the crop path before the next training run: the 2026-10-15 measurement
-  (`docs/3_model_results.md` section 18) found the best crop drops top-1 from
-  84% to 52% on single-dish images, mostly from small detector boxes.
+- Understand the crop path before the next training run: on single-dish
+  validation images the crop the app shows scores 66% top-1 against 82% for
+  the whole image, mostly from bowl and small ingredient crops
+  (`docs/3_model_results.md` section 20). Hand-label crops before changing it.
 - Build decision policy on the E2 expanded-taxonomy checkpoint (`notebooks/archive/14_expanded_taxonomy_v2_finetune.ipynb`)
   using `notebooks/archive/15_expanded_taxonomy_v2_decision_layer.ipynb`, then push policy artifacts.
 - Improve detector quality with food-specific detection or segmentation.

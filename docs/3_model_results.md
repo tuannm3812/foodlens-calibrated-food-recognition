@@ -762,6 +762,13 @@ command; see `8_runtime_contract.md`, "Deployed decision policy".
 
 ## 18. A3b Runtime Latency and Crop Errors (Mac CPU)
 
+> **Superseded in part (2026-10-15, Codex P1).** "Best crop" here is the crop
+> with the highest *detector* confidence. The app shows the crop with the
+> highest *classifier* confidence (`app/frontend/src/api/normalize.ts`), so
+> the crop figures below describe a detector-ranked baseline, not deployed
+> behaviour. They stay as recorded; section 20 has the corrected figures.
+> The latency and whole-image figures are unaffected.
+
 On 2026-10-15 the deployed A3b champion was measured on Mike's Mac with
 `scripts/measure_runtime.py`, from commit `96e76d4` (merged `main` `5142448`
 plus the script). It loads the served runtime the same way the API does.
@@ -841,6 +848,11 @@ this measures the cost of cropping where cropping was not needed, not
 multi-food accuracy.
 
 ## 19. A3b Crop Errors on the Validation Split
+
+> **Superseded (2026-10-15, Codex P1 and P2).** The "as deployed" row and every
+> best-crop breakdown below rank crops by detector confidence, which the app
+> does not do. The HTTP timings were also taken without checking which model
+> the API had loaded. Kept as recorded; section 20 replaces this section.
 
 Section 18's sample came from the held-out test split. Codex asked for
 diagnostic decisions to be made on validation instead (`9_agent_log.md`,
@@ -922,4 +934,98 @@ Cold start: model load 1741 ms, first classification 213 ms, first detection
   miss.
 - The sample has no non-food or distractor images.
 - These are single-dish photos. The figures measure what cropping costs when it
+  is not needed, not multi-food accuracy.
+
+## 20. A3b Crop Errors on the Validation Split, Corrected
+
+Replaces section 19 after Codex's review (`9_agent_log.md`, 2026-10-15). Run
+from commit `9b02c8b`, which picks the best crop as the app does (highest
+classifier confidence, first on ties) and keeps the detector's pick as a
+separate strategy. Its HTTP timings are counted only after the warmed API's
+loaded model, temperature, class order and decision fingerprint match the
+measured runtime, and only from responses that are live A3b inference.
+Same sample as section 19: 202 images, 2 per class, seed `20261015`, from
+A3b's `val_manifest.csv`. Same identity as section 18. Same Mac, CPU, 8
+threads, on AC power. `app/artifacts/` hashes (23 files) were unchanged.
+Raw output: `results/runtime_measurement_val_20261015T060352Z/measurement.json`
+(untracked).
+
+`--reanalyze` on section 19's saved output gives the same strategy counts as
+this rerun, so the correction comes from the selector alone, not from new
+inference.
+
+### Strategies
+
+| Strategy (n=202) | Correct | Top-1 |
+| --- | ---: | ---: |
+| Whole image every time | 165 | 81.68% |
+| Best crop as the app shows it (classifier-ranked) | 134 | 66.34% |
+| Best crop by detector confidence | 122 | 60.40% |
+| Classifier-ranked, crops under 20% area dropped | 161 | 79.70% |
+| Detector-ranked, crops under 20% area dropped | 158 | 78.22% |
+
+The two area-filtered rows are computed from saved crops, not served. They fall
+back to the whole image when no crop is at least 20% of the image. The
+classifier and detector pick different crops on 42 images. Codex counted 29
+where the picked *labels* differ. On the 143 images with regions, the app's
+best crop gets 59.44% top-1, against 81.12% for the whole image. On 35 images
+the whole image was right and the app's crop wrong, and on 4 the reverse.
+
+All figures score crops against the dish label, so they measure agreement with
+it, not crop accuracy. No crop has been hand-labelled.
+
+### Where the app's best crop loses
+
+| Best crop's detector label | Images | Correct |
+| --- | ---: | ---: |
+| (whole-image fallback) | 59 | 49 |
+| bowl | 41 | 15 |
+| sandwich | 28 | 22 |
+| cake | 18 | 16 |
+| pizza | 10 | 9 |
+| broccoli | 10 | 4 |
+| carrot | 10 | 3 |
+| hot dog | 9 | 7 |
+| donut | 8 | 5 |
+| banana | 6 | 3 |
+| orange | 2 | 1 |
+| apple | 1 | 0 |
+
+Of the 35 losses, 15 are `bowl` crops (`serving_container`) and 20 are
+`direct_food`, mostly `carrot` (6) and `broccoli` (4). By area, 16 were under
+5% of the image, 14 between 5% and 20%, 4 between 20% and 50%, and 1 larger.
+Per crop, across all 329: `bowl` 24.7% (77 crops), `broccoli` 28.6%,
+`carrot` 31.3%, against 69% to 79% for `sandwich`, `cake`, `hot dog` and
+`pizza`.
+
+### Bands and confident false accepts
+
+Best-crop bands under the multi-food policy: 93 auto-accept, 46 suggest, 42
+confirm, 21 review. Wrong auto-accepts: 9 of 134 for the whole image under the
+deployed policy, and 10 of 93 for the app's best crop under the multi-food
+policy. Both are counted against the dish label.
+
+### Latency
+
+| Stage (warm, n=202) | p50 ms | p95 ms | mean ms |
+| --- | ---: | ---: | ---: |
+| Classifier only | 255.95 | 268.36 | 257.92 |
+| Detector only | 50.08 | 83.82 | 54.65 |
+| Detector + crops (in process) | 312.49 | 1083.21 | 478.39 |
+| HTTP `/predict/image` | 264.97 | 283.39 | 267.82 |
+| HTTP `/predict/multi-food/image` | 337.47 | 1173.98 | 510.71 |
+
+No HTTP response was invalid; all 404 timed responses were live A3b. The
+post-warm-up `/runtime/status` reported `loaded_runtime` with checkpoint
+`01d98554…52c8af`, temperature `0.88435298204422`, class-names
+`ee6c8945…5f1ba6` and fingerprint `39672f78…97f7e4`, matching the measured
+runtime. HTTP and in-process timings are separate observed distributions from
+the same run. Their difference is not isolated network overhead. Cold start:
+model load 1220 ms, first classification 214 ms, first detection 947 ms.
+
+### Still open
+
+- Crops are not hand-labelled, so a crop of a side item still counts as a miss.
+- The sample has no non-food or distractor images.
+- These are single-dish photos: the figures measure what cropping costs when it
   is not needed, not multi-food accuracy.
