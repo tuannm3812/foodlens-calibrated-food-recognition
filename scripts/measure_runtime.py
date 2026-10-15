@@ -16,14 +16,24 @@ What it records, per image and summarised:
   per decision band under the deployed policy.
 - **Crop errors**: how many regions the detector proposed, how often it found
   none (the whole-image fallback), and whether the highest-confidence crop, or
-  any crop, carries the true label. Every crop's detector label, box, area and
+  any crop, carries the true label. "Best crop" is the one the app shows first:
+  the frontend sorts regions by ``foodlens.top_confidence`` (a stable sort, so
+  ties keep the response order). The detector-confidence pick is recorded
+  alongside as a separate strategy. Every crop's detector label, box, area and
   classification is saved per image, so crops can be labelled individually
   later: a crop scored against the dish label is only a proxy, since it may
   hold a side item.
 - **Confident false accepts**: wrong answers routed to auto-accept, for whole
   images and for best crops.
 - **HTTP request time**, optionally (``--api-url``): each image posted to a
-  running API's whole-image and multi-food endpoints, timed end to end.
+  running API's whole-image and multi-food endpoints, timed end to end. After
+  one warm-up request per endpoint, the API's loaded model, temperature, class
+  order and decision fingerprint must match this process's runtime, or the run
+  stops. Each timed response is checked too; one that fell back to a demo or
+  reports another model is counted as invalid and left out of the timings.
+
+``--reanalyze measurement.json`` recomputes the crop strategies from a saved
+run's per-crop records without running inference again.
 
 **The split must be the served run's own.** A3b trained on a stratified
 80/10/10 split of all 101,000 images (seed 42), not on Food-101's official
@@ -121,6 +131,54 @@ def rate(hits: int, total: int) -> float | None:
     return round(hits / total, 4) if total else None
 
 
+def ui_best(crops: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
+    """The crop the app shows first: highest classifier confidence, first on ties."""
+    return max(crops, key=lambda crop: crop["top1_confidence"])
+
+
+def detector_best(crops: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
+    """The crop with the highest detector confidence, first on ties."""
+    return max(crops, key=lambda crop: crop["detector_confidence"])
+
+
+def strategy_summary(
+    rows: Sequence[Mapping[str, Any]], min_area: float = 0.2
+) -> dict[str, Any]:
+    """Top-1 against the image label under each way of picking one answer.
+
+    Uses each row's saved ``crops``. The ``*_min_area`` strategies drop crops
+    smaller than ``min_area`` of the image and use the whole image when none
+    remain. These are agreements with the dish label, not crop accuracy.
+    """
+    detected = [row for row in rows if row.get("crops")]
+
+    def correct(row: Mapping[str, Any], crop: Mapping[str, Any] | None) -> bool:
+        if crop is None:
+            return bool(row["whole_top1_correct"])
+        return crop["top1"] == row["label"]
+
+    def large(row: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+        return [crop for crop in row["crops"] if crop["area_ratio"] >= min_area]
+
+    picks = {
+        "whole_image": lambda row: None,
+        "ui_ranked": lambda row: ui_best(row["crops"]),
+        "detector_ranked": lambda row: detector_best(row["crops"]),
+        "ui_ranked_min_area": lambda row: ui_best(large(row)) if large(row) else None,
+        "detector_ranked_min_area": (
+            lambda row: detector_best(large(row)) if large(row) else None
+        ),
+    }
+    summary: dict[str, Any] = {"images": len(detected), "min_area": min_area}
+    for name, pick in picks.items():
+        hits = sum(correct(row, pick(row)) for row in detected)
+        summary[name] = {"correct": hits, "top1": rate(hits, len(detected))}
+    summary["ui_and_detector_pick_differ"] = sum(
+        ui_best(row["crops"]) is not detector_best(row["crops"]) for row in detected
+    )
+    return summary
+
+
 def accuracy_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """Whole-image and crop accuracy, by decision band, from per-image rows."""
     total = len(rows)
@@ -183,6 +241,9 @@ def accuracy_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "whole_wrong_best_crop_right": sum(
                 not row["whole_top1_correct"] and row["best_crop_top1_correct"]
                 for row in detected
+            ),
+            "detector_ranked_best_crop_top1_accuracy": rate(
+                sum(row["detector_best_crop_top1_correct"] for row in detected), len(detected)
             ),
             "best_crop_bands": {band: crop_bands.get(band, 0) for band in BANDS},
             "best_crop_confident_false_accepts": sum(
@@ -249,6 +310,56 @@ def get_json(url: str) -> dict[str, Any]:
         return json.loads(response.read())
 
 
+IDENTITY_KEYS = ("architecture", "model_name", "checkpoint_sha256")
+
+
+def api_identity_problems(
+    status: Mapping[str, Any], expected: Mapping[str, Any], *, multi_food: bool
+) -> list[str]:
+    """How a warmed API's /runtime/status differs from the measured runtime."""
+    model = status.get("model") or {}
+    problems = []
+    if model.get("source") != "loaded_runtime":
+        problems.append(f"model.source is {model.get('source')!r}, not 'loaded_runtime'")
+    for key in (*IDENTITY_KEYS, "temperature", "class_names_sha256"):
+        if model.get(key) != expected[key]:
+            problems.append(f"model.{key}: API {model.get(key)!r}, measured {expected[key]!r}")
+    fingerprint = (status.get("decision_layer") or {}).get("fingerprint")
+    if fingerprint != expected["fingerprint"]:
+        problems.append(
+            f"decision_layer.fingerprint: API {fingerprint!r}, measured {expected['fingerprint']!r}"
+        )
+    mode = (status.get("multi_food") or {}).get("mode")
+    if multi_food and mode != "live_yolo_classifier":
+        problems.append(f"multi_food.mode is {mode!r}, not 'live_yolo_classifier'")
+    return problems
+
+
+def response_problem(
+    endpoint: str, body: Mapping[str, Any], expected: Mapping[str, Any]
+) -> str | None:
+    """Why a response is not live A3b inference, or None when it is.
+
+    A multi-food response may fall back to the whole image when the detector
+    finds nothing: that is still the measured classifier, so it counts.
+    """
+    name_key = "model_name" if endpoint == "image" else "model"
+    allowed_fallbacks = {None} if endpoint == "image" else {None, "no_detector_regions"}
+    if body.get("artifact_status") != "ready":
+        return f"artifact_status {body.get('artifact_status')!r}"
+    if body.get("fallback_reason") not in allowed_fallbacks:
+        return f"fallback_reason {body.get('fallback_reason')!r}"
+    if body.get(name_key) != expected["model_name"]:
+        return f"{name_key} {body.get(name_key)!r}"
+    if body.get("temperature") != expected["temperature"]:
+        return f"temperature {body.get('temperature')!r}"
+    if endpoint == "multi_food" and not str(body.get("detector_status", "")).startswith(
+        "live_yolo"
+    ):
+        return f"detector_status {body.get('detector_status')!r}"
+    return None
+
+
 # --- Measurement (needs torch, the artifacts and, for crops, ultralytics) -------
 
 
@@ -307,21 +418,30 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
             detector_error = f"{type(exc).__name__}: {exc}"
     run_detector = not args.skip_detector and detector_error is None
     api_url = args.api_url.rstrip("/") if args.api_url else None
-    api_status = get_json(f"{api_url}/runtime/status") if api_url else None
-    api_warmup: dict[str, Any] = {}
+    api_status = None
+    api_invalid: list[dict[str, str]] = []
+    expected = {
+        **{key: runtime["model_identity"].get(key) for key in IDENTITY_KEYS},
+        "temperature": runtime["temperature"],
+        "class_names_sha256": runtime["class_names_sha256"],
+        "fingerprint": inference.decision_layer_status().get("fingerprint"),
+    }
+    endpoints = {"image": "/predict/image"}
+    if run_detector:
+        endpoints["multi_food"] = "/predict/multi-food/image"
     if api_url:
-        # One request per endpoint first, so a lazily loaded server is warm
-        # and its served model and status are on record before timing.
+        # Warm each endpoint once, so a lazily loading server has loaded its
+        # model, then require it to be the runtime measured here.
         first_bytes = images[0][1].read_bytes()
-        whole = post_image(f"{api_url}/predict/image", images[0][1].name, first_bytes)
-        api_warmup["image_model_name"] = whole.get("model_name")
-        api_warmup["image_artifact_status"] = whole.get("artifact_status")
-        if run_detector:
-            multi = post_image(
-                f"{api_url}/predict/multi-food/image", images[0][1].name, first_bytes
-            )
-            api_warmup["multi_food_detector_status"] = multi.get("detector_status")
-            api_warmup["multi_food_artifact_status"] = multi.get("artifact_status")
+        for endpoint, route_path in endpoints.items():
+            body = post_image(f"{api_url}{route_path}", images[0][1].name, first_bytes)
+            problem = response_problem(endpoint, body, expected)
+            if problem:
+                raise SystemExit(f"API warm-up on {route_path} is not live A3b: {problem}")
+        api_status = get_json(f"{api_url}/runtime/status")
+        problems = api_identity_problems(api_status, expected, multi_food=run_detector)
+        if problems:
+            raise SystemExit("API serves a different runtime: " + "; ".join(problems))
 
     def route(predictions: list[Any]) -> str:
         return build_decision(
@@ -365,7 +485,9 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
             timings["multi_food_crops"].append(ms)
             timings["detector_plus_crops"].append(timings["detector_only"][-1] + ms)
             crops = response.predictions
-            best = max(crops, key=lambda crop: crop.detector.confidence)
+            # The app's pick: highest classifier confidence, first on ties.
+            best = max(crops, key=lambda crop: crop.foodlens.top_confidence)
+            by_detector = max(crops, key=lambda crop: crop.detector.confidence)
             row.update(
                 {
                     "crop_count": len(crops),
@@ -376,6 +498,8 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
                     # Crops are routed by the multi-food policy, not the
                     # deployed one; this records the band the app shows.
                     "best_crop_band": best.foodlens.decision_band,
+                    "detector_best_crop_top1": by_detector.foodlens.top_label,
+                    "detector_best_crop_top1_correct": by_detector.foodlens.top_label == label,
                     "any_crop_top1_correct": any(
                         crop.foodlens.top_label == label for crop in crops
                     ),
@@ -383,13 +507,13 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
                 }
             )
         if api_url:
-            _, ms = timed(post_image, f"{api_url}/predict/image", path.name, image_bytes)
-            timings["http_image"].append(ms)
-            if run_detector:
-                _, ms = timed(
-                    post_image, f"{api_url}/predict/multi-food/image", path.name, image_bytes
-                )
-                timings["http_multi_food"].append(ms)
+            for endpoint, route_path in endpoints.items():
+                body, ms = timed(post_image, f"{api_url}{route_path}", path.name, image_bytes)
+                problem = response_problem(endpoint, body, expected)
+                if problem:
+                    api_invalid.append({"image": entry, "endpoint": endpoint, "problem": problem})
+                else:
+                    timings[f"http_{endpoint}"].append(ms)
         rows.append(row)
         if (index + 1) % 50 == 0:
             print(f"{index + 1}/{len(images)} images", file=sys.stderr)
@@ -426,13 +550,18 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
             "error": detector_error,
         },
         "api": (
-            {"url": api_url, "runtime_status": api_status, "warmup": api_warmup}
+            {
+                "url": api_url,
+                "runtime_status_after_warmup": api_status,
+                "invalid_responses": api_invalid,
+            }
             if api_url
             else None
         ),
         "cold_ms": {key: round(value, 2) for key, value in cold.items()},
         "warm_ms": {stage: timing_summary(values) for stage, values in timings.items()},
         "accuracy": accuracy_summary(rows),
+        "strategies": strategy_summary(rows, args.min_area),
         "top_confusions": top_confusions(rows),
         "rows": rows,
     }
@@ -441,15 +570,18 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument(
+        "--reanalyze",
+        type=Path,
+        help="a saved measurement.json: print its crop strategies and exit",
+    )
+    parser.add_argument(
         "--images-dir",
         type=Path,
-        required=True,
         help="directory of class folders holding the images",
     )
     parser.add_argument(
         "--manifest",
         type=Path,
-        required=True,
         help="one of the served run's manifests (path,label): val to decide, test to report",
     )
     parser.add_argument("--per-class", type=int, default=2)
@@ -460,7 +592,14 @@ def main(argv: list[str] | None = None) -> int:
         help="a running API (e.g. http://127.0.0.1:8000) to time end-to-end requests against",
     )
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--min-area", type=float, default=0.2)
     args = parser.parse_args(argv)
+    if args.reanalyze:
+        rows = json.loads(args.reanalyze.read_text())["rows"]
+        print(json.dumps(strategy_summary(rows, args.min_area), indent=2))
+        return 0
+    if args.images_dir is None or args.manifest is None:
+        parser.error("--images-dir and --manifest are required unless --reanalyze is given")
     if args.per_class < 1:
         parser.error("--per-class must be at least 1")
 
