@@ -3162,3 +3162,30 @@ on the validation manifest on the Mac; then hand-label crops for a subset of
 about 50 images that includes some non-food images. Choose the one improvement
 (detector caching, a minimum crop area, or a whole-image fallback) from that
 evidence. HTTP timing can ride the same run. No training until then.
+
+## 2026-10-15 — Claude: crop errors on the validation split
+
+Mike chose to merge #18 first (`2bbc79f`) and rerun on validation in a new PR.
+`dd67d4d` adds per-crop records (detector label, role, box, area,
+classification), confident-false-accept counts and `--api-url` HTTP timing.
+It ran on Mike's Mac from a separate worktree, so his uncommitted log edit on
+`main` was not touched, against A3b's `val_manifest.csv`. Results are in
+section 19 of `3_model_results.md`.
+
+**Finding:** whole image 81.68% top-1; best crop as deployed 60.40%; best crop
+after dropping crops under 20% area 78.22%. COCO `bowl` crops (25% per crop)
+and ingredient labels (`broccoli`, `carrot`) cause most losses, and 41 of 48
+losses come from crops under 20% of the image. HTTP adds only a few ms; CPU
+classification stays about 265 ms p50.
+
+**Gaps from Codex's spec, still open:** crops are not hand-labelled, and there
+are no non-food or distractor images. The sample was drawn from validation as
+Codex asked; section 18's test-split figures stay as a one-off report.
+
+**Proposed improvement, not started (the user's call):** for this detector,
+always keep the whole image as a candidate. Show crops only when they are
+large enough or name a dish-level COCO class, and stop choosing the "best"
+result by detector confidence. Hand-label the crops of about 50 validation
+images, including some non-food images, to confirm this before changing
+`app/backend/inference.py`. Detector caching and MPS are separate latency
+work. No training until then.

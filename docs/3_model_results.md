@@ -839,3 +839,87 @@ measurement did not record detector labels or boxes, so it cannot say which
 COCO classes produce the small crops. Food-101 images are mostly one dish, so
 this measures the cost of cropping where cropping was not needed, not
 multi-food accuracy.
+
+## 19. A3b Crop Errors on the Validation Split
+
+Section 18's sample came from the held-out test split. Codex asked for
+diagnostic decisions to be made on validation instead (`9_agent_log.md`,
+2026-10-15), so the measurement was repeated on 202 images (2 per class, seed
+`20261015`) from A3b's `val_manifest.csv` (10,100 rows), from commit `dd67d4d`.
+That commit adds per-crop records, confident-false-accept counts and HTTP
+timing. Model, temperature, policy and fingerprint are the same as in section 18.
+Same Mac, CPU, 8 threads, on AC power. The `app/artifacts/` hashes (23 files)
+were unchanged. Raw output:
+`results/runtime_measurement_val_20261015T043308Z/measurement.json`
+(untracked). One image moves a rate by about 0.5 points.
+
+### What the crop path costs
+
+| Strategy (n=202) | Top-1 |
+| --- | ---: |
+| Whole image every time | 81.68% |
+| Best crop, as deployed (highest detector confidence) | 60.40% |
+| Best crop after dropping crops under 20% of the image | 78.22% |
+
+The third row is computed from the saved crops, not served. It keeps the
+deployed rule among crops of at least 20% of the image area and falls back to
+the whole image when none remain (53 images). No crop strategy reaches the
+whole image on these single-dish photos. The detector found no region on 59
+images (29.2%). On the 143 images with regions, the best crop's top-1 is
+51.05%, against 81.12% for the whole image. On 48 images the whole image was
+right and the best crop wrong, and on 5 the reverse.
+
+### Which crops lose
+
+| Best crop's detector label | Images | Best-crop top-1 |
+| --- | ---: | ---: |
+| (whole-image fallback) | 59 | 83% |
+| bowl | 47 | 30% |
+| sandwich | 20 | 75% |
+| cake | 17 | 76% |
+| broccoli | 14 | 36% |
+| pizza | 10 | 80% |
+| carrot | 9 | 22% |
+| hot dog | 9 | 78% |
+| donut | 8 | 63% |
+| banana | 5 | 60% |
+| orange | 3 | 33% |
+| apple | 1 | 0% |
+
+Of the 48 losses, 22 are `bowl` crops (the `serving_container` role) and 26
+are `direct_food` crops, mostly `broccoli` and `carrot` (6 each). By area, 18
+were under 5% of the image, 23 were between 5% and 20%, 7 were between 20% and
+50%, and none were larger. Across all 330 crops, `bowl` crops score 25% top-1
+and `broccoli`, `carrot`, `orange`, `banana` and `apple` crops score 0% to 45%.
+COCO labels that name a whole dish (`pizza`, `hot dog`, `sandwich`, `cake`)
+score 59% to 79%. The pattern suggests a COCO detector proposes ingredients
+and side bowls, not the dish. That is an inference: crops are still scored
+against the dish label, and none has been hand-labelled.
+
+### Confident false accepts
+
+Under the deployed policy, 9 of 134 whole-image auto-accepts are wrong (6.7%).
+Under the multi-food policy, 7 of 80 best-crop auto-accepts are wrong (8.8%).
+
+### Latency, including HTTP
+
+| Stage (warm, n=202) | p50 ms | p95 ms | mean ms |
+| --- | ---: | ---: | ---: |
+| Classifier only | 264.27 | 368.27 | 287.78 |
+| Detector only | 54.43 | 99.66 | 65.31 |
+| Detector + crops | 366.17 | 1296.17 | 543.28 |
+| HTTP `/predict/image` | 268.16 | 381.23 | 300.13 |
+| HTTP `/predict/multi-food/image` | 373.77 | 1172.86 | 543.35 |
+
+HTTP adds only a few milliseconds over the in-process stages. The API was a
+local uvicorn on the same artifacts, warmed with one request per endpoint.
+Cold start: model load 1741 ms, first classification 213 ms, first detection
+604 ms. Section 18's latency findings stand.
+
+### Still open
+
+- Crops have not been hand-labelled. A crop of a side item still counts as a
+  miss.
+- The sample has no non-food or distractor images.
+- These are single-dish photos. The figures measure what cropping costs when it
+  is not needed, not multi-food accuracy.
