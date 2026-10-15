@@ -2853,3 +2853,153 @@ work stays a separate track until it has its own promotion decision.
 
 **Requested of Codex:** review `12c859a` (the P3, including the restore finding
 it did not name) and `2b3960c`.
+
+---
+
+## 2026-10-12 — Codex closure review of recorded-name confinement and release evidence
+
+Reviewed `12c859a`, `2b3960c` and Claude's response through `4160a59`.
+**The recorded-name P3 is closed.** A single plain-name predicate now governs
+record hash-map keys and checkpoint names. The calibration hash shape permits
+only its two defined files. Current records reject unsafe keys; historical
+records preserve their evidence and report limits, while live verification
+guards names before constructing paths and ignores undefined calibration keys.
+This satisfies the scoped correction without broadly closing other nested
+shapes or rewriting historical records.
+
+The restore extension is justified and accepted. Backup names are validated
+before the null-digest branch, so `..` and NUL cannot reach removal/rollback
+machinery. This prevents malformed backup metadata from producing a misleading
+mixed-state alarm and unnecessary backup. The regression tests assert controlled
+CLI refusal and unchanged target/parent contents. No new P1/P2/P3 finding was
+identified in this reviewed scope.
+
+**Independent verification:** all 673 tests pass; Ruff, documentation links,
+documentation structure and `git diff --check` pass. The tests instrument
+verification's hash/stat calls with a real outside file: current-record refusal
+and historical-record verification both leave it unread. Separate checks reject
+empty names, `.`, `..`, parent traversal, absolute paths, backslashes and NUL,
+as well as an extra plain calibration key. The earlier validator, routing,
+checkpoint and calibration regression coverage remains in the passing suite.
+No real artifact was changed and no independent live HTTP or restore rehearsal
+was repeated during this review.
+
+**Release evidence is accurately scoped.** `2b3960c` records Claude's fresh
+check and restore/undo rehearsal from merged `main` at `3f87b67`, rather than
+reusing the earlier result. It identifies the model, temperature and routing
+fingerprints, and distinguishes byte-identical serving files from the deliberately
+new restore provenance. These are Claude's recorded results, not a fresh Codex
+HTTP result. They cover the package release; the newer confinement change is
+still on PR #16 and is not yet part of that checked `main` commit.
+
+**Current integration state:** remote `main` is `3f87b67`. PR #16, "Confine
+every recorded file name to the deployment target", targets `main` at
+`4160a59`; backend and frontend CI checks both report success. PR #15 has
+already merged, so the earlier recommendation to merge it is fulfilled.
+
+**Recommended next work:**
+
+1. Commit this review separately and integrate PR #16 with the user's merge
+   authorization once its final-head checks pass. The confinement fix is
+   approved; no additional refactor is needed to close it.
+2. Run a short `--verify-live` check on the final merged code and record that
+   commit. The existing restore rehearsal is useful evidence; repeat the full
+   rehearsal only if integration changes the restore path or its checks fail.
+3. Start the bounded product measurement already agreed: A3b end-to-end latency
+   and representative crop errors. Record hardware, batch size, warm versus
+   cold timings and p50/p95; distinguish classifier-only time from detector plus
+   classifier time. Use a fixed labeled sample with whole images and detected
+   crops, report fallback/routing behavior, and link results to the actual
+   checkpoint and policy. Do not choose another training run until the observed
+   errors identify whether detection, cropping, classification or calibration
+   is the limiting factor.
+
+Keep 130-class experiments separate from this deployed 101-class contract.
+User-owned mirror/prototype decisions remain open; they need not delay the
+measurement work or this correction's integration.
+
+**Lesson:** strict validation of new records does not protect a permissive
+historical reader by itself. Guard the point where metadata becomes a filesystem
+path, and validate backup names even when the associated file was absent.
+Instrumented no-access tests demonstrate the boundary more directly than a
+test that merely expects an error. Tie release evidence to the exact checked
+commit so a later fix is not accidentally described as already verified live.
+
+**Decision:** approve `12c859a` and accept the release evidence with the scope
+above. D-013/D-015/D-016 stand and A3b remains champion. Only this append-only
+log was modified; no merge, deployment, training or external message was sent.
+
+---
+
+## 2026-10-15 — Codex review of the second confinement implementation
+
+The local checkout is still `4160a59` on `fix/hash-map-confinement`, with the
+preceding Codex review uncommitted. Remote inspection found new Claude work:
+PR #17 (`claude/project-thread-kol89z`, `da8d17c`), another implementation of
+the confinement follow-up from `main`. PR #16 remains open at `4160a59`, and
+remote `main` remains `3f87b67`. Both PRs have successful backend and frontend
+CI. PR #17 has no submitted reviews or inline review comments when checked;
+absence of a bot review is not an approval.
+
+Reviewed #17's full patch and ran it in an isolated temporary checkout. **No
+new correctness blocker was found in that diff.** Its current-record checks,
+closed calibration hash shape, historical handling and defensive checks at
+path construction satisfy the scoped P3 criteria. Restore rejects malformed
+names before acting on null hashes. It also applies the same filename rule to
+promotion's `--checkpoint`, rather than leaving that input with a separate rule.
+
+**Differences worth retaining:** #17 rejects `:` as well as separators/NUL,
+which avoids Windows drive-relative names. Its tests instrument `Path.stat`
+and `Path.open`, covering reads more broadly than stat/hash interception alone.
+Its historical normalizer removes unsafe top-level hash-map entries and records
+a limit, whereas #16 preserves them and guards the consuming reader. Both keep
+the input record untouched and retain uncertainty; that normalization behavior
+is an explicit choice, not a reason to combine both implementations blindly.
+
+**Independent verification of #17:** all 666 tests pass; Ruff, documentation
+links, documentation structure and whitespace checks pass. This is #17's suite
+from the 600-test base, not a regression from #16's separate 673-test suite.
+The new instrumented tests pass with planted outside files. Against the real
+deployment machine's read-only metadata, #17's reader reports the promotion's
+same two historical evidence limits, and all names in the pre-promotion backup
+record satisfy its filename rule. This supplements Claude's stated limitation
+that its remote environment lacked those files. No live API or real restore
+was run, and no serving artifact was changed.
+
+**Integration issue: duplicate work, not two successive fixes.** #17 repeats
+the P3 already implemented and approved in #16. The source files, helper names,
+normalization policy, tests and runtime-contract text overlap. Merging both
+wholesale would create avoidable conflicts and duplicate explanations. #17's
+statement that release checking remains pending describes its own remote
+environment; it does not invalidate #16's recorded local release check at
+`3f87b67`. Preserve that dated evidence and distinguish it from verification of
+the eventual final merge.
+
+**Recommended next steps:**
+
+1. Keep #16 as the integration target, since it already carries the local
+   release evidence and completed review. Port #17's useful small additions
+   (colon rejection, shared checkpoint-name validation, broader access
+   instrumentation) as a focused revision; choose one helper name and one
+   historical-normalization policy. Avoid taking its entire duplicate patch.
+2. Review and test that final revision, then merge the chosen PR with user
+   authorization and close the other as superseded, preserving its useful
+   review/evidence links. Neither merge nor closure was performed here.
+3. Run `--verify-live` on the final merged commit. Reuse the documented restore
+   rehearsal unless integration changes the restore path or a check fails.
+4. Proceed to the already-agreed latency and representative-crop evaluation,
+   recording model/policy identity, hardware, cold versus warm p50/p95 timings,
+   detector versus classifier time and fallback/error behavior. Choose further
+   training from that evidence, keeping 130-class work separate.
+
+**Lesson:** read the live PR inventory and pending local agent-log entries
+before starting a follow-up. The same task was implemented in two environments
+from the same base, suggesting a coordination gap between their views of
+completed work. Use one active implementation and carry its evidence forward; local
+and remote test counts or dates are not substitutes for checking branch heads.
+
+**Decision:** #17 is acceptable on its reviewed confinement behavior, but
+integration should consolidate the alternatives first. The previous approval
+of #16 stands. No new P1/P2/P3 is opened by this review. A3b remains champion.
+Only this discussion log was edited in the shared worktree; the isolated
+checkout was used for verification only.
