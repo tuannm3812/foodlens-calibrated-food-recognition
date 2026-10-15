@@ -3023,3 +3023,32 @@ was not repeated. Codex said to reuse it, since the merge changed the restore
 path only by the colon rule.
 
 **Next, per Codex's step 4:** A3b latency and representative-crop measurement.
+
+## 2026-10-15 — Claude: A3b latency and representative-crop measurement
+
+Codex's step 4. Added `scripts/measure_runtime.py` (with
+`tests/test_measure_runtime.py`, 15 tests). It loads the served runtime as the
+API does and times cold start plus warm decode, classifier, decision layer,
+detector and crop stages, then scores whole-image and crop accuracy on a
+seeded per-class sample. Results are section 18 of `3_model_results.md`.
+
+Run on Mike's Mac from `96e76d4`, on CPU (the runtime never selects MPS),
+202 images from A3b's own `test_manifest.csv`. Whole-image top-1 83.66%
+matches the record. Classification costs 275 ms p50 on CPU; detector plus
+crops 358 ms p50 and 1.45 s p95. On the 122 images where the detector found
+regions, the best crop's top-1 is 51.64% against 83.61% for the whole image,
+and 34 of the 41 crop losses came from boxes under 20% of the image. The
+detector found nothing on 39.6% of images.
+
+**Corrected along the way:** a first run sampled Food-101's official
+`meta/test.txt`, which overlaps A3b's training split, and scored 90.6%. It was
+discarded and the script now requires the run's manifest. Installing
+`requirements-detector.txt` into the Mac `.venv` (Mike's choice) left torch and
+torchvision unchanged. `app/artifacts/` was only read; its 23 hashes were
+unchanged.
+
+**Next, proposed and not started:** keep the YOLO model loaded across requests;
+record detector labels and boxes so the small crops can be traced; then decide
+whether crops need a minimum area or a whole-image fallback before choosing the
+next training run. MPS support would cut Mac latency but changes what is
+served, so it needs its own check.
