@@ -3189,3 +3189,100 @@ result by detector confidence. Hand-label the crops of about 50 validation
 images, including some non-food images, to confirm this before changing
 `app/backend/inference.py`. Detector caching and MPS are separate latency
 work. No training until then.
+
+## 2026-10-15 — Codex review of runtime measurement and validation crop records
+
+Remote inspection found work newer than the local checkout: measurement PR #18
+merged as `2bbc79f`, and draft PR #19 is at `0d1978e` (`dd67d4d` plus results
+documentation). Reviewed both through the #19 tree in an isolated checkout;
+the shared checkout remains at `5142448` with the preceding review preserved.
+The validation rerun, explicit crop-label limitations, per-region outputs and
+separate latency stages are useful progress. Two findings block accepting the
+measurement's deployed-behavior claims as written.
+
+1. **P1 — the measured "best crop, as deployed" uses the wrong ranking rule.**
+   `scripts/measure_runtime.py:368` selects the highest detector confidence.
+   The product normalizer (`app/frontend/src/api/normalize.ts:38`) and default
+   selection (`components/AnalyzerWorkbench.tsx:54`) select the highest
+   `foodlens.top_confidence`. The section 19 table's 60.40% is therefore a
+   detector-ranked baseline, not the deployed UI selection; the proposed
+   area-filter comparison also inherits that wrong baseline.
+
+   Recomputed from the real saved validation output
+   `results/runtime_measurement_val_20261015T043308Z/measurement.json`:
+   detector ranking produces 122 correct images out of 202; classifier ranking
+   produces 134. Selected labels differ on 29 images. Applying the same
+   at-least-20%-area counterfactual gives 158 correct images with detector
+   ranking versus 161 with classifier ranking; whole-image predictions give
+   165. These are audit counts against image labels, not newly established
+   crop accuracy. The saved rounded classifier scores have no maximum-score
+   ties in this sample, so ambiguity from that rounding does not explain the
+   discrepancy.
+
+   **Closure:** represent detector-ranked and UI-ranked strategies separately,
+   and make the deployed baseline match the frontend, including stable ties.
+   Add a regression where detector confidence and classifier confidence rank
+   two regions differently. Recompute section 19's strategy table, associated
+   bands/false accepts, loss breakdown and counterfactual using the right
+   selector. Correct or relabel section 18 as well; preserve old evidence as
+   superseded rather than silently replacing it. Do not use the current table
+   to justify changing product selection: the UI already uses classifier
+   confidence, contrary to the proposed improvement in Claude's remote log.
+
+2. **P2 — HTTP timings are accepted without proving that the API ran the
+   measured runtime.** Status is fetched before warm-up (`:310`), warm-up
+   response fields are recorded without validation, and timed response bodies
+   are discarded (`:385–392`). An independent temporary-fixture reproduction
+   supplies a different loaded checkpoint and demo responses with
+   `artifact_status: missing_artifacts`, `fallback_reason: missing_artifacts`
+   and temperature 99. The command still exits 0 and reports HTTP timing
+   samples alongside the expected local A3b identity.
+
+   The real saved status likewise says `source: artifact_files`, with null
+   checkpoint/class-name hashes: it was captured before the server loaded.
+   Its warm-up reports the right model name and ready status, but that does
+   not independently establish checkpoint, calibration and policy identity.
+   This does not prove that the actual HTTP run served the wrong model; it
+   shows that the benchmark cannot detect that condition or a later fallback.
+
+   **Closure:** warm the API, then validate loaded model/checkpoint identity,
+   effective temperature, class-order hash and decision fingerprint against
+   the local measured runtime, and save the post-warm status. Reuse the
+   established live-verification checks where practical. Validate each timed
+   response for readiness, fallback and model/calibration consistency; fail or
+   segregate invalid samples instead of including them as champion latency.
+   Cover wrong/stale model, stale temperature, warm-up fallback, mid-run
+   fallback and a matching control. Re-run the HTTP portion after fixing it.
+   Describe HTTP versus in-process timings as observed distributions rather
+   than treating their difference as isolated network overhead.
+
+**Evidence and checks:** #19's complete suite passes 694 tests; Ruff,
+documentation links, documentation structure and whitespace checks pass.
+PR #19's backend/frontend CI is green; its submitted reviews/inline-review
+lists were empty when checked. Tests passing do not resolve the two metric
+contract defects above. The original saved measurement was read only, and
+the API-fallback reproduction used fakes and temporary files. No classifier
+inference, live HTTP run, training or runtime artifact modification was done
+by Codex during this review.
+
+**Recommended next work:** correct these two measurement contracts in #19
+first. Reuse the saved per-crop predictions for selector reanalysis, with a
+reproducible analysis command, rather than rerunning inference unnecessarily.
+Capture new HTTP evidence only after identity and response checks are in place.
+Then label crops individually for a bounded validation subset and add
+non-food/distractor examples before choosing a minimum-area rule or changing
+the crop path. Whole-image-label agreement and its "false accept" counts are
+proxies until region truth is known, as the documentation already concedes.
+Keep test-split results as historical reporting; do not return to them to tune
+the crop policy. Hold new training and serving-policy changes until this
+evidence identifies the bottleneck.
+
+**Lesson:** a benchmark must follow the actual consumer's selection rule, not
+just call the same backend. Detector objectness, classifier confidence and
+region ground truth are different quantities. A timing sample also needs an
+identity/fallback check: a fast demo response is not fast A3b inference.
+
+**Decision:** request changes to the measurement claims and harness before
+accepting #19 as deployed-path evidence. The existing deployment approvals
+stand, and A3b remains champion. Only this append-only review log was changed
+in the shared worktree; no PR mutation or merge was performed.
