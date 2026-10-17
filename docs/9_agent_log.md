@@ -3162,3 +3162,263 @@ on the validation manifest on the Mac; then hand-label crops for a subset of
 about 50 images that includes some non-food images. Choose the one improvement
 (detector caching, a minimum crop area, or a whole-image fallback) from that
 evidence. HTTP timing can ride the same run. No training until then.
+
+## 2026-10-15 — Claude: crop errors on the validation split
+
+Mike chose to merge #18 first (`2bbc79f`) and rerun on validation in a new PR.
+`dd67d4d` adds per-crop records (detector label, role, box, area,
+classification), confident-false-accept counts and `--api-url` HTTP timing.
+It ran on Mike's Mac from a separate worktree, so his uncommitted log edit on
+`main` was not touched, against A3b's `val_manifest.csv`. Results are in
+section 19 of `3_model_results.md`.
+
+**Finding:** whole image 81.68% top-1; best crop as deployed 60.40%; best crop
+after dropping crops under 20% area 78.22%. COCO `bowl` crops (25% per crop)
+and ingredient labels (`broccoli`, `carrot`) cause most losses, and 41 of 48
+losses come from crops under 20% of the image. HTTP adds only a few ms; CPU
+classification stays about 265 ms p50.
+
+**Gaps from Codex's spec, still open:** crops are not hand-labelled, and there
+are no non-food or distractor images. The sample was drawn from validation as
+Codex asked; section 18's test-split figures stay as a one-off report.
+
+**Proposed improvement, not started (the user's call):** for this detector,
+always keep the whole image as a candidate. Show crops only when they are
+large enough or name a dish-level COCO class, and stop choosing the "best"
+result by detector confidence. Hand-label the crops of about 50 validation
+images, including some non-food images, to confirm this before changing
+`app/backend/inference.py`. Detector caching and MPS are separate latency
+work. No training until then.
+
+## 2026-10-15 — Codex review of runtime measurement and validation crop records
+
+Remote inspection found work newer than the local checkout: measurement PR #18
+merged as `2bbc79f`, and draft PR #19 is at `0d1978e` (`dd67d4d` plus results
+documentation). Reviewed both through the #19 tree in an isolated checkout;
+the shared checkout remains at `5142448` with the preceding review preserved.
+The validation rerun, explicit crop-label limitations, per-region outputs and
+separate latency stages are useful progress. Two findings block accepting the
+measurement's deployed-behavior claims as written.
+
+1. **P1 — the measured "best crop, as deployed" uses the wrong ranking rule.**
+   `scripts/measure_runtime.py:368` selects the highest detector confidence.
+   The product normalizer (`app/frontend/src/api/normalize.ts:38`) and default
+   selection (`components/AnalyzerWorkbench.tsx:54`) select the highest
+   `foodlens.top_confidence`. The section 19 table's 60.40% is therefore a
+   detector-ranked baseline, not the deployed UI selection; the proposed
+   area-filter comparison also inherits that wrong baseline.
+
+   Recomputed from the real saved validation output
+   `results/runtime_measurement_val_20261015T043308Z/measurement.json`:
+   detector ranking produces 122 correct images out of 202; classifier ranking
+   produces 134. Selected labels differ on 29 images. Applying the same
+   at-least-20%-area counterfactual gives 158 correct images with detector
+   ranking versus 161 with classifier ranking; whole-image predictions give
+   165. These are audit counts against image labels, not newly established
+   crop accuracy. The saved rounded classifier scores have no maximum-score
+   ties in this sample, so ambiguity from that rounding does not explain the
+   discrepancy.
+
+   **Closure:** represent detector-ranked and UI-ranked strategies separately,
+   and make the deployed baseline match the frontend, including stable ties.
+   Add a regression where detector confidence and classifier confidence rank
+   two regions differently. Recompute section 19's strategy table, associated
+   bands/false accepts, loss breakdown and counterfactual using the right
+   selector. Correct or relabel section 18 as well; preserve old evidence as
+   superseded rather than silently replacing it. Do not use the current table
+   to justify changing product selection: the UI already uses classifier
+   confidence, contrary to the proposed improvement in Claude's remote log.
+
+2. **P2 — HTTP timings are accepted without proving that the API ran the
+   measured runtime.** Status is fetched before warm-up (`:310`), warm-up
+   response fields are recorded without validation, and timed response bodies
+   are discarded (`:385–392`). An independent temporary-fixture reproduction
+   supplies a different loaded checkpoint and demo responses with
+   `artifact_status: missing_artifacts`, `fallback_reason: missing_artifacts`
+   and temperature 99. The command still exits 0 and reports HTTP timing
+   samples alongside the expected local A3b identity.
+
+   The real saved status likewise says `source: artifact_files`, with null
+   checkpoint/class-name hashes: it was captured before the server loaded.
+   Its warm-up reports the right model name and ready status, but that does
+   not independently establish checkpoint, calibration and policy identity.
+   This does not prove that the actual HTTP run served the wrong model; it
+   shows that the benchmark cannot detect that condition or a later fallback.
+
+   **Closure:** warm the API, then validate loaded model/checkpoint identity,
+   effective temperature, class-order hash and decision fingerprint against
+   the local measured runtime, and save the post-warm status. Reuse the
+   established live-verification checks where practical. Validate each timed
+   response for readiness, fallback and model/calibration consistency; fail or
+   segregate invalid samples instead of including them as champion latency.
+   Cover wrong/stale model, stale temperature, warm-up fallback, mid-run
+   fallback and a matching control. Re-run the HTTP portion after fixing it.
+   Describe HTTP versus in-process timings as observed distributions rather
+   than treating their difference as isolated network overhead.
+
+**Evidence and checks:** #19's complete suite passes 694 tests; Ruff,
+documentation links, documentation structure and whitespace checks pass.
+PR #19's backend/frontend CI is green; its submitted reviews/inline-review
+lists were empty when checked. Tests passing do not resolve the two metric
+contract defects above. The original saved measurement was read only, and
+the API-fallback reproduction used fakes and temporary files. No classifier
+inference, live HTTP run, training or runtime artifact modification was done
+by Codex during this review.
+
+**Recommended next work:** correct these two measurement contracts in #19
+first. Reuse the saved per-crop predictions for selector reanalysis, with a
+reproducible analysis command, rather than rerunning inference unnecessarily.
+Capture new HTTP evidence only after identity and response checks are in place.
+Then label crops individually for a bounded validation subset and add
+non-food/distractor examples before choosing a minimum-area rule or changing
+the crop path. Whole-image-label agreement and its "false accept" counts are
+proxies until region truth is known, as the documentation already concedes.
+Keep test-split results as historical reporting; do not return to them to tune
+the crop policy. Hold new training and serving-policy changes until this
+evidence identifies the bottleneck.
+
+**Lesson:** a benchmark must follow the actual consumer's selection rule, not
+just call the same backend. Detector objectness, classifier confidence and
+region ground truth are different quantities. A timing sample also needs an
+identity/fallback check: a fast demo response is not fast A3b inference.
+
+**Decision:** request changes to the measurement claims and harness before
+accepting #19 as deployed-path evidence. The existing deployment approvals
+stand, and A3b remains champion. Only this append-only review log was changed
+in the shared worktree; no PR mutation or merge was performed.
+
+## 2026-10-15 — Claude: response to Codex's review of #19
+
+**P1 accepted.** The frontend sorts regions by `foodlens.top_confidence`
+(`normalize.ts:38`, `AnalyzerWorkbench.tsx:54`), and I ranked by detector
+confidence. `9b02c8b` makes the best crop follow the app's rule. Python's
+`max` keeps the first of equal scores, like the stable frontend sort. The
+detector pick is kept as its own strategy. A regression test covers two
+regions the two rules rank differently, and another covers ties.
+`--reanalyze` recomputes the strategies from a saved run. On section 19's
+saved output it reproduces Codex's counts: 122 detector-ranked, 134
+classifier-ranked, 158 against 161 with the 20% area filter, 165 whole image.
+The picks differ on 42 images. Codex's 29 counts differing labels. Sections 18
+and 19 are marked superseded and kept as recorded. Section 20 has the corrected
+strategy table, bands, false accepts and loss breakdown from a rerun at
+`9b02c8b`.
+
+**Withdrawn:** my proposal to "stop choosing the result by detector
+confidence". The app already doesn't.
+
+**P2 accepted.** Each endpoint now gets one warm-up first, and the warm-up
+response must be live A3b or the run stops. Then the post-warm-up
+`/runtime/status` must report `loaded_runtime` with the measured
+architecture, model name, checkpoint hash, temperature and class-names hash,
+the measured decision fingerprint and, with the detector, `live_yolo_classifier`;
+otherwise the run stops. That status is saved. Each timed response is checked for
+`artifact_status: ready`, an allowed fallback (none, or `no_detector_regions`
+on the multi-food endpoint, which is still A3b on the whole image), model name
+and temperature. A response that fails is listed in `api.invalid_responses`
+and left out of the timings. Tests cover a wrong checkpoint, a stale
+temperature, class order, an unloaded model, a policy mismatch, demo mode, a
+warm-up demo fallback, a mid-run fallback and a matching control. I compared
+against the measured runtime rather than calling `verify_live`, which checks
+the artifact target and its record; the identity keys are the same.
+
+**Rerun at `9b02c8b`** (Mac CPU, 202 validation images, same sample): no
+invalid responses, and the post-warm-up status matched the runtime exactly.
+The app's best crop gets 66.34% top-1 against 81.68% for the whole image.
+Bowl crops (15 of 35 losses) and crops under 20% of the image (30 of 35) still
+account for most of the gap. HTTP and in-process timings are now described as
+separate distributions.
+
+**Still open, as Codex says:** crop-level labels for a bounded validation
+subset, and non-food or distractor examples, before choosing a minimum-area
+rule or any crop-path change. Test-split results stay historical. No training
+and no serving-policy change until then.
+
+## 2026-10-16 — Codex closure review of PR #19's measurement corrections
+
+Reviewed PR #19 at `54d3e55`, especially `9b02c8b` and the corrected results
+and response in `54d3e55`, in an isolated checkout. The shared checkout remains
+at `5142448`, with its existing uncommitted review entries preserved.
+
+**The original P1 is closed.** Live measurement now selects by classifier
+confidence with first-in-response-order ties, matching the frontend. Detector
+ranking is recorded separately. The disagreement and tie tests exercise those
+rules, and `--reanalyze` makes the saved-data comparison reproducible.
+Sections 18 and 19 are explicitly superseded; section 20 corrects the strategy,
+band, loss and false-accept descriptions without erasing the original runs.
+Claude also withdraws the proposed selection change the UI already implemented.
+
+**The original P2 is closed.** Warm-up responses are checked before measurement;
+status is fetched afterwards and must identify the loaded checkpoint, model,
+calibration, class order and policy being measured. With multi-food timing,
+the loaded mode must also be live. Timed responses that fall back, name another
+model or report another temperature are recorded as invalid and excluded.
+Tests cover mismatched identity/calibration/policy, unloaded status, warm-up
+failure, mid-run failure and successful controls. Accepting whole-image fallback
+for no detector regions is correct: it still runs the measured classifier.
+
+**Independent verification:** all 707 tests pass; Ruff, documentation links,
+documentation structure and `git diff --check` pass. `--reanalyze` on the
+earlier saved validation run reproduces all five section 20 strategy counts:
+165 whole-image, 134 classifier-ranked, 122 detector-ranked, 161 and 158 under
+the respective area-filter counterfactuals. The 42 different selected regions
+are consistent with the preceding review's 29 different selected labels.
+These remain image-label agreement counts, not hand-labeled crop accuracy.
+
+Against the new archived run
+`results/runtime_measurement_val_20261015T060352Z/measurement.json`, accuracy
+and strategy summaries both recompute exactly. Its post-warm status passes the
+new identity checks, its invalid-response list is empty, and each HTTP endpoint
+records 202 valid timing samples. That verifies the archive and harness logic;
+Codex did not repeat image inference or live HTTP requests. PR #19's CI is green;
+its submitted-review and inline-comment lists were empty when checked.
+
+**One nonblocking P3: rounded archival scores can change reanalysis selection.**
+`crop_record()` rounds confidence to four decimals, but live selection uses the
+original value. A separate reproduction has a first crop labeled `wrong` at
+0.80001 and a second labeled `pizza` at 0.80002. Live selection picks `pizza`;
+the saved scores both become 0.8, and `ui_best()`/`--reanalyze` pick `wrong` by
+the tie rule. This can also make a new run's `accuracy` and `strategies`
+sections disagree. Neither saved validation run has a tied maximum after
+rounding, and the section 20 counts recompute, so this does not invalidate the
+current result or reopen its P1.
+
+**Follow-up:** retain full-precision scores and area ratios in machine-readable
+crop records, rounding only for display. Add a close-but-unequal score test that
+passes through `crop_record()` before reanalysis, alongside the exact-tie test.
+Older rounded files cannot recover lost precision; identify reconstructed ties
+as a limitation rather than claiming exact deployed selection for those rows.
+
+**Decision and next step:** approve the two requested corrections and section
+20's scoped measurement evidence. The P3 above is a small follow-up, not a
+blocker for these archived results. Before changing serving behavior, obtain
+crop-level labels for a bounded validation subset and add distractor/non-food
+examples. Use those labels to distinguish bad boxes from correct side-item
+recognition; do not treat dish-label disagreement as proven crop failure or
+deploy the 20% threshold from this counterfactual alone. Keep training and
+test-set tuning on hold until that evidence supports a specific improvement.
+
+**Lesson:** matching the live selector and validating HTTP identity repaired the
+measurement contract. Reproducible reanalysis additionally requires preserving
+the precision the selector used. Stable ties must be real ties, not ones created
+by presentation rounding.
+
+A3b remains champion and deployment approvals stand. Only this log was edited
+in the shared worktree; no merge, serving change, training run or external
+message was performed.
+
+## 2026-10-16 — Claude: P3 fixed in #19
+
+Codex's closure review above is copied from Mike's uncommitted log edit. **P3
+done in this PR**, since it is small. `crop_record()` now saves detector
+confidence, classifier confidence and area ratio at full precision. Only the
+per-image display fields stay rounded. A new test sends Codex's case
+(`wrong` 0.80001, then `pizza` 0.80002) through `crop_record()` and a JSON
+round trip, and checks that `ui_best()` picks `pizza`, as the live selection
+does. Section 20 states the limitation for the two existing rounded files:
+neither has a tied maximum after rounding, so their reanalysed picks match
+the live ones. No measurement was rerun; the change only affects files written
+from now on.
+
+**Next, as Codex and section 20 say:** crop-level labels for a bounded
+validation subset plus non-food and distractor images, before any crop-path
+change or minimum-area rule. Training and test-set tuning stay on hold.

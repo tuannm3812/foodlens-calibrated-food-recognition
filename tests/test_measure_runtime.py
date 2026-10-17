@@ -73,6 +73,7 @@ def row(label, top1, band, *, top5=True, crop=None, fallback=False, any_crop=Non
             best_crop_top1_correct=crop == label,
             any_crop_top1_correct=crop == label if any_crop is None else any_crop,
             best_crop_band="suggest",
+            detector_best_crop_top1_correct=crop == label,
         )
     return record
 
@@ -109,6 +110,28 @@ def test_crop_accuracy_separates_detector_fallbacks_and_disagreements() -> None:
     }
     assert crops["whole_right_best_crop_wrong"] == 1
     assert crops["whole_wrong_best_crop_right"] == 1
+
+
+def test_confident_false_accepts_count_wrong_auto_accepts_only() -> None:
+    rows = [
+        row("pizza", "pizza", "auto_accept", crop="pizza"),
+        row("steak", "filet_mignon", "auto_accept", crop="steak"),
+        row("sushi", "sashimi", "suggest", crop="sashimi"),
+    ]
+    rows[2]["best_crop_band"] = "auto_accept"
+    summary = measure.accuracy_summary(rows)
+    assert summary["whole_image"]["confident_false_accepts"] == 1
+    assert summary["crops"]["best_crop_confident_false_accepts"] == 1
+
+
+def test_the_multipart_body_carries_the_file_under_one_boundary() -> None:
+    body, content_type = measure.multipart_body("1.jpg", b"\xff\xd8data")
+    boundary = content_type.split("boundary=")[1]
+    assert content_type.startswith("multipart/form-data; ")
+    assert body.startswith(f"--{boundary}\r\n".encode())
+    assert body.endswith(f"\r\n--{boundary}--\r\n".encode())
+    assert b'name="file"; filename="1.jpg"' in body
+    assert b"\r\n\r\n\xff\xd8data\r\n" in body
 
 
 def test_top_confusions_count_only_whole_image_errors() -> None:
@@ -198,6 +221,12 @@ def test_measure_records_timings_accuracy_and_identity(food101, tmp_path, monkey
     assert accuracy["crops"]["best_crop_top1_accuracy"] == 0.5
     assert accuracy["crops"]["whole_right_best_crop_wrong"] == 2
     assert accuracy["crops"]["detector_fallback_rate"] == 0.0
+    assert accuracy["whole_image"]["confident_false_accepts"] == 2
+    assert result["api"] is None
+    crop = result["rows"][0]["crops"][0]
+    assert crop["detector_label"] == "bowl"
+    assert crop["box"] == [0, 0, 32, 48]
+    assert crop["top1"] == "sushi"
     assert "rows" not in json.loads(capsys.readouterr().out)
 
 
@@ -234,3 +263,198 @@ def test_a_detector_that_cannot_run_is_reported_and_crops_skipped(food101, tmp_p
     }
     assert "detector_only" not in result["warm_ms"]
     assert result["accuracy"]["crops"]["images"] == 0
+
+
+API_RUNTIME = {
+    "device": "cpu", "temperature": 0.88, "class_names_sha256": "c" * 64,
+    "model_name": "a3b",
+    "model_identity": {"architecture": "convnext_tiny", "model_name": "a3b",
+                       "checkpoint_sha256": "a" * 64},
+    "policy": {"auto_confidence": 0.7, "suggest_confidence": 0.35, "margin_threshold": 0.05},
+    "hard_classes": set(), "confusion_pairs": set(),
+}
+
+
+def live_status(**model_overrides):
+    model = {"source": "loaded_runtime", "architecture": "convnext_tiny", "model_name": "a3b",
+             "checkpoint_sha256": "a" * 64, "temperature": 0.88,
+             "class_names_sha256": "c" * 64, **model_overrides}
+    return {"model": model, "decision_layer": {"fingerprint": "f" * 64},
+            "multi_food": {"mode": "live_yolo_classifier"}}
+
+
+def live_body(endpoint, **overrides):
+    body = {"artifact_status": "ready", "fallback_reason": None, "temperature": 0.88,
+            "model_name" if endpoint == "image" else "model": "a3b"}
+    if endpoint == "multi_food":
+        body["detector_status"] = "live_yolo"
+    return {**body, **overrides}
+
+
+@pytest.fixture
+def api_run(food101, tmp_path, monkeypatch):
+    """Run main() against a fake API; returns (run, posted urls)."""
+    pytest.importorskip("torch")
+    from app.backend import inference
+    from app.backend.schemas import Prediction
+
+    def classify(image, _runtime):
+        return [Prediction(rank=i + 1, class_name=n, confidence=0.2)
+                for i, n in enumerate(["pizza", "sushi", "steak", "ramen", "pho"])]
+
+    monkeypatch.setattr(inference, "load_runtime", lambda: API_RUNTIME)
+    monkeypatch.setattr(inference, "classify_pil_image", classify)
+    monkeypatch.setattr(inference, "detect_candidate_regions", lambda image: [])
+    monkeypatch.setattr(inference, "decision_layer_status", lambda: {"fingerprint": "f" * 64})
+    posted = []
+
+    def run(status=None, respond=None):
+        responses = respond or (lambda endpoint, n: live_body(endpoint))
+
+        def post(url, name, data):
+            endpoint = "multi_food" if "multi-food" in url else "image"
+            posted.append(endpoint)
+            return responses(endpoint, posted.count(endpoint))
+
+        monkeypatch.setattr(measure, "post_image", post)
+        monkeypatch.setattr(measure, "get_json", lambda url: status or live_status())
+        out = tmp_path / "out"
+        images, manifest = food101
+        code = measure.main(["--images-dir", str(images), "--manifest", str(manifest),
+                             "--per-class", "1", "--api-url", "http://api/",
+                             "--output-dir", str(out)])
+        return code, json.loads((out / "measurement.json").read_text())
+
+    return run, posted
+
+
+def test_a_matching_api_is_timed_on_both_endpoints_after_one_warmup_each(api_run):
+    run, posted = api_run
+    code, result = run()
+    assert code == 0
+    assert result["api"]["invalid_responses"] == []
+    assert result["api"]["runtime_status_after_warmup"]["model"]["source"] == "loaded_runtime"
+    assert result["warm_ms"]["http_image"]["n"] == 2
+    assert result["warm_ms"]["http_multi_food"]["n"] == 2
+    # One warm-up per endpoint, then one timed request per image per endpoint.
+    assert posted.count("image") == 3
+    assert posted.count("multi_food") == 3
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        live_status(checkpoint_sha256="b" * 64),
+        live_status(temperature=1.0),
+        live_status(class_names_sha256="d" * 64),
+        live_status(source="artifact_files"),
+        {**live_status(), "decision_layer": {"fingerprint": "e" * 64}},
+        {**live_status(), "multi_food": {"mode": "demo_fallback"}},
+    ],
+    ids=["checkpoint", "temperature", "class-order", "not-loaded", "policy", "demo-mode"],
+)
+def test_an_api_serving_another_runtime_stops_the_run(api_run, status):
+    run, _ = api_run
+    with pytest.raises(SystemExit, match="different runtime"):
+        run(status=status)
+
+
+def test_a_warmup_that_falls_back_to_the_demo_stops_the_run(api_run):
+    run, _ = api_run
+    demo = live_body("multi_food", artifact_status="missing_artifacts",
+                     fallback_reason="missing_artifacts", temperature=99)
+    with pytest.raises(SystemExit, match="not live A3b: artifact_status"):
+        run(respond=lambda endpoint, n: demo if endpoint == "multi_food" else live_body(endpoint))
+
+
+def test_a_mid_run_fallback_is_left_out_of_the_timings(api_run):
+    run, _ = api_run
+
+    def respond(endpoint, n):
+        if endpoint == "image" and n == 3:
+            return live_body("image", fallback_reason="classifier_load_error")
+        return live_body(endpoint)
+
+    code, result = run(respond=respond)
+    assert code == 0
+    assert result["warm_ms"]["http_image"]["n"] == 1
+    assert result["api"]["invalid_responses"] == [
+        {"image": "sushi/0.jpg", "endpoint": "image",
+         "problem": "fallback_reason 'classifier_load_error'"}
+    ]
+
+
+def test_a_no_regions_fallback_is_still_live_inference() -> None:
+    expected = {"model_name": "a3b", "temperature": 0.88}
+    body = live_body("multi_food", fallback_reason="no_detector_regions",
+                     detector_status="live_yolo_whole_image_fallback")
+    assert measure.response_problem("multi_food", body, expected) is None
+    assert measure.response_problem("image", live_body("image", model_name="resnet"),
+                                    expected) == "model_name 'resnet'"
+
+
+def crop(top1, confidence, detector, area=0.5):
+    return {"top1": top1, "top1_confidence": confidence,
+            "detector_confidence": detector, "area_ratio": area}
+
+
+def test_the_app_picks_by_classifier_confidence_not_detector_confidence() -> None:
+    rows = [{
+        "label": "pizza", "whole_top1_correct": True,
+        # The detector is surer of the bowl; the classifier is surer of the pizza.
+        "crops": [crop("ramen", 0.40, 0.90), crop("pizza", 0.80, 0.30)],
+    }]
+    strategies = measure.strategy_summary(rows)
+    assert strategies["ui_ranked"]["correct"] == 1
+    assert strategies["detector_ranked"]["correct"] == 0
+    assert strategies["ui_and_detector_pick_differ"] == 1
+
+
+def test_ties_keep_the_response_order_like_the_frontend_sort() -> None:
+    first, second = crop("pizza", 0.5, 0.5), crop("ramen", 0.5, 0.5)
+    assert measure.ui_best([first, second]) is first
+    assert measure.detector_best([second, first]) is second
+
+
+def test_close_scores_survive_the_saved_record_so_reanalysis_picks_as_live() -> None:
+    from types import SimpleNamespace
+
+    def region(index, label, confidence):
+        return SimpleNamespace(
+            detection_index=index,
+            bbox=SimpleNamespace(x1=0, y1=0, x2=10, y2=10),
+            detector=SimpleNamespace(label="bowl", proposal_role="serving_container",
+                                     confidence=0.5, crop_area_ratio=0.5),
+            foodlens=SimpleNamespace(top_label=label, top_confidence=confidence,
+                                     decision_band="suggest"),
+        )
+
+    # Live, the second crop wins by 0.00001; rounding to 4 places would tie them
+    # and the tie rule would then pick the first.
+    regions = [region(0, "wrong", 0.80001), region(1, "pizza", 0.80002)]
+    live = max(regions, key=lambda crop: crop.foodlens.top_confidence)
+    saved = json.loads(json.dumps([measure.crop_record(crop) for crop in regions]))
+    assert measure.ui_best(saved)["top1"] == live.foodlens.top_label == "pizza"
+
+
+def test_the_min_area_strategy_falls_back_to_the_whole_image() -> None:
+    rows = [
+        {"label": "pizza", "whole_top1_correct": True,
+         "crops": [crop("ramen", 0.9, 0.9, area=0.05)]},
+        {"label": "sushi", "whole_top1_correct": False,
+         "crops": [crop("sushi", 0.6, 0.6, area=0.3), crop("pho", 0.9, 0.9, area=0.1)]},
+    ]
+    strategies = measure.strategy_summary(rows, min_area=0.2)
+    assert strategies["ui_ranked"]["correct"] == 0
+    assert strategies["ui_ranked_min_area"]["correct"] == 2
+    assert strategies["whole_image"]["correct"] == 1
+
+
+def test_reanalyze_reads_a_saved_run_without_inference(tmp_path, capsys) -> None:
+    saved = tmp_path / "measurement.json"
+    saved.write_text(json.dumps({"rows": [
+        {"label": "pizza", "whole_top1_correct": True,
+         "crops": [crop("ramen", 0.40, 0.90), crop("pizza", 0.80, 0.30)]},
+    ]}))
+    assert measure.main(["--reanalyze", str(saved)]) == 0
+    assert json.loads(capsys.readouterr().out)["ui_ranked"]["top1"] == 1.0
