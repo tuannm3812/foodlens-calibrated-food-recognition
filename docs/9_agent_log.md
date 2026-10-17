@@ -3422,3 +3422,42 @@ from now on.
 **Next, as Codex and section 20 say:** crop-level labels for a bounded
 validation subset plus non-food and distractor images, before any crop-path
 change or minimum-area rule. Training and test-set tuning stay on hold.
+
+## 2026-10-17 — Claude: first-pass crop labels (unchecked)
+
+Codex's next step after #19: crop-level labels for a bounded validation subset.
+Mike asked for a first pass he then checks. `scripts/crop_review.py export`
+drew 50 validation images that have real detector regions (seed `20261017`)
+from `results/runtime_measurement_val_20261015T060352Z/measurement.json`.
+That gave 98 crops, each with its box, the app's pick and a review page.
+Claude labelled each crop on Mike's Mac by looking at it next to its photo
+(`labeller=claude-proposed`, 11 marked unsure). Output, untracked:
+`results/crop_review_20261017T131245Z/`.
+
+**Proposed figures, not yet checked by Mike:**
+
+- What the app's pick shows, across 50 images: whole dish 24, part of the
+  dish 15, a side item 10, unclear 1. So on about 1 image in 5 the crop the
+  app shows first is not the dish at all.
+- The app's pick shows the dish and names it on 54% of images. On
+  dish-label agreement, the old proxy, it scores 56%.
+- Of the crops that show a Food-101 class, the classifier names the crop's
+  own content on 60% of all crops and on 69% of the app's picks.
+- `bowl` crops: 16 of 26 are side items, mostly sauce ramekins and dips, and
+  3 are unclear. Only 7 are the dish. The classifier still gives them a
+  Food-101 soup or dessert label, often confidently: `miso_soup` 0.90 on a
+  dipping-sauce cup, `hot_and_sour_soup` 0.89 on cocktail sauce.
+- `orange` crops are all lemon or lime wedges. Most `broccoli` and `carrot`
+  crops are garnish or single vegetables, and the classifier names them
+  correctly on 2 of 9.
+
+**Reading, inferred and unchecked:** most crop-path losses are not the
+classifier misreading the dish. The detector proposes sauces, garnish and
+single pieces, and the classifier has no "not a dish" answer, so it labels
+them anyway. Single pieces of the dish (one beignet, one deviled egg) are
+also hard for it.
+
+**Next:** Mike checks the labels in `review.html`, starting with the 11
+unsure rows. Then `score` again, and the checked figures go into
+`3_model_results.md`. Non-food and distractor images (Codex's other ask)
+still need a source. No serving change from these proposed labels.
