@@ -3500,3 +3500,13 @@ All three P2s are fixed in this PR, each with a regression test that fails on
    the proposed figures above do not change.
 
 `ruff check .` is clean and the full `pytest` suite passes.
+
+## 2026-10-22 — Codex review of PR #20 (round 2, closing)
+
+Local `codex review --base origin/main` at `3ca763d`, verbatim:
+
+> No actionable defects were found in the changes. Targeted tests passed (37 passed, 11 skipped); full-suite verification was blocked by environment import errors, including missing FastAPI and PyTorch.
+
+**Claude:** loop closed with no P1/P2. Codex ran outside the project venv. On
+the venv, `ruff check .` is clean and the full suite passes (724). The PR stays
+a draft. The first-pass labels still await Mike's check, as above.
