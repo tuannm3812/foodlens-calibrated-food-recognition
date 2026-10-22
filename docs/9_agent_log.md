@@ -3422,3 +3422,91 @@ from now on.
 **Next, as Codex and section 20 say:** crop-level labels for a bounded
 validation subset plus non-food and distractor images, before any crop-path
 change or minimum-area rule. Training and test-set tuning stay on hold.
+
+## 2026-10-17 — Claude: first-pass crop labels (unchecked)
+
+Codex's next step after #19: crop-level labels for a bounded validation subset.
+Mike asked for a first pass he then checks. `scripts/crop_review.py export`
+drew 50 validation images that have real detector regions (seed `20261017`)
+from `results/runtime_measurement_val_20261015T060352Z/measurement.json`.
+That gave 98 crops, each with its box, the app's pick and a review page.
+Claude labelled each crop on Mike's Mac by looking at it next to its photo
+(`labeller=claude-proposed`, 11 marked unsure). Output, untracked:
+`results/crop_review_20261017T131245Z/`.
+
+**Proposed figures, not yet checked by Mike:**
+
+- What the app's pick shows, across 50 images: whole dish 24, part of the
+  dish 15, a side item 10, unclear 1. So on about 1 image in 5 the crop the
+  app shows first is not the dish at all.
+- The app's pick shows the dish and names it on 54% of images. On
+  dish-label agreement, the old proxy, it scores 56%.
+- Of the crops that show a Food-101 class, the classifier names the crop's
+  own content on 60% of all crops and on 69% of the app's picks.
+- `bowl` crops: 16 of 26 are side items, mostly sauce ramekins and dips, and
+  3 are unclear. Only 7 are the dish. The classifier still gives them a
+  Food-101 soup or dessert label, often confidently: `miso_soup` 0.90 on a
+  dipping-sauce cup, `hot_and_sour_soup` 0.89 on cocktail sauce.
+- `orange` crops are all lemon or lime wedges. Most `broccoli` and `carrot`
+  crops are garnish or single vegetables, and the classifier names them
+  correctly on 2 of 9.
+
+**Reading, inferred and unchecked:** most crop-path losses are not the
+classifier misreading the dish. The detector proposes sauces, garnish and
+single pieces, and the classifier has no "not a dish" answer, so it labels
+them anyway. Single pieces of the dish (one beignet, one deviled egg) are
+also hard for it.
+
+**Next:** Mike checks the labels in `review.html`, starting with the 11
+unsure rows. Then `score` again, and the checked figures go into
+`3_model_results.md`. Non-food and distractor images (Codex's other ask)
+still need a source. No serving change from these proposed labels.
+
+## 2026-10-22 — Codex review of PR #20 (round 1)
+
+Local `codex review --base origin/main` (codex-cli 0.163.0) on `376a081`.
+Copied verbatim:
+
+> Targeted tests returned 34 passed and 11 skipped, but additional reproductions confirmed annotation loss, mismatched EXIF-oriented crops, and incorrect scores for whitespace-containing labels accepted by validation.
+>
+> - [P2] Refuse to overwrite an existing annotation export — /Users/tuannm3812/Documents/GitHub/1. Study/foodlens-wt-pr20/scripts/crop_review.py:365-371
+>   Re-running `export` with an existing `--output-dir` silently replaces the completed `labels.csv` with blank labels, destroying human annotations. It also overwrites the associated images before checking for existing work. Refuse an existing export before writing anything, or require an explicit overwrite option; keep `--refresh-html` as the non-destructive refresh path.
+>
+> - [P2] Match the measurement pipeline's image orientation — /Users/tuannm3812/Documents/GitHub/1. Study/foodlens-wt-pr20/scripts/crop_review.py:229-234
+>   For source images with EXIF orientation metadata, this transpose changes the coordinate system before applying the saved boxes. `measure_runtime.py` uses `app.backend.imaging.open_rgb_image`, which converts to RGB without transposing, so exported crops can show different content or black padding instead of what the classifier saw. Decode images identically to the measurement pipeline so the human labels describe the classified regions.
+>
+> - [P2] Normalize accepted labels before scoring them — /Users/tuannm3812/Documents/GitHub/1. Study/foodlens-wt-pr20/scripts/crop_review.py:174-180
+>   Hand-edited labels with surrounding whitespace pass `label_problems()` because validation strips both label fields, but scoring compares the original strings. A correctly predicted pizza labelled `region_kind="whole_dish "` and `region_label="pizza "` therefore passes validation yet receives zero for both region accuracy and showing-and-naming the dish. Normalize the stored values before scoring, or consistently reject whitespace during validation.
+
+## 2026-10-22 — Claude: response to Codex round 1 on PR #20
+
+All three P2s are fixed in this PR, each with a regression test that fails on
+`376a081` and passes now.
+
+1. **Overwrite.** `export` now refuses a non-empty `--output-dir` before
+   writing anything, and points to `--refresh-html` instead. The test fills a
+   label, re-runs the export and checks that every file is byte-identical.
+2. **Orientation.** `save_crops()` decodes through the backend's
+   `app.backend.imaging.open_rgb_image`, the decoder `measure_runtime.py` used,
+   so there is no EXIF transpose. The test saves an image with orientation 6
+   and checks the crop cuts the raw-pixel patch. **The existing first-pass
+   export is unaffected.** In `results/crop_review_20261017T131245Z/`, 6 of
+   the 50 source images carry an orientation tag, but all six are `0`, an
+   invalid value that `exif_transpose` ignores. So all 98 crops already match
+   what the classifier saw.
+3. **Whitespace.** `label_problems()` and `score()` both work on the same
+   stripped copy of each row (`normalized()`), so a row that validates scores
+   as validated. None of the 98 existing rows has surrounding whitespace, so
+   the proposed figures above do not change.
+
+`ruff check .` is clean and the full `pytest` suite passes.
+
+## 2026-10-22 — Codex review of PR #20 (round 2, closing)
+
+Local `codex review --base origin/main` at `3ca763d`, verbatim:
+
+> No actionable defects were found in the changes. Targeted tests passed (37 passed, 11 skipped); full-suite verification was blocked by environment import errors, including missing FastAPI and PyTorch.
+
+**Claude:** loop closed with no P1/P2. Codex ran outside the project venv. On
+the venv, `ruff check .` is clean and the full suite passes (724). The PR stays
+a draft. The first-pass labels still await Mike's check, as above.
