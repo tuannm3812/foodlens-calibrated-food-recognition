@@ -43,6 +43,7 @@ import csv
 import html
 import json
 import random
+import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
@@ -139,12 +140,21 @@ def read_labels(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
+def normalized(row: Mapping[str, str]) -> dict[str, str]:
+    """The row with surrounding whitespace removed from every text cell.
+
+    A hand-edited ``"pizza "`` must validate and score as ``"pizza"``; checking
+    stripped values but scoring raw ones would pass a row and then miscount it.
+    """
+    return {key: value.strip() if isinstance(value, str) else value for key, value in row.items()}
+
+
 def label_problems(rows: Sequence[Mapping[str, str]], class_names: set[str]) -> list[str]:
     """Rows whose labels are missing or not one of the allowed values."""
     problems = []
-    for line, row in enumerate(rows, start=2):
-        kind = row["region_kind"].strip()
-        region = row["region_label"].strip()
+    for line, row in enumerate(map(normalized, rows), start=2):
+        kind = row["region_kind"]
+        region = row["region_label"]
         if kind not in REGION_KINDS:
             problems.append(f"line {line}: region_kind {kind!r} is not one of {REGION_KINDS}")
         if region and region not in class_names:
@@ -169,9 +179,10 @@ def score(rows: Sequence[Mapping[str, str]]) -> dict[str, Any]:
     Crops with no Food-101 class in them (a plain bowl, non-food) cannot be
     named correctly; they are counted separately.
     """
+    rows = [normalized(row) for row in rows]
 
     def summary(subset: Sequence[Mapping[str, str]]) -> dict[str, Any]:
-        nameable = [row for row in subset if row["region_label"].strip()]
+        nameable = [row for row in subset if row["region_label"]]
         return {
             "crops": len(subset),
             "kinds": dict(Counter(row["region_kind"] for row in subset).most_common()),
@@ -215,8 +226,15 @@ def score(rows: Sequence[Mapping[str, str]]) -> dict[str, Any]:
 def save_crops(
     selected: Sequence[Mapping[str, Any]], images_dir: Path, output: Path
 ) -> list[str]:
-    """Cut every crop from its source image; returns images that were missing."""
-    from PIL import Image, ImageOps
+    """Cut every crop from its source image; returns images that were missing.
+
+    Images are decoded exactly as ``measure_runtime.py`` decoded them, through
+    the backend's ``open_rgb_image`` (no EXIF transpose), so each saved box
+    cuts the same pixels the classifier saw.
+    """
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from app.backend.imaging import open_rgb_image
 
     missing = []
     (output / "crops").mkdir(parents=True, exist_ok=True)
@@ -226,8 +244,7 @@ def save_crops(
         if not source.is_file():
             missing.append(str(source))
             continue
-        with Image.open(source) as opened:
-            image = ImageOps.exif_transpose(opened).convert("RGB")
+        image = open_rgb_image(source.read_bytes())
         image.save(output / "images" / f"{number:03d}.jpg", quality=88)
         for crop in row["crops"]:
             x1, y1, x2, y2 = crop["box"]
@@ -363,6 +380,12 @@ def main(argv: list[str] | None = None) -> int:
     selected = select_images(measurement["rows"], args.count, args.seed)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     output = args.output_dir or REPO_ROOT / "results" / f"crop_review_{stamp}"
+    if output.exists() and any(output.iterdir()):
+        # Re-exporting would replace a labels.csv that may hold finished labels.
+        parser.error(
+            f"{output} is not empty; choose a new --output-dir, "
+            "or use --refresh-html to rebuild only the page"
+        )
     output.mkdir(parents=True, exist_ok=True)
     missing = save_crops(selected, args.images_dir, output)
     if missing:

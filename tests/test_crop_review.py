@@ -133,3 +133,65 @@ def test_score_refuses_invalid_labels(tmp_path, capsys) -> None:
 def test_every_region_kind_is_accepted(kind) -> None:
     region = "pizza" if kind in ("whole_dish", "part_of_dish") else ""
     assert review.label_problems([labelled("pizza", "pizza", kind, region)], {"pizza"}) == []
+
+
+def write_measurement(tmp_path, rows=ROWS, size=(64, 48), exif=None):
+    from PIL import Image
+
+    images = tmp_path / "images"
+    for row in rows:
+        (images / row["image"]).parent.mkdir(parents=True, exist_ok=True)
+        image = Image.new("RGB", size, (200, 100, 50))
+        image.paste((10, 20, 30), (0, 0, 32, 24))
+        image.save(images / row["image"], **({"exif": exif} if exif is not None else {}))
+    measurement = tmp_path / "measurement.json"
+    measurement.write_text(json.dumps({"measured_at": "t", "model": {}, "sample": {},
+                                       "rows": rows}))
+    return measurement, images
+
+
+def test_export_refuses_a_non_empty_output_dir_and_keeps_its_labels(tmp_path) -> None:
+    measurement, images = write_measurement(tmp_path)
+    out = tmp_path / "out"
+    args = ["export", "--measurement", str(measurement), "--images-dir", str(images),
+            "--count", "2", "--output-dir", str(out)]
+    assert review.main(args) == 0
+    with (out / "labels.csv").open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    rows[0].update(region_kind="side_item", labeller="mike")
+    review.write_labels(out / "labels.csv", rows)
+    before = {path: path.read_bytes() for path in out.rglob("*") if path.is_file()}
+
+    with pytest.raises(SystemExit):
+        review.main(args)
+
+    assert {path: path.read_bytes() for path in out.rglob("*") if path.is_file()} == before
+
+
+def test_export_decodes_like_the_measurement_ignoring_exif_orientation(tmp_path) -> None:
+    from PIL import Image
+
+    exif = Image.Exif()
+    exif[0x0112] = 6  # rotate 90 degrees on display
+    rows = [measured_row("sushi/1.jpg", "sushi", [crop(0, "sushi", 0.8)])]
+    measurement, images = write_measurement(tmp_path, rows, exif=exif)
+    out = tmp_path / "out"
+    assert review.main(["export", "--measurement", str(measurement), "--images-dir",
+                        str(images), "--output-dir", str(out)]) == 0
+
+    with Image.open(out / "images" / "001.jpg") as saved:
+        assert saved.size == (64, 48)
+    with Image.open(out / "crops" / "001_0.jpg") as saved:
+        assert saved.size == (32, 24)
+        # The box covers the dark patch in raw (untransposed) pixels.
+        red, green, blue = saved.convert("RGB").getpixel((16, 12))
+        assert red < 60 and green < 60 and blue < 80
+
+
+def test_surrounding_whitespace_validates_and_scores_as_the_bare_label() -> None:
+    rows = [labelled("pizza", "pizza", "whole_dish ", " pizza ")]
+    assert review.label_problems(rows, {"pizza"}) == []
+    summary = review.score(rows)
+    assert summary["all_crops"]["region_correct"] == 1.0
+    assert summary["app_pick_shows_and_names_dish"] == 1.0
+    assert summary["all_crops"]["kinds"] == {"whole_dish": 1}

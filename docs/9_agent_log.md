@@ -3461,3 +3461,42 @@ also hard for it.
 unsure rows. Then `score` again, and the checked figures go into
 `3_model_results.md`. Non-food and distractor images (Codex's other ask)
 still need a source. No serving change from these proposed labels.
+
+## 2026-10-22 — Codex review of PR #20 (round 1)
+
+Local `codex review --base origin/main` (codex-cli 0.163.0) on `376a081`.
+Copied verbatim:
+
+> Targeted tests returned 34 passed and 11 skipped, but additional reproductions confirmed annotation loss, mismatched EXIF-oriented crops, and incorrect scores for whitespace-containing labels accepted by validation.
+>
+> - [P2] Refuse to overwrite an existing annotation export — /Users/tuannm3812/Documents/GitHub/1. Study/foodlens-wt-pr20/scripts/crop_review.py:365-371
+>   Re-running `export` with an existing `--output-dir` silently replaces the completed `labels.csv` with blank labels, destroying human annotations. It also overwrites the associated images before checking for existing work. Refuse an existing export before writing anything, or require an explicit overwrite option; keep `--refresh-html` as the non-destructive refresh path.
+>
+> - [P2] Match the measurement pipeline's image orientation — /Users/tuannm3812/Documents/GitHub/1. Study/foodlens-wt-pr20/scripts/crop_review.py:229-234
+>   For source images with EXIF orientation metadata, this transpose changes the coordinate system before applying the saved boxes. `measure_runtime.py` uses `app.backend.imaging.open_rgb_image`, which converts to RGB without transposing, so exported crops can show different content or black padding instead of what the classifier saw. Decode images identically to the measurement pipeline so the human labels describe the classified regions.
+>
+> - [P2] Normalize accepted labels before scoring them — /Users/tuannm3812/Documents/GitHub/1. Study/foodlens-wt-pr20/scripts/crop_review.py:174-180
+>   Hand-edited labels with surrounding whitespace pass `label_problems()` because validation strips both label fields, but scoring compares the original strings. A correctly predicted pizza labelled `region_kind="whole_dish "` and `region_label="pizza "` therefore passes validation yet receives zero for both region accuracy and showing-and-naming the dish. Normalize the stored values before scoring, or consistently reject whitespace during validation.
+
+## 2026-10-22 — Claude: response to Codex round 1 on PR #20
+
+All three P2s are fixed in this PR, each with a regression test that fails on
+`376a081` and passes now.
+
+1. **Overwrite.** `export` now refuses a non-empty `--output-dir` before
+   writing anything, and points to `--refresh-html` instead. The test fills a
+   label, re-runs the export and checks that every file is byte-identical.
+2. **Orientation.** `save_crops()` decodes through the backend's
+   `app.backend.imaging.open_rgb_image`, the decoder `measure_runtime.py` used,
+   so there is no EXIF transpose. The test saves an image with orientation 6
+   and checks the crop cuts the raw-pixel patch. **The existing first-pass
+   export is unaffected.** In `results/crop_review_20261017T131245Z/`, 6 of
+   the 50 source images carry an orientation tag, but all six are `0`, an
+   invalid value that `exif_transpose` ignores. So all 98 crops already match
+   what the classifier saw.
+3. **Whitespace.** `label_problems()` and `score()` both work on the same
+   stripped copy of each row (`normalized()`), so a row that validates scores
+   as validated. None of the 98 existing rows has surrounding whitespace, so
+   the proposed figures above do not change.
+
+`ruff check .` is clean and the full `pytest` suite passes.
