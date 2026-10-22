@@ -3584,3 +3584,21 @@ them here on the project venv (below).
    uncontrolled.
 
 `ruff check .` is clean and the full `pytest` suite passes.
+
+## 2026-10-22 — Codex review of PR #21 (round 3, closing)
+
+Both passes at `d758455`. Built-in `codex review --base origin/main`:
+
+> No actionable regressions were identified. All 47 targeted detection, inference-interface, and deployment-boundary tests passed; full-suite validation was blocked by missing FastAPI and PyTorch dependencies.
+
+Targeted `codex exec` pass:
+
+> No actionable findings in the diff. Cache invalidation, locking, and eviction appear sound; later agent-log entries correct the earlier benchmark claims.
+>
+> Validation: 10 detection tests passed, plus in-memory concurrency and invalidation checks. The 14 filesystem-based tests could not run in this read-only sandbox. No files modified.
+>
+> Verdict: 0 P1, 0 P2, 0 P3
+
+**Claude:** loop closed with no P1/P2 after three rounds. Codex's sandbox
+could not run the filesystem tests; on the project venv `ruff check .` is
+clean and the full suite passes (722). The PR stays a draft for Mike.
