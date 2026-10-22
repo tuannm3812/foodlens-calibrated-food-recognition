@@ -3523,3 +3523,64 @@ against `505ed5c` and pass now.
    separate-run comparisons and carry the noise that entry describes.
 
 `ruff check .` is clean and the full `pytest` suite passes.
+
+## 2026-10-22 — Codex review of PR #21 (round 2)
+
+Both passes again, at `e20edbb`. The built-in `codex review --base origin/main`
+replied:
+
+> No actionable regressions were identified against the specified merge base. All 22 detector tests passed; broader validation was blocked by missing FastAPI and PyTorch dependencies, and Ruff was unavailable.
+
+The targeted `codex exec` pass replied as follows. It is verbatim except that
+local file links are shown as plain `path:line`.
+
+> - **P2 — app/backend/detection.py:62: Symlink rotation can cache the wrong model.** Metadata is checked against `resolved_path`, but YOLO loads the original `weights_path`. If the symlink changes between resolution and construction, model B can be cached under A’s unchanged signature. Subsequent requests for A then reuse B indefinitely. Reproduced in memory. **Fix:** load the resolved path used for metadata checks and add a test rotating the symlink during construction.
+>
+> - **P2 — app/backend/detection.py:67: Initial downloads bypass replacement detection.** When `before is None`, the model is cached unconditionally. If YOLO downloads and loads A, then another process replaces it with B before construction returns, A is cached with B’s signature and reused indefinitely. Reproduced in memory; the existing download and mid-load replacement tests cover these events separately. **Fix:** separate downloading from the signature-validated load, or conservatively skip caching the initial missing-to-present transition. Add a combined regression test.
+>
+> - **P3 — docs/9_agent_log.md:3519: Benchmark claims exceed what the reported statistics measure.** Subtracting the two p95 call latencies does not establish p95 construction cost. Whole-call timings also include initial prediction setup. The interleaved results support a caching benefit but cannot attribute the entire earlier separate-run difference to caching. **Fix:** describe reductions in detector-call latency percentiles; measure construction directly or calculate paired per-image differences for overhead claims.
+>
+> Validation: 10 existing detection tests passed; 12 file-based tests were excluded because the sandbox is read-only. Both invalidation failures were reproduced without filesystem writes. No files modified.
+>
+> Verdict: 0 P1, 2 P2, 1 P3
+
+## 2026-10-22 — Claude: response to Codex round 2 on PR #21
+
+Codex's sandbox could not run the file-based tests or the full suite. I ran
+them here on the project venv (below).
+
+1. **Symlink moved during a load (P2).** When the file exists, YOLO is now
+   given the resolved path the signature describes, so the model it loads is
+   the file that was checked. A missing file is still passed as given, for
+   Ultralytics to download. Test: the link moves from `a.pt` to `b.pt` during
+   the first load. The cache keeps that model as `a.pt`, then loads `b.pt`
+   once and reuses it.
+2. **Download then replacement (P2).** I took Codex's conservative option. A
+   load that began with the file missing is never cached, so after a download
+   the next request loads the file once more, with its signature checked before
+   and after, and caches that load. A file that stays missing is loaded on
+   every request, as before this PR. Tests: download, then one more load, then
+   reuse; download replaced before the load returns is not kept; missing stays
+   uncached.
+3. **Benchmark wording (P3).** Agreed: subtracting two p95s does not give a
+   p95 construction cost. I reran the interleaved benchmark on the current code
+   with paired per-image differences, and timed `YOLO(weights)` construction on
+   its own:
+
+   | n=101, same process, seeded interleaving | p50 ms | p95 ms | mean ms |
+   | --- | ---: | ---: | ---: |
+   | Detector call, fresh model (old behaviour) | 51.29 | 83.71 | 54.17 |
+   | Detector call, cached model | 23.62 | 26.83 | 23.51 |
+   | Paired per-image difference (fresh minus cached) | 25.45 | 60.34 | 30.66 |
+   | `YOLO(weights)` construction alone | 10.67 | 43.03 | 13.94 |
+
+   **Corrected reading.** Caching cuts the detector call by a median of
+   25.45 ms per image (paired). Construction is only part of that, about
+   11 ms at p50. The rest is the first `predict` on a fresh model, which sets
+   up its predictor; the cached model skips that too. Round 1's response said
+   the separate-run detector drop was attributable to caching. Read it instead
+   as consistent with these paired figures, which are the evidence. The
+   separate-run detector-plus-crops and classifier figures stay
+   uncontrolled.
+
+`ruff check .` is clean and the full `pytest` suite passes.

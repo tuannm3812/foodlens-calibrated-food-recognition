@@ -50,7 +50,9 @@ failed inference surfaces as an error rather than a silent fallback.
 The detector is loaded once and reused across requests
 (`app/backend/detection.py`). Pointing at another weights path, or replacing
 the file's contents, reloads it on the next detection and drops the old model;
-concurrent requests take turns on the shared model.
+concurrent requests take turns on the shared model. A checkpoint that is
+missing when a request starts is not cached, so after a download the next
+request loads the file once more and caches that.
 
 Start the API:
 

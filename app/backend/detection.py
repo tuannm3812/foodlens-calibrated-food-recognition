@@ -58,14 +58,18 @@ def cached_detector(weights_path: str, yolo_class: Any) -> tuple[Any, threading.
         before = _weights_signature(resolved_path)
         if _cached is not None and _cached[:2] == (resolved_path, before):
             return _cached[2], _cached[3]
+        # Load the resolved file the signature describes, so a symlink moved
+        # meanwhile cannot put another file's model under this signature. A
+        # missing file is passed as given, for Ultralytics to download.
+        load_path = resolved_path if before is not None else weights_path
         # Construct before storing, so a failed load is not cached.
-        detector = yolo_class(weights_path)
+        detector = yolo_class(load_path)
         lock = threading.Lock()
-        # Read again after loading: YOLO may have downloaded a missing file,
-        # and a file that changed while it loaded may not match the model.
-        after = _weights_signature(resolved_path)
-        if before is None or after == before:
-            _cached = (resolved_path, after, detector, lock)
+        # Cache only a load whose file was present and unchanged throughout.
+        # A file that was missing (downloaded during the load, perhaps then
+        # replaced) or that changed while loading is loaded again next time.
+        if before is not None and _weights_signature(resolved_path) == before:
+            _cached = (resolved_path, before, detector, lock)
         else:
             _cached = None
         return detector, lock

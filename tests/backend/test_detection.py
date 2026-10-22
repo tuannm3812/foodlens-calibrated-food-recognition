@@ -310,7 +310,7 @@ def test_model_is_loaded_once_and_reused(
     for _ in range(3):
         assert len(run_yolo_detection(FakeImage(100, 100), str(weights))) == 1
 
-    assert yolo.constructed == [str(weights)]
+    assert yolo.constructed == [str(weights.resolve())]
 
 
 def test_spellings_of_one_file_share_a_model(
@@ -325,7 +325,7 @@ def test_spellings_of_one_file_share_a_model(
     run_yolo_detection(FakeImage(100, 100), str(tmp_path / "yolo.pt"))
     run_yolo_detection(FakeImage(100, 100), "./yolo.pt")
 
-    assert yolo.constructed == ["yolo.pt"]
+    assert yolo.constructed == [str((tmp_path / "yolo.pt").resolve())]
 
 
 def test_a_new_weights_path_replaces_the_cached_model(
@@ -342,7 +342,7 @@ def test_a_new_weights_path_replaces_the_cached_model(
         run_yolo_detection(FakeImage(100, 100), str(path))
     gc.collect()
 
-    assert yolo.constructed == [str(path) for path in paths]
+    assert yolo.constructed == [str(path.resolve()) for path in paths]
     assert [ref() is not None for ref in yolo.instances] == [False] * 4 + [True]
 
 
@@ -420,24 +420,51 @@ def test_same_size_file_swapped_in_by_rename_is_reloaded(
     assert len(yolo.constructed) == 2
 
 
-def test_a_file_downloaded_during_load_is_not_loaded_again(
+def test_a_file_downloaded_during_load_is_loaded_once_more_then_cached(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     # Ultralytics fetches a missing checkpoint while constructing the model.
+    # That load is not cached (the file may change before it returns); the
+    # next request loads the file now present, and that load is reused.
     yolo = CountingYOLO()
-    yolo.on_construct = lambda path: Path(path).write_bytes(b"downloaded")
+    yolo.on_construct = (
+        lambda path: None if Path(path).exists() else Path(path).write_bytes(b"downloaded")
+    )
     yolo.install(monkeypatch)
     weights = tmp_path / "yolo.pt"
 
     for _ in range(3):
         run_yolo_detection(FakeImage(100, 100), str(weights))
 
-    assert yolo.constructed == [str(weights)]
+    assert yolo.constructed == [str(weights), str(weights.resolve())]
 
 
-def test_a_missing_file_that_stays_missing_is_loaded_once(
+def test_a_download_replaced_before_the_load_returns_is_not_kept(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    weights = tmp_path / "yolo.pt"
+
+    def download_then_replace(path: str) -> None:
+        Path(path).write_bytes(b"downloaded A")
+        staged = tmp_path / "staged.pt"
+        staged.write_bytes(b"replaced B")
+        os.replace(staged, weights)
+
+    yolo = CountingYOLO()
+    yolo.on_construct = download_then_replace
+    yolo.install(monkeypatch)
+    run_yolo_detection(FakeImage(100, 100), str(weights))
+    yolo.on_construct = None
+    run_yolo_detection(FakeImage(100, 100), str(weights))
+    run_yolo_detection(FakeImage(100, 100), str(weights))
+
+    assert len(yolo.constructed) == 2
+
+
+def test_a_missing_file_that_stays_missing_is_never_cached(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # As before caching: each request asks Ultralytics to load it.
     yolo = CountingYOLO()
     yolo.install(monkeypatch)
     weights = tmp_path / "absent.pt"
@@ -445,7 +472,33 @@ def test_a_missing_file_that_stays_missing_is_loaded_once(
     for _ in range(3):
         run_yolo_detection(FakeImage(100, 100), str(weights))
 
-    assert yolo.constructed == [str(weights)]
+    assert yolo.constructed == [str(weights)] * 3
+
+
+def test_a_symlink_moved_during_load_caches_the_file_actually_loaded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    first, second = tmp_path / "a.pt", tmp_path / "b.pt"
+    first.write_bytes(b"model a")
+    second.write_bytes(b"model b")
+    link = tmp_path / "current.pt"
+    link.symlink_to(first)
+
+    def move_link(path: str) -> None:
+        link.unlink()
+        link.symlink_to(second)
+
+    yolo = CountingYOLO()
+    yolo.on_construct = move_link
+    yolo.install(monkeypatch)
+    run_yolo_detection(FakeImage(100, 100), str(link))
+    yolo.on_construct = None
+    run_yolo_detection(FakeImage(100, 100), str(link))
+    run_yolo_detection(FakeImage(100, 100), str(link))
+
+    # The first load read a.pt (the resolved file), and is cached as a.pt;
+    # the link now names b.pt, which is loaded once and then reused.
+    assert yolo.constructed == [str(first.resolve()), str(second.resolve())]
 
 
 def test_a_file_changed_while_loading_is_not_cached(
@@ -482,7 +535,7 @@ def test_failed_load_is_not_cached(
         run_yolo_detection(FakeImage(100, 100), str(weights))
     run_yolo_detection(FakeImage(100, 100), str(weights))
 
-    assert yolo.constructed == [str(weights)]
+    assert yolo.constructed == [str(weights.resolve())]
 
 
 def test_concurrent_requests_load_once_and_never_predict_at_once(
@@ -513,5 +566,5 @@ def test_concurrent_requests_load_once_and_never_predict_at_once(
 
     assert errors == []
     assert results == [1] * 8
-    assert yolo.constructed == [str(weights)]
+    assert yolo.constructed == [str(weights.resolve())]
     assert yolo.max_active == 1
