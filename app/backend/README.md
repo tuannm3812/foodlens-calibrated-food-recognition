@@ -47,6 +47,9 @@ fallback. When `ultralytics` is installed but the local checkpoint is
 missing, `detect_candidate_regions()` calls `YOLO()` with no existence gate,
 so Ultralytics attempts to download the checkpoint; a failed download or
 failed inference surfaces as an error rather than a silent fallback.
+The detector is loaded once per weights file and reused across requests
+(`app/backend/detection.py`); replacing that file reloads it on the next
+detection, and concurrent requests take turns on the shared model.
 
 Start the API:
 

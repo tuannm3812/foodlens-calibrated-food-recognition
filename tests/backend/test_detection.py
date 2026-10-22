@@ -7,14 +7,18 @@ result object shaped like the real one (`.boxes` iterable of boxes exposing
 `.xyxy`, `.conf`, `.cls`, plus `.names` on the result).
 """
 
+import os
 import sys
+import threading
+import time
 import types
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 import app.backend.detector_policy as detector_policy
-from app.backend.detection import run_yolo_detection
+from app.backend.detection import clear_detector_cache, run_yolo_detection
 from app.backend.detector_policy import MAX_CROP_AREA_RATIO, MIN_CROP_AREA_RATIO
 
 
@@ -83,6 +87,14 @@ def install_fake_ultralytics(
     fake_module = types.ModuleType("ultralytics")
     fake_module.YOLO = FakeDetector  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "ultralytics", fake_module)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_detector_cache() -> Any:
+    # The model cache is process-wide; each test installs its own fake YOLO.
+    clear_detector_cache()
+    yield
+    clear_detector_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -233,3 +245,156 @@ def test_missing_ultralytics_raises_runtime_error(monkeypatch: pytest.MonkeyPatc
 
     with pytest.raises(RuntimeError, match="Multi-food detection requires ultralytics"):
         run_yolo_detection(FakeImage(100, 100), "weights.pt")
+
+
+# ---------------------------------------------------------------------------
+# Model cache: one YOLO per weights file, predict serialised per model
+# ---------------------------------------------------------------------------
+
+
+class CountingYOLO:
+    """Fake YOLO class recording each construction and tracking overlap."""
+
+    def __init__(self, names: dict[int, str] | None = None) -> None:
+        self.constructed: list[str] = []
+        self.active = 0
+        self.max_active = 0
+        self.guard = threading.Lock()
+        self.predict_delay = 0.0
+        self.construct_delay = 0.0
+        self.fail_next_construction = False
+        self.names = names or {0: "pizza"}
+
+    def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        counter = self
+
+        class Detector:
+            def __init__(self, weights_path: str) -> None:
+                time.sleep(counter.construct_delay)
+                if counter.fail_next_construction:
+                    counter.fail_next_construction = False
+                    raise FileNotFoundError(weights_path)
+                counter.constructed.append(weights_path)
+
+            def predict(self, **_: Any) -> list[FakeResult]:
+                with counter.guard:
+                    counter.active += 1
+                    counter.max_active = max(counter.max_active, counter.active)
+                time.sleep(counter.predict_delay)
+                with counter.guard:
+                    counter.active -= 1
+                boxes = [FakeBox(xyxy=[10, 10, 40, 40], conf=0.9, cls=0)]
+                return [FakeResult(boxes, counter.names)]
+
+        fake_module = types.ModuleType("ultralytics")
+        fake_module.YOLO = Detector  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "ultralytics", fake_module)
+
+
+def test_model_is_loaded_once_and_reused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    yolo = CountingYOLO()
+    yolo.install(monkeypatch)
+    weights = tmp_path / "yolo.pt"
+    weights.write_bytes(b"weights")
+
+    for _ in range(3):
+        assert len(run_yolo_detection(FakeImage(100, 100), str(weights))) == 1
+
+    assert yolo.constructed == [str(weights)]
+
+
+def test_spellings_of_one_file_share_a_model(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    yolo = CountingYOLO()
+    yolo.install(monkeypatch)
+    (tmp_path / "yolo.pt").write_bytes(b"weights")
+    monkeypatch.chdir(tmp_path)
+
+    run_yolo_detection(FakeImage(100, 100), "yolo.pt")
+    run_yolo_detection(FakeImage(100, 100), str(tmp_path / "yolo.pt"))
+    run_yolo_detection(FakeImage(100, 100), "./yolo.pt")
+
+    assert yolo.constructed == ["yolo.pt"]
+
+
+def test_each_weights_file_gets_its_own_model(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    yolo = CountingYOLO()
+    yolo.install(monkeypatch)
+    first, second = tmp_path / "a.pt", tmp_path / "b.pt"
+    first.write_bytes(b"a")
+    second.write_bytes(b"b")
+
+    for path in (first, second, first, second):
+        run_yolo_detection(FakeImage(100, 100), str(path))
+
+    assert yolo.constructed == [str(first), str(second)]
+
+
+def test_weights_replaced_in_place_are_reloaded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    yolo = CountingYOLO()
+    yolo.install(monkeypatch)
+    weights = tmp_path / "yolo.pt"
+    weights.write_bytes(b"old")
+    run_yolo_detection(FakeImage(100, 100), str(weights))
+
+    weights.write_bytes(b"new weights")
+    stat = weights.stat()
+    os.utime(weights, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+    run_yolo_detection(FakeImage(100, 100), str(weights))
+
+    assert yolo.constructed == [str(weights), str(weights)]
+
+
+def test_failed_load_is_not_cached(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    yolo = CountingYOLO()
+    yolo.install(monkeypatch)
+    weights = tmp_path / "yolo.pt"
+    weights.write_bytes(b"weights")
+    yolo.fail_next_construction = True
+
+    with pytest.raises(FileNotFoundError):
+        run_yolo_detection(FakeImage(100, 100), str(weights))
+    run_yolo_detection(FakeImage(100, 100), str(weights))
+
+    assert yolo.constructed == [str(weights)]
+
+
+def test_concurrent_requests_load_once_and_never_predict_at_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    yolo = CountingYOLO()
+    yolo.construct_delay = 0.05
+    yolo.predict_delay = 0.02
+    yolo.install(monkeypatch)
+    weights = tmp_path / "yolo.pt"
+    weights.write_bytes(b"weights")
+    results: list[int] = []
+    errors: list[BaseException] = []
+    start = threading.Barrier(8)
+
+    def request() -> None:
+        try:
+            start.wait()
+            results.append(len(run_yolo_detection(FakeImage(100, 100), str(weights))))
+        except BaseException as exc:  # pragma: no cover - surfaced below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=request) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert results == [1] * 8
+    assert yolo.constructed == [str(weights)]
+    assert yolo.max_active == 1
