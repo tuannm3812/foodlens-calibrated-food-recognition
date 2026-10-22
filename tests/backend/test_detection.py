@@ -7,16 +7,19 @@ result object shaped like the real one (`.boxes` iterable of boxes exposing
 `.xyxy`, `.conf`, `.cls`, plus `.names` on the result).
 """
 
+import gc
 import os
 import sys
 import threading
 import time
 import types
+import weakref
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+import app.backend.detection as detection
 import app.backend.detector_policy as detector_policy
 from app.backend.detection import clear_detector_cache, run_yolo_detection
 from app.backend.detector_policy import MAX_CROP_AREA_RATIO, MIN_CROP_AREA_RATIO
@@ -263,6 +266,8 @@ class CountingYOLO:
         self.predict_delay = 0.0
         self.construct_delay = 0.0
         self.fail_next_construction = False
+        self.on_construct: Any = None
+        self.instances: list[weakref.ref[Any]] = []
         self.names = names or {0: "pizza"}
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -274,7 +279,10 @@ class CountingYOLO:
                 if counter.fail_next_construction:
                     counter.fail_next_construction = False
                     raise FileNotFoundError(weights_path)
+                if counter.on_construct is not None:
+                    counter.on_construct(weights_path)
                 counter.constructed.append(weights_path)
+                counter.instances.append(weakref.ref(self))
 
             def predict(self, **_: Any) -> list[FakeResult]:
                 with counter.guard:
@@ -320,19 +328,40 @@ def test_spellings_of_one_file_share_a_model(
     assert yolo.constructed == ["yolo.pt"]
 
 
-def test_each_weights_file_gets_its_own_model(
+def test_a_new_weights_path_replaces_the_cached_model(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """One slot: rotating through versioned checkpoints (or a symlink's
+    targets) must not keep every earlier model alive."""
+    yolo = CountingYOLO()
+    yolo.install(monkeypatch)
+    paths = [tmp_path / f"v{number}.pt" for number in range(5)]
+    for path in paths:
+        path.write_bytes(path.name.encode())
+        run_yolo_detection(FakeImage(100, 100), str(path))
+        run_yolo_detection(FakeImage(100, 100), str(path))
+    gc.collect()
+
+    assert yolo.constructed == [str(path) for path in paths]
+    assert [ref() is not None for ref in yolo.instances] == [False] * 4 + [True]
+
+
+def test_rotating_a_symlink_reloads_and_keeps_one_model(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     yolo = CountingYOLO()
     yolo.install(monkeypatch)
-    first, second = tmp_path / "a.pt", tmp_path / "b.pt"
-    first.write_bytes(b"a")
-    second.write_bytes(b"b")
+    link = tmp_path / "current.pt"
+    for number in range(3):
+        target = tmp_path / f"v{number}.pt"
+        target.write_bytes(b"same size")
+        link.unlink(missing_ok=True)
+        link.symlink_to(target)
+        run_yolo_detection(FakeImage(100, 100), str(link))
+    gc.collect()
 
-    for path in (first, second, first, second):
-        run_yolo_detection(FakeImage(100, 100), str(path))
-
-    assert yolo.constructed == [str(first), str(second)]
+    assert len(yolo.constructed) == 3
+    assert sum(ref() is not None for ref in yolo.instances) == 1
 
 
 def test_weights_replaced_in_place_are_reloaded(
@@ -350,6 +379,94 @@ def test_weights_replaced_in_place_are_reloaded(
     run_yolo_detection(FakeImage(100, 100), str(weights))
 
     assert yolo.constructed == [str(weights), str(weights)]
+
+
+def test_same_size_rewrite_with_mtime_restored_is_reloaded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    yolo = CountingYOLO()
+    yolo.install(monkeypatch)
+    weights = tmp_path / "yolo.pt"
+    weights.write_bytes(b"aaaa")
+    original = weights.stat()
+    run_yolo_detection(FakeImage(100, 100), str(weights))
+
+    time.sleep(0.01)  # let ctime move on coarse clocks
+    weights.write_bytes(b"bbbb")
+    os.utime(weights, ns=(original.st_atime_ns, original.st_mtime_ns))
+    assert weights.stat().st_size == original.st_size
+    assert weights.stat().st_mtime_ns == original.st_mtime_ns
+    run_yolo_detection(FakeImage(100, 100), str(weights))
+
+    assert len(yolo.constructed) == 2
+
+
+def test_same_size_file_swapped_in_by_rename_is_reloaded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    yolo = CountingYOLO()
+    yolo.install(monkeypatch)
+    weights = tmp_path / "yolo.pt"
+    weights.write_bytes(b"aaaa")
+    original = weights.stat()
+    run_yolo_detection(FakeImage(100, 100), str(weights))
+
+    staged = tmp_path / "staged.pt"
+    staged.write_bytes(b"bbbb")
+    os.utime(staged, ns=(original.st_atime_ns, original.st_mtime_ns))
+    os.replace(staged, weights)
+    run_yolo_detection(FakeImage(100, 100), str(weights))
+
+    assert len(yolo.constructed) == 2
+
+
+def test_a_file_downloaded_during_load_is_not_loaded_again(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Ultralytics fetches a missing checkpoint while constructing the model.
+    yolo = CountingYOLO()
+    yolo.on_construct = lambda path: Path(path).write_bytes(b"downloaded")
+    yolo.install(monkeypatch)
+    weights = tmp_path / "yolo.pt"
+
+    for _ in range(3):
+        run_yolo_detection(FakeImage(100, 100), str(weights))
+
+    assert yolo.constructed == [str(weights)]
+
+
+def test_a_missing_file_that_stays_missing_is_loaded_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    yolo = CountingYOLO()
+    yolo.install(monkeypatch)
+    weights = tmp_path / "absent.pt"
+
+    for _ in range(3):
+        run_yolo_detection(FakeImage(100, 100), str(weights))
+
+    assert yolo.constructed == [str(weights)]
+
+
+def test_a_file_changed_while_loading_is_not_cached(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    weights = tmp_path / "yolo.pt"
+    weights.write_bytes(b"old")
+    yolo = CountingYOLO()
+    changes = iter([b"replaced mid-load"])
+    yolo.on_construct = lambda path: Path(path).write_bytes(next(changes, b"replaced mid-load"))
+    yolo.install(monkeypatch)
+
+    run_yolo_detection(FakeImage(100, 100), str(weights))
+    yolo.on_construct = None
+    run_yolo_detection(FakeImage(100, 100), str(weights))
+    run_yolo_detection(FakeImage(100, 100), str(weights))
+
+    # The first model may hold the old contents, so the next call reloads,
+    # and that reload (with nothing changing) is then reused.
+    assert len(yolo.constructed) == 2
+    assert detection._cached is not None
 
 
 def test_failed_load_is_not_cached(

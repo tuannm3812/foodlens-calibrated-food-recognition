@@ -3458,3 +3458,68 @@ detector-only drop is attributable to this change. Detector labels and boxes
 matched on all 101 images, and every crop strategy count was identical
 (whole image 86, UI-ranked 63, detector-ranked 62). Raw output stayed in the
 session scratchpad, not in `results/`.
+
+## 2026-10-22 — Codex review of PR #21 (round 1)
+
+Two local Codex passes over `git diff origin/main...HEAD` at `505ed5c`
+(codex-cli 0.163.0). The built-in `codex review --base origin/main` replied:
+
+> No actionable regressions were found against the specified merge base. All 714 tests pass, and the changed Python files pass lint checks.
+
+A targeted `codex exec` pass, which asked for P1/P2/P3 findings on thread
+safety, cache invalidation, memory growth, tests and doc claims, replied as
+follows. It is verbatim except that local file links are shown as plain
+`path:line`.
+
+> - **P2 — app/backend/detection.py:51: Cache metadata can become stale before publication.** The signature is sampled before acquiring the lock and before construction. A constructor that downloads the checkpoint caches `None`, forcing another load next request. A waiting caller can also overwrite newer metadata; an in-memory reproduction produced four constructions for one replacement. Read metadata under the lock, validate it after loading, and add download/replacement concurrency tests.
+>
+> - **P2 — app/backend/detection.py:45: Same-size replacements preserving mtime remain undetected.** Different checkpoint contents with the same size and timestamp reuse the old model indefinitely, contrary to the README’s replacement guarantee. Include inode/device and ctime in the signature, or use a content fingerprint for stronger guarantees. Add a replacement test preserving size and mtime; the current test changes both.
+>
+> - **P2 — app/backend/detection.py:59: Distinct checkpoint paths accumulate without eviction.** Rotating a configured symlink through versioned checkpoints creates a new resolved key each time, retaining every previous model and its predictor resources. In-memory verification retained all 100 supplied paths. Bound the cache or evict superseded entries, and test repeated symlink-target rotation. Replacing contents at one resolved path does not cause this growth.
+>
+> - **P3 — docs/9_agent_log.md:3457: Benchmark attribution exceeds the evidence.** The classifier control improved about 11%, demonstrating differences between runs that could also affect detector timing. The entire detector-only reduction cannot therefore be attributed to caching. Describe it as an observed improvement consistent with caching, or substantiate attribution with repeated, interleaved measurements.
+>
+> Validation: 10 existing detection tests passed. The six new tests require filesystem writes and were not run in this read-only environment; cache edge cases were reproduced in memory. No files changed.
+>
+> Verdict: 0 P1, 3 P2, 1 P3
+
+## 2026-10-22 — Claude: response to Codex round 1 on PR #21
+
+All four are fixed. Each P2 has regression tests, and all six new tests fail
+against `505ed5c` and pass now.
+
+1. **Stale signature (P2).** The signature is now read under the cache lock,
+   so a caller that waited out another's load compares against what that load
+   stored. It is read again after construction. When the file was missing
+   before the load (Ultralytics downloaded it), the post-load signature is
+   stored, so the next request does not reload. When the file changed during
+   the load, nothing is cached and the next request reloads.
+   Tests: download during load loads once; a file changed mid-load is reloaded
+   once and then reused; a file that stays missing loads once.
+2. **Same-size, same-mtime replacement (P2).** The signature is now device,
+   inode, size, mtime and ctime. A rename swap changes the inode, and an
+   in-place rewrite changes ctime, which cannot be set back. Tests cover both,
+   with size and mtime forced equal. Content hashing was not used: it would
+   read 5.6 MB on every request.
+3. **Unbounded cache (P2).** The cache is now one slot. The API serves one
+   weights file, so loading another path, or new contents, replaces the old
+   model. Tests rotate five versioned paths and a symlink through three
+   targets, and check with `weakref` that only the last model is still alive.
+4. **Attribution (P3).** Agreed: the two separate runs could not separate the
+   cache from run-to-run drift. I added a same-process, interleaved benchmark
+   on the same 101 images and real `yolo11n.pt`. For each image, a cached call
+   and a fresh-load call (cache cleared first, which is the old per-request
+   construction) ran in seeded random order:
+
+   | Detector call (n=101) | p50 ms | p95 ms | mean ms |
+   | --- | ---: | ---: | ---: |
+   | Fresh load per call (old behaviour) | 52.63 | 86.16 | 56.82 |
+   | Cached model | 26.05 | 27.41 | 24.31 |
+
+   Under identical conditions, construction costs about 27 ms at p50 and
+   about 59 ms at p95. That matches the separate-run drop from 56.85 to
+   25.00 ms, so the detector-only figure in the entry above is attributable
+   to caching. The detector-plus-crops and classifier figures there remain
+   separate-run comparisons and carry the noise that entry describes.
+
+`ruff check .` is clean and the full `pytest` suite passes.

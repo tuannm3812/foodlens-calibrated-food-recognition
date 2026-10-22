@@ -6,10 +6,11 @@ resolves the weights path via detector_weights_path() -- which can't move,
 since it derives the repo root from Path(__file__) and a test patches
 inference.__file__ -- and calls run_yolo_detection() here with that value.
 
-The YOLO model is loaded once per weights file and reused across requests.
+The YOLO model is loaded once and reused across requests until the weights
+path or the file's contents change.
 FastAPI runs sync handlers in a threadpool, and an Ultralytics model is not
 safe to call from several threads at once (its predictor is built lazily and
-holds per-call state), so each cached model's predict runs under its own lock.
+holds per-call state), so the cached model's predict runs under a lock.
 """
 
 import os
@@ -27,43 +28,54 @@ from .detector_policy import (
 )
 
 _cache_lock = threading.Lock()
-# Resolved weights path -> (file signature, model, predict lock).
-_detector_cache: dict[str, tuple[tuple[int, int] | None, Any, threading.Lock]] = {}
+# One slot: (resolved path, file signature, model, predict lock). The API
+# serves one weights file, so loading another (a new path, or the same path
+# with new contents) replaces the old model rather than keeping both.
+_cached: tuple[str, tuple[int, ...] | None, Any, threading.Lock] | None = None
 
 
-def _weights_signature(resolved_path: str) -> tuple[int, int] | None:
-    """mtime and size of the weights file, or None when it does not exist.
+def _weights_signature(resolved_path: str) -> tuple[int, ...] | None:
+    """Identify the weights file's current contents, or None when it is absent.
 
-    A file replaced in place gets a new signature, so it is reloaded rather
-    than served from a stale model. A missing file is passed to YOLO as
-    given, which may download it; the signature then changes once it exists.
+    Device, inode, size, mtime and ctime together: a file swapped by rename
+    gets a new inode, and one rewritten in place gets a new ctime even when
+    its size and mtime are made to match, since ctime cannot be set back.
     """
     try:
         stat = os.stat(resolved_path)
     except OSError:
         return None
-    return (stat.st_mtime_ns, stat.st_size)
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
 
 
 def cached_detector(weights_path: str, yolo_class: Any) -> tuple[Any, threading.Lock]:
     """Return the shared model for this weights file and the lock guarding it."""
+    global _cached
     resolved_path = str(Path(weights_path).resolve())
-    signature = _weights_signature(resolved_path)
     with _cache_lock:
-        entry = _detector_cache.get(resolved_path)
-        if entry is not None and entry[0] == signature:
-            return entry[1], entry[2]
+        # Read under the lock, so a caller that waited out another's load
+        # compares against what that load stored, not a stale reading.
+        before = _weights_signature(resolved_path)
+        if _cached is not None and _cached[:2] == (resolved_path, before):
+            return _cached[2], _cached[3]
         # Construct before storing, so a failed load is not cached.
         detector = yolo_class(weights_path)
         lock = threading.Lock()
-        _detector_cache[resolved_path] = (signature, detector, lock)
+        # Read again after loading: YOLO may have downloaded a missing file,
+        # and a file that changed while it loaded may not match the model.
+        after = _weights_signature(resolved_path)
+        if before is None or after == before:
+            _cached = (resolved_path, after, detector, lock)
+        else:
+            _cached = None
         return detector, lock
 
 
 def clear_detector_cache() -> None:
-    """Drop every cached model; the next detection loads afresh."""
+    """Drop the cached model; the next detection loads afresh."""
+    global _cached
     with _cache_lock:
-        _detector_cache.clear()
+        _cached = None
 
 
 def run_yolo_detection(image: Any, weights_path: str) -> list[dict[str, Any]]:
