@@ -3422,3 +3422,39 @@ from now on.
 **Next, as Codex and section 20 say:** crop-level labels for a bounded
 validation subset plus non-food and distractor images, before any crop-path
 change or minimum-area rule. Training and test-set tuning stay on hold.
+
+## 2026-10-22 — Claude: cache the YOLO detector
+
+`run_yolo_detection()` built `YOLO(weights_path)` on every request; section 18
+noted that its timings include that construction. Branch
+`claude/cache-yolo-detector` loads the model once per resolved weights path
+and reuses it. A file replaced in place (new mtime or size) is reloaded on the
+next detection, and a failed load is not cached. FastAPI runs sync handlers
+in a threadpool, so each shared model's `predict` runs under its own lock.
+`detect_candidate_regions()` stays in `inference.py` as the patchable wrapper,
+and `detection.py` still does not import `inference`.
+
+**Checked:** `ruff check .` clean; full `pytest` passes, including six new
+fake-YOLO tests: one load across repeated calls, one model for different
+spellings of one path, separate models per file, reload after replacement,
+failed load not cached, and 8 concurrent first requests constructing once with
+no overlapping `predict`.
+
+**Measured** in-process with `scripts/measure_runtime.py` on Mike's Mac (CPU),
+A3b `val_manifest.csv`, 1 image per class (101), seed `20261015`. Before ran
+`origin/main` `2176d85` in a detached worktree; after ran this branch. Both used
+`app/artifacts/` read-only (23 file hashes unchanged) and `yolo11n.pt`.
+
+| Stage (warm, n=101) | Before p50 / p95 / mean ms | After p50 / p95 / mean ms |
+| --- | ---: | ---: |
+| Detector only | 56.85 / 94.80 / 62.87 | 25.00 / 28.38 / 24.99 |
+| Detector + crops | 377.28 / 1161.00 / 549.23 | 296.63 / 1096.87 / 465.41 |
+| Classifier only (control) | 293.08 / 400.05 / 311.58 | 260.27 / 325.15 / 276.21 |
+
+First detection (cold) fell from 760.51 ms to 247.12 ms. The detector-only
+stage halves. The classifier control also ran about 11% faster in the second
+run, so the detector-plus-crops gain is partly run-to-run noise; only the
+detector-only drop is attributable to this change. Detector labels and boxes
+matched on all 101 images, and every crop strategy count was identical
+(whole image 86, UI-ranked 63, detector-ranked 62). Raw output stayed in the
+session scratchpad, not in `results/`.
